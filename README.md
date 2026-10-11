@@ -243,6 +243,7 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 | The default: images and FastH3 video, the web app | **64 GB** | 175 GB | M5 family: the native engine, fastest |
 | The default on an M1 to M4 | **64 GB** | 212 GB | FastH3 on the MLX engine with 8-bit weights, much slower |
 | With `--turbo`: MiniMax H3 Turbo and its 20-step modes as well | **128 GB** | 240 GB | M5 family for the fast path |
+| With `--ref2va`: reference pictures to video (MiniMax H3 Ref2VA) | **128 GB** | 64 GB more | M5 family for the fast path |
 
 The setup enforces the memory figures. All of this was measured on one machine, a Mac Studio M5 Ultra with 256 GB:
 the figures below are what each stage of a job used there (`/usr/bin/time -l`, peak memory footprint), not a run
@@ -297,6 +298,7 @@ git clone https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-V
 cd keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min
 bash oneshot-setup.sh --app             # engine, image model, FastH3, 2x decoder, the app; ends with a test clip
 bash oneshot-setup.sh --turbo --app     # the same plus MiniMax H3 Turbo (64 GB more on disk, 128 GB of memory)
+bash oneshot-setup.sh --ref2va --app    # the same plus reference pictures to video (64 GB more on disk, 128 GB of memory)
 ```
 
 **Step-by-step tutorial with screenshots: [TUTORIAL.md](TUTORIAL.md).**
@@ -326,7 +328,7 @@ and roughly how long it takes.
 | Choice | What it does |
 |---|---|
 | **The prompt goes to** | *Video with sound*, or *Image only*: Qwen-Image-2.1 makes the pictures and stops there. |
-| **The clip starts from** | *Text only*; *a Qwen scout image* (step 2 makes several, you pick one); or *your own image* (step 2 uploads it). |
+| **The clip starts from** | *Text only*; *a Qwen scout image* (step 2 makes several, you pick one); *your own image* (step 2 uploads it); or, with `--ref2va` installed, *reference pictures* (step 2 takes up to nine: who or what must look the same, in a scene the prompt describes). |
 | **Video engine** (shown only with `--turbo` installed) | *FastH3*: fastest; text to video runs on the native Zig engine, and the bar under the cards says which engine a clip will use. *MiniMax H3*: the Turbo adapter with the sound made again by the base model, or the full 20 steps. |
 | **Passes** (FastH3) | 4 (fastest, a little softer), 8 (what it was trained for), 20 (for prompts with several actions; slowest). |
 | **Quality** (MiniMax H3, with `--turbo`) | Turbo 5 + base sound (the standard), Turbo 3, 20 steps with the fast recipe, or plain 20 steps. |
@@ -704,6 +706,40 @@ QUALITY=high bash scripts/video.sh "..." out.mp4            # 20 steps, no adapt
 `FRAMES` must be `17n + 5` (56, 73, 90, 124, 192, 243, 362). `FIRST_FRAME` is stretched onto the canvas, so match its
 aspect ratio.
 
+### Reference pictures to video (Ref2VA)
+
+A first frame is the clip's opening picture. A reference picture is not in the clip at all: it fixes how a person or
+a thing looks, and the prompt puts them in a new scene. This is MiniMax H3's second transformer, Ref2VA, installed
+with `bash oneshot-setup.sh --ref2va` (62 GB; the text encoder and the two decoders are the ones already installed,
+linked into `Ref2VA/`).
+
+```bash
+REF_IMAGES="face.jpg" bash scripts/video.sh \
+  "Use <Picture 1> as the person. The person walks through a rainy neon street, turns to the camera and says hello." out.mp4
+REF_IMAGES="face.jpg bike.png" bash scripts/video.sh "Use <Picture 1> as the person and <Picture 2> as the bicycle. ..." out.mp4
+REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the person. ..." out.mp4   # 4 passes
+```
+
+- Up to nine pictures, named `<Picture 1>`, `<Picture 2>`, ... in the order given. Each is used at the clip's pixel
+  area with its own aspect ratio (a 768x1024 portrait becomes 544x736 for an 864x480 clip), so nothing is stretched.
+- 20 plain passes with the model's own sound by default: 3 min 43 s for 5 s at 864x480 on an M5 Ultra (9.7 s a pass
+  over 16.2K rows, 64 GiB peak). `REF_TURBO=1` uses LightX2V's 4-step Ref2VA adapter and then makes the sound again
+  without it: 1 min 28 s, 103 GiB peak while the adapter is merged. `QUALITY=high` runs the 20 passes with the fast
+  recipe: 1 min 58 s. Two pictures (a person and a bicycle) took 4 min 5 s at 20 passes and 1 min 29 s with the adapter.
+- Not with `FIRST_FRAME`, and not with FastH3, which has no reference-trained weights.
+- In the app: **The clip starts from → Reference pictures**. Step 4 writes the prompt in the model's own reference
+  form (`subject_definitions`, `summary`, `retention_analysis`, `detailed_description`); edit it freely.
+- **On a DGX Spark** the same `REF_IMAGES` and `REF_TURBO=1` work after `bash oneshot-setup-spark.sh --ref2va` (39 GB:
+  the Ref2VA transformer for ComfyUI in bf16 and LightX2V's adapter). Measured on one Spark, 5 s at 864x480, one
+  portrait: 20 steps 288 s, `REF_TURBO=1` (4 passes, the adapter's own sound) 107 s; the app's *Reference pictures*
+  start works there too (101 s). The passes run on ComfyUI's own blocks, not on TensorFold's CUDA engine. Free memory
+  fell to 7 GB of 128 during these renders, with a browser and the app open: close what you can first. One picture
+  was tested there, not several.
+- Checked on one fictional portrait: the same face, hair and glasses in the clip, against a different person from the
+  same prompt and seed without the reference, and the same identity as h3.c's `--ref-image` gives. The token layout
+  matches h3.c's to the last float32 bit. Not checked: reference videos and reference audio (not implemented), sound
+  by ear, lengths over 5 s.
+
 ### GHCR prebuilt carrier
 
 ```bash
@@ -768,7 +804,7 @@ the image was `ghcr.io/drowzeys/keys-mac-tensorfold-studio`; the Mac setup still
   (video) run the base models.
 - **M5 only for these numbers.** The int8 kernels need Metal 4 tensor operations; elsewhere both families run
   bfloat16 and slower.
-- **Memory.** `--image-only` asks for 48 GB; the default install 64 GB; `--turbo` 128 GB. Measured on 256 GB only; see [Minimum requirements](#minimum-requirements).
+- **Memory.** `--image-only` asks for 48 GB; the default install 64 GB; `--turbo` and `--ref2va` 128 GB. Measured on 256 GB only; see [Minimum requirements](#minimum-requirements).
 - **Not part of upstream TensorFold.** The H3 family, the Qwen-Image family and the audio step were offered to
   ashhart/TensorFold as draft pull requests (#384, #393, #405) and closed on 2026-10-07: the engine is built around
   token lanes with exact output, it does not trade precision as the int8 kernels do, its Python engine is frozen and

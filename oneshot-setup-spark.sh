@@ -3,6 +3,7 @@
 #   bash oneshot-setup-spark.sh               # everything, then a 5 second test clip
 #   bash oneshot-setup-spark.sh --image-only  # Qwen-Image-2.1 only (26 GB)
 #   bash oneshot-setup-spark.sh --no-render   # skip the test clip
+#   bash oneshot-setup-spark.sh --ref2va      # add MiniMax H3 Ref2VA (reference pictures hold a face), 39 GB more
 #   bash oneshot-setup-spark.sh --verify      # check an existing install, download nothing
 # What it installs under $PREFIX (default ~/.local/opt/tensorfold-studio):
 #   venv/       Python 3.12, PyTorch for CUDA 13, ComfyUI's requirements, the web app's
@@ -10,6 +11,7 @@
 # and under $SPARK_MODELS (default ~/spark-studio-models), 99 GB:
 #   FastH3 8-Step V2 for ComfyUI, bf16 transformer 44 GB, H3 text encoder (8-bit) 27 GB, video (8-bit) and audio decoders 3 GB
 #   Qwen-Image-2.1-Turbo for ComfyUI (the 8-step checkpoint), 14 GB, its text encoder (8-bit) 9 GB, and decoder
+# With --ref2va, 39 GB more: MiniMax H3 Ref2VA for ComfyUI (bf16, 37 GB) and LightX2V's 4-pass Ref2VA Turbo adapter (2 GB)
 # Licenses: Qwen-Image-2.1-Turbo is non-commercial (Qwen Research License); FastH3 and the H3
 # parts are under the MiniMax H3 Community License (territory limits).
 # Credit: FastVideo (Hao AI Lab), MiniMax, the Qwen team, ComfyUI, Ash Hart (TensorFold, whose Studio this is
@@ -19,10 +21,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MODELS="${SPARK_MODELS:-$HOME/spark-studio-models}"
 COMFY_COMMIT=a4b5a045e56fc334903db8457b728b64e006119c
-IMAGE_ONLY=0; RENDER=1; VERIFY=0
+IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0
 for arg in "$@"; do
   case "$arg" in
-    --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;;
+    --ref2va) REF2VA=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;;
     *) echo "unknown option $arg" >&2; exit 2;;
   esac
 done
@@ -83,13 +85,16 @@ studio:
   diffusion_models: |
     FastH3-Comfy/diffusion_models
     Qwen-Image-2.1-Comfy/diffusion_models
+    MiniMax-H3-Comfy/diffusion_models
   text_encoders: |
     FastH3-Comfy/text_encoders
     Qwen-Image-2.1-Comfy/text_encoders
   vae: |
     FastH3-Comfy/vae
     Qwen-Image-2.1-Comfy/vae
-  loras: loras
+  loras: |
+    loras
+    MiniMax-H3-Comfy/loras
 YAML
 fi
 "$PY" -c "import comfy_kitchen, aiohttp, fastapi, uvicorn, PIL" || die "the environment is missing packages"
@@ -116,6 +121,15 @@ if [ "$IMAGE_ONLY" = 0 ]; then
     text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors vae/minimax_h3_video_vae_int8_convrot.safetensors \
     vae/minimax_h3_audio_vae_fp32.safetensors
   ok "FastH3 transformer (bf16), H3 text encoder (8-bit), video decoder (8-bit) and audio decoder"
+fi
+
+if [ "$REF2VA" = 1 ] && [ "$IMAGE_ONLY" = 0 ]; then
+  say "MiniMax H3 Ref2VA for ComfyUI and its Turbo adapter (39 GB) -> $MODELS"
+  fetch Comfy-Org/MiniMax-H3 MiniMax-H3-Comfy diffusion_models/minimax_h3_ref2va_pruned_bf16.safetensors \
+    loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors
+  ok "Ref2VA transformer (bf16) and LightX2V's Ref2VA Turbo adapter (4 passes)"
+  # a running ComfyUI read its model folders when it started
+  if bash "$HERE/spark/comfy.sh" status | grep -q running; then echo "  restart ComfyUI to see them: bash spark/comfy.sh stop (the next render starts it)"; fi
 fi
 
 if [ "$IMAGE_ONLY" = 0 ]; then

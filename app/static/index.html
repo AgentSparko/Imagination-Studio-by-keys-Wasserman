@@ -151,16 +151,21 @@ const select = (obj, key, options, after) => { const n = el("select", {}, Object
 const media = (path, attrs = {}) => /\.(mp4|mov)$/i.test(path) ? el("video", { src: file(path), controls: true, preload: "metadata", ...attrs }) : el("img", { src: file(path), loading: "lazy", ...attrs });
 
 const IMAGE_SIZES = { "1344x768": "1344x768 (16:9)", "1664x928": "1664x928 (16:9, larger)", "1024x1024": "1024x1024 (square)", "768x1344": "768x1344 (9:16)" };
-Object.assign(C, { goes: "video", start: "text", engine: "fasth3", passes: "8", h3quality: "standard", res: "480p", up: false });
+Object.assign(C, { goes: "video", start: "text", engine: "fasth3", passes: "8", h3quality: "standard", res: "480p", up: false, refs: [], subjects: [], refPasses: "20" });
 const ENGINES = { fasth3: "FastH3 (FastVideo, sparse attention): fastest", h3: "MiniMax H3 (Turbo adapter or full 20 steps)" };
 const RESOLUTIONS = { "480p": "480p · 864x480", "720p": "720p · 1280x720", draft: "Draft · 1344x768, generated at 672x384 with the 2x decoder",
   "2k": "2K · 2048x1152, generated at 1024x576 with the 2x decoder", native: "Native · 1344x768" };
 const UPSCALED = { "480p": ["p960", "1728x960"], "720p": ["qhd", "2560x1440 (2K)"] };
-const noFrame = () => C.mode === "t2v";
+// reference to video (MiniMax H3 Ref2VA): pictures that fix how someone or something looks, not frames of the clip
+const isRef = () => C.mode === "r2v";
+const noFrame = () => C.mode === "t2v" || isRef();
 const isLong = () => Number(C.seconds) > 15;
 // the explicit controls decide the mode, the quality and the output preset the server understands
 function sync() {
-  C.mode = C.goes === "image" ? "image" : { text: "t2v", scout: "scout", own: "i2v" }[C.start];
+  if (C.start === "refs" && !(S && S.ref2va)) C.start = "text";
+  C.mode = C.goes === "image" ? "image" : { text: "t2v", scout: "scout", own: "i2v", refs: "r2v" }[C.start];
+  if (isRef() && isLong()) C.seconds = 15;
+  if (!(S && S.ref2va_turbo)) C.refPasses = "20";
   C.quality = C.engine === "fasth3" ? "fh" + C.passes : C.h3quality;
   if (!UPSCALED[C.res]) C.up = false;
   C.preset = UPSCALED[C.res] ? (C.up ? UPSCALED[C.res][0] : { "480p": "small", "720p": "p720" }[C.res]) : C.res;
@@ -176,18 +181,22 @@ function videoControls(after) {
   const two = bind(C, "up", el("input", { type: "checkbox", disabled: !UPSCALED[C.res] }), changed);
   return el("div", { class: "group" },
     // MiniMax H3 Turbo is an optional part of the install; without it FastH3 is the engine
-    S.turbo ? el("label", {}, "Video engine") : null, S.turbo ? choice(C, "engine", { fasth3: ["FastH3", S.zig ? "FastVideo's distilled H3 on the native Zig engine: fastest" : "FastVideo's distilled H3 on the sparse tile kernel: fastest"], h3: ["MiniMax H3", "Turbo adapter with base-model sound, or the full 20 steps"] }, changed) : null,
-    el("label", {}, C.engine === "fasth3" ? "Passes" : "Quality"), C.engine === "fasth3" ? choice(C, "passes", PASSES, changed, true) : choice(C, "h3quality", H3Q, changed, true),
+    isRef() ? el("label", {}, "Reference to video · MiniMax H3 Ref2VA") : null,
+    isRef() ? (S.ref2va_turbo ? choice(C, "refPasses", { 20: ["20 passes", "the model as released, its own sound"], 4: ["Turbo 4 passes", "LightX2V adapter, then base-model sound: about 2.5x faster"] }, changed, true)
+      : el("div", { class: "note" }, "20 plain passes with the model's own sound.")) : null,
+    isRef() ? null :
+    S.turbo ? el("label", {}, "Video engine") : null, isRef() ? null : S.turbo ? choice(C, "engine", { fasth3: ["FastH3", S.zig ? "FastVideo's distilled H3 on the native Zig engine: fastest" : "FastVideo's distilled H3 on the sparse tile kernel: fastest"], h3: ["MiniMax H3", "Turbo adapter with base-model sound, or the full 20 steps"] }, changed) : null,
+    isRef() ? null : el("label", {}, C.engine === "fasth3" ? "Passes" : "Quality"), isRef() ? null : C.engine === "fasth3" ? choice(C, "passes", PASSES, changed, true) : choice(C, "h3quality", H3Q, changed, true),
     el("label", {}, "Resolution"), choice(C, "res", Object.fromEntries(Object.entries(RES).filter(([k]) => S.x2 || !["draft", "2k"].includes(k))), changed, true),
     el("div", { class: "row" },
       !S.x2 ? null : el("div", {}, el("label", {}, "Upscale"), el("label", { class: "switch" }, two, el("span", {}, "2x upscale", el("small", {}, UPSCALED[C.res] ? "2x decoder → " + UPSCALED[C.res][1] + ", about 10 s more" : "already part of this output")))),
       el("div", { class: "fit", style: "width:250px" }, el("label", {}, "Length"), select(C, "seconds", { ...Object.fromEntries(Object.keys(S.durations).map(k => [k, k + " s · " + S.durations[k] + " frames"])),
-        ...Object.fromEntries(Object.entries(S.long).map(([k, v]) => [k, v + " · " + Math.ceil(k / 15) + " clips chained"])) }, after)),
+        ...(isRef() ? {} : Object.fromEntries(Object.entries(S.long).map(([k, v]) => [k, v + " · " + Math.ceil(k / 15) + " clips chained"]))) }, after)),
       el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Seed"), bind(C, "seed", el("input", { type: "number", min: 0 })))));
 }
 function summary(est) {
-  const size = S.presets[C.preset].size, engine = C.engine === "fasth3" ? "FastH3 · " + C.passes + " passes · " + S.engine : "MiniMax H3 · " + H3Q[C.h3quality][0];
-  return el("div", { class: "summary" }, el("span", { class: "chip k" }, { t2v: "TEXT → VIDEO", scout: "QWEN IMAGE → VIDEO", i2v: "IMAGE → VIDEO" }[C.mode]),
+  const size = S.presets[C.preset].size, engine = isRef() ? "MiniMax H3 Ref2VA · " + (C.refPasses === "4" ? "Turbo 4 passes" : "20 passes") : C.engine === "fasth3" ? "FastH3 · " + C.passes + " passes · " + S.engine : "MiniMax H3 · " + H3Q[C.h3quality][0];
+  return el("div", { class: "summary" }, el("span", { class: "chip k" }, { t2v: "TEXT → VIDEO", scout: "QWEN IMAGE → VIDEO", i2v: "IMAGE → VIDEO", r2v: "REFERENCES → VIDEO" }[C.mode]),
     el("span", { class: "chip" }, engine), el("span", { class: "chip" }, size[0] + " × " + size[1]), el("span", { class: "chip" }, isLong() ? S.long[C.seconds] + " · " + Math.ceil(C.seconds / 15) + " × 15 s" : C.seconds + " s · " + S.durations[C.seconds] + " f"), est);
 }
 function settingsRow(obj, after, keep = {}) {
@@ -199,7 +208,7 @@ function settingsRow(obj, after, keep = {}) {
     field("Quality", select(obj, "quality", qualities, after)),
     el("div", { class: "fit", style: "width:110px" }, el("label", {}, "Seed"), bind(obj, "seed", el("input", { type: "number", min: 0 }))));
 }
-async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, seconds: Number(obj.seconds), text_only: obj === C && noFrame() });
+async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, seconds: Number(obj.seconds), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_turbo: obj === C && isRef() && C.refPasses === "4" });
   node.textContent = r.seconds ? "≈ " + mmss(r.seconds) + (S.platform === "spark" ? " on a DGX Spark, models loaded" : " on an M5 Ultra") : ""; } catch { node.textContent = ""; } }
 
 /* ---------- Create ---------- */
@@ -234,7 +243,8 @@ function viewCreate() {
   if (C.step === 0) {
     const est = el("span", { class: "eta" });
     put(body, el("h2", {}, "What are you making?"), goes,
-      el("label", {}, "The clip starts from"), choice(C, "start", { text: ["Text only", "no first frame"], scout: ["A Qwen scout image", "make several, pick one"], own: ["Your own image", "upload a picture"] }, changed),
+      el("label", {}, "The clip starts from"), choice(C, "start", { text: ["Text only", "no first frame"], scout: ["A Qwen scout image", "make several, pick one"], own: ["Your own image", "upload a picture"],
+        ...(S.ref2va ? { refs: ["Reference pictures", "keep a face or a thing, in a new scene"] } : {}) }, changed),
       videoControls(() => { render(); }), summary(est), picture,
       field("What happens in the clip", bind(C, "action", el("textarea", { placeholder: "He lifts the loaf with both hands, sets it down, looks at the camera and smiles." }))),
       field("Camera (optional)", bind(C, "camera", el("input", { placeholder: "The camera slowly pushes in throughout the single continuous shot." }))),
@@ -242,7 +252,16 @@ function viewCreate() {
       isLong() ? el("div", { class: "note" }, "The model makes at most 15 s at a time, so this is rendered as " + Math.ceil(C.seconds / 15) + " clips, each opening on the last frame of the one before, then joined. Finished clips appear in the queue as they land. Expect the look to drift over many clips; beats help it stay on a story.") : null);
     showEstimate(C, est);
   } else if (C.step === 1) {
-    if (noFrame()) put(body, el("h2", {}, "First frame"), el("div", { class: "note" }, "Text to video has no first frame. Change “The clip starts from” in step 1 to start from an image."));
+    if (isRef()) {
+      const add = el("input", { type: "file", accept: "image/*", multiple: true, onchange: async () => { for (const one of add.files) { if (C.refs.length >= S.reference_limit) { toast("at most " + S.reference_limit + " pictures"); break; }
+        const data = new FormData(); data.append("file", one); const r = await fetch("/api/upload", { method: "POST", body: data }); const j = await r.json();
+        if (j.path) { C.refs.push(j.path); C.subjects.push(""); } else toast(j.error || "upload failed"); } C.prompt = ""; render(); } });
+      put(body, el("h2", {}, "Reference pictures"), el("div", { class: "note" }, "Up to " + S.reference_limit + " pictures of who or what must look the same in the clip. They are not frames of it: the scene comes from the prompt, which names them <Picture 1>, <Picture 2>, … in this order. A clear, front-facing picture works best; any aspect ratio."),
+        field("Add pictures", add),
+        C.refs.length ? el("div", { class: "grid", style: "margin-top:10px" }, C.refs.map((p, i) => el("div", { class: "tile on" }, media(p),
+          el("div", { class: "cap" }, "<Picture " + (i + 1) + ">", el("a", { href: "#", onclick: e => { e.preventDefault(); C.refs.splice(i, 1); C.subjects.splice(i, 1); C.prompt = ""; render(); } }, "remove")),
+          bind(C.subjects, i, el("input", { placeholder: "who or what this is: the woman with red hair" }), () => { C.prompt = ""; })))) : null);
+    } else if (noFrame()) put(body, el("h2", {}, "First frame"), el("div", { class: "note" }, "Text to video has no first frame. Change “The clip starts from” in step 1 to start from an image."));
     else {
       const up = el("input", { type: "file", accept: "image/*", onchange: async () => { const data = new FormData(); data.append("file", up.files[0]);
         const r = await fetch("/api/upload", { method: "POST", body: data }); const j = await r.json(); if (j.path) { C.image = j.path; render(); } else toast(j.error || "upload failed"); } });
@@ -273,18 +292,18 @@ function viewCreate() {
       field("Music (N/A for none)", bind(C, "music", el("input"))));
   } else if (C.step === 3) {
     const area = bind(C, "prompt", el("textarea", { style: "min-height:260px;font-family:ui-monospace,monospace;font-size:12px" }));
-    const again = async () => { const r = await api("/api/compose", { fields: C, first_frame: !noFrame() }); C.prompt = r.prompt; area.value = r.prompt; };
+    const again = async () => { const r = await api("/api/compose", { fields: C, first_frame: !noFrame(), references: isRef() ? C.refs.length : 0 }); C.prompt = r.prompt; area.value = r.prompt; };
     if (!C.prompt) again();
     put(body, el("h2", {}, "Review the prompt"), el("div", { class: "note" }, "This is what the video model receives, in MiniMax H3's own three-part format. Edit it freely; “Rebuild” discards edits."), area,
       el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "fit", onclick: again }, "Rebuild from steps 1–3"), el("span")));
   } else {
     const est = el("div", { class: "note" }); showEstimate(C, est);
     const job = C.job && jobs.find(j => j.id === C.job);
-    const ready = C.prompt.trim() && (noFrame() || C.image);
-    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, S.presets[C.preset].label + " · " + S.qualities[C.quality] + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
-      !ready ? el("div", { class: "note", style: "color:var(--warn)" }, C.prompt.trim() ? "Pick or upload a first frame in step 2." : "Open step 4 once to build the prompt.") : null,
+    const ready = C.prompt.trim() && (isRef() ? C.refs.length > 0 : noFrame() || C.image);
+    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, S.presets[C.preset].label + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + (C.refPasses === "4" ? "Turbo 4 passes, " : "20 passes, ") + C.refs.length + " reference picture" + (C.refs.length === 1 ? "" : "s") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
+      !ready ? el("div", { class: "note", style: "color:var(--warn)" }, C.prompt.trim() ? (isRef() ? "Add a reference picture in step 2." : "Pick or upload a first frame in step 2.") : "Open step 4 once to build the prompt.") : null,
       el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "hot fit", disabled: !ready, onclick: async () => { try {
-        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed };
+        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed, ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4" } : {}) };
         const j = await api("/api/jobs", isLong() ? { kind: "long", title: S.long[C.seconds] + ": " + (C.action || C.scene || "Video").slice(0, 40), params: { ...base, total_seconds: Number(C.seconds), beats: (C.beats || "").split("\n") } }
           : { kind: "video", title: (C.action || C.scene || "Clip").slice(0, 48), params: { ...base, seconds: Number(C.seconds) } });
         C.job = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, "Queue this clip"), el("span")));

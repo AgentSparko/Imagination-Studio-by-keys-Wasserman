@@ -5,6 +5,7 @@
 #   bash oneshot-setup.sh               # install, fetch the image model, FastH3 and what it needs of MiniMax H3, render a test clip
 #   bash oneshot-setup.sh --app         # the same, plus the double-clickable app: the full one-shot
 #   bash oneshot-setup.sh --turbo       # also MiniMax H3's own transformer and its Turbo adapter (64 GB more, 128 GB of memory)
+#   bash oneshot-setup.sh --ref2va      # also MiniMax H3's Ref2VA transformer: reference pictures to video (64 GB more, 128 GB of memory)
 #   bash oneshot-setup.sh --image-only  # the image model only (33 GB), render a test image
 #   bash oneshot-setup.sh --no-render   # install and fetch only
 #   bash oneshot-setup.sh --verify      # check an existing install, no downloads, no render
@@ -28,7 +29,7 @@ if [ "$(uname -s)" = Linux ]; then
     case "$arg" in
       --image-only|--no-render|--verify) SPARK_ARGS+=("$arg");;
       --fasth3) ;;
-      --turbo|--app) echo "note: $arg is for the Mac build and does nothing on a DGX Spark";;
+      --turbo|--app|--ref2va) echo "note: $arg is for the Mac build and does nothing on a DGX Spark";;
       *) echo "unknown option $arg" >&2; exit 2;;
     esac
   done
@@ -56,15 +57,21 @@ MFLUX_COMMIT="add5164e62c07cbcc9aec7a95c2e19c75605880c"
 H3_ADAPTER_NAME="lightx2v_v1.0_768p_ourlayout.safetensors"
 H3_ADAPTER_URL="https://github.com/mrbizarro/Phosphene/releases/download/weights-ltx25-v1/$H3_ADAPTER_NAME"
 H3_ADAPTER_SHA256="d51d626fe0845da7e5845a47c323cf3f29086d44d24cb1a4b980882488746197"
+# LightX2V's 4-step adapter for the Ref2VA transformer, rewritten at install into the layout --lora reads
+REF_ADAPTER_REPO="lightx2v/Minimax-h3-Turbo"
+REF_ADAPTER_SOURCE="minimax_h3_ref2v_turbo_4step_v0.1_bf16.safetensors"
+REF_ADAPTER_SHA256="9e642fc8749c74f8da5e2382877ab5c7aa37b9a73b7fd0d6d457bd1b3cb1ae99"
+REF_ADAPTER_NAME="lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 X2_REPO="speach1sdef178/MiniMax-H3-X2-Detail-VAE"
 X2_NAME="MiniMax-H3-X2-Detail-v1.safetensors"
 X2_SHA256="2296840f4acedcaa976688e7d7b97f7bf570b136e400385d3f46224011897aac"
-MODE=""; VIDEO=1; TURBO=0; APP=0
+MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0
 for arg in "$@"; do
   case "$arg" in
     --image-only) VIDEO=0;;
     --fasth3) ;;  # FastH3 is the default video engine since 2.1; the flag is kept so older commands still run
     --turbo) TURBO=1;;
+    --ref2va) REF2VA=1;;
     --app) APP=1;;
     --verify|--no-render) MODE="$arg";;
     *) echo "unknown option $arg" >&2; exit 2;;
@@ -85,8 +92,11 @@ ok "$CHIP, macOS $(sw_vers -productVersion), ${RAM} GB"
 # runs a layer at a time); FastH3 on the MLX engine 64 GiB in bfloat16 and 45 GiB with 8-bit weights; MiniMax H3
 # Turbo 103 GiB while its adapter is merged.
 # A chip without tensor units runs FastH3 on the MLX engine with 8-bit weights (fasth3_q8.py): 45 GiB instead of 64.
+# An install that already holds the Ref2VA transformer keeps it too. Reference to video peaks at 64 GiB in its 20
+# passes and at 103 GiB while its Turbo adapter is merged.
+[ "$VIDEO" = 0 ] || { ls "$H3_MODEL_DIR"/Ref2VA/transformer/*.safetensors >/dev/null 2>&1 && REF2VA=1; } || true
 FAST_NEED=64
-if [ "$VIDEO" = 0 ]; then NEED=48; elif [ "$TURBO" = 1 ]; then NEED=128; else NEED=$FAST_NEED; fi
+if [ "$VIDEO" = 0 ]; then NEED=48; elif [ "$TURBO" = 1 ] || [ "$REF2VA" = 1 ]; then NEED=128; else NEED=$FAST_NEED; fi
 [ "$RAM" -ge "$NEED" ] || die "needs ${NEED} GB+ unified memory for this install$([ "$TURBO" = 1 ] && [ "$RAM" -ge "$FAST_NEED" ] && echo " (without --turbo it needs ${FAST_NEED} GB)") (measured on 256 GB only)"
 case "$CHIP" in *M5*) ok "M5: int8 kernels on the tensor units";;
   *) echo "  ! $CHIP is not M5: the int8 kernels need Metal 4 tensor operations; without them the engine runs bfloat16 and the README numbers do not apply";; esac
@@ -185,6 +195,33 @@ if [ "$VIDEO" = 1 ]; then
     h3_ok || die "the MiniMax H3 download is incomplete at $H3_MODEL_DIR"
   fi
   ok "FL2VA at $H3_MODEL_DIR ($(du -sh "$H3_MODEL_DIR/FL2VA" | cut -f1))"
+
+  if [ "$REF2VA" = 1 ]; then
+    # Ref2VA is the same pipeline with another transformer: its text encoder and decoders are FL2VA's files, linked
+    step "MiniMax H3 Ref2VA transformer (reference pictures to video, 62 GB) -> $H3_MODEL_DIR/Ref2VA"
+    if ! ls "$H3_MODEL_DIR"/Ref2VA/transformer/model-00013-of-00013.safetensors "$H3_MODEL_DIR"/Ref2VA/model_index.json >/dev/null 2>&1; then
+      [ "$MODE" = "--verify" ] && die "no Ref2VA transformer at $H3_MODEL_DIR/Ref2VA"
+      "$PREFIX/venv/bin/hf" download MiniMaxAI/MiniMax-H3 --include "Ref2VA/transformer/*" --include "Ref2VA/model_index.json" \
+        --local-dir "$H3_MODEL_DIR"
+      ls "$H3_MODEL_DIR"/Ref2VA/transformer/model-00013-of-00013.safetensors >/dev/null 2>&1 || die "the Ref2VA download is incomplete at $H3_MODEL_DIR/Ref2VA"
+    fi
+    for part in text_encoder tokenizer processor video_vae audio_vae; do
+      [ -e "$H3_MODEL_DIR/Ref2VA/$part" ] || [ "$MODE" = "--verify" ] || ln -s "../FL2VA/$part" "$H3_MODEL_DIR/Ref2VA/$part"
+      [ -e "$H3_MODEL_DIR/Ref2VA/$part" ] || die "$H3_MODEL_DIR/Ref2VA/$part is missing (a link to ../FL2VA/$part)"
+    done
+    REF_ADAPTER="$PREFIX/adapters/$REF_ADAPTER_NAME"
+    if [ ! -f "$REF_ADAPTER" ]; then
+      if [ "$MODE" = "--verify" ]; then echo "  ! no Ref2VA Turbo adapter at $REF_ADAPTER: reference clips run their 20 passes"; else
+        mkdir -p "$PREFIX/adapters/h3-ref2v"
+        "$PREFIX/venv/bin/hf" download "$REF_ADAPTER_REPO" "$REF_ADAPTER_SOURCE" --local-dir "$PREFIX/adapters/h3-ref2v" >/dev/null
+        echo "$REF_ADAPTER_SHA256  $PREFIX/adapters/h3-ref2v/$REF_ADAPTER_SOURCE" | shasum -a 256 -c - >/dev/null || die "Ref2VA Turbo adapter checksum mismatch"
+        "$PREFIX/venv/bin/python" "$HERE/scripts/convert-h3-adapter.py" "$PREFIX/adapters/h3-ref2v/$REF_ADAPTER_SOURCE" "$REF_ADAPTER.partial.safetensors" | sed 's/^/  /'
+        mv "$REF_ADAPTER.partial.safetensors" "$REF_ADAPTER"; rm -f "$PREFIX/adapters/h3-ref2v/$REF_ADAPTER_SOURCE"
+      fi
+    fi
+    [ ! -f "$REF_ADAPTER" ] || ok "$REF_ADAPTER_NAME (Ref2VA Turbo, 4 passes: REF_TURBO=1)"
+    ok "Ref2VA at $H3_MODEL_DIR/Ref2VA ($(du -sh "$H3_MODEL_DIR/Ref2VA/transformer" | cut -f1)): REF_IMAGES=face.jpg bash scripts/video.sh \"Use <Picture 1> as the person. ...\" out.mp4"
+  fi
 
   if [ "$TURBO" = 1 ]; then
     step "Video Turbo adapter (lightx2v v1.0, runner layout, 1.96 GB)"
@@ -302,4 +339,5 @@ echo "App:    double-click TensorFold Studio in ~/Applications   (bash $HERE/scr
 echo "Studio: bash $HERE/scripts/studio.sh \"the picture\" \"what happens in the clip\" out.mp4"
 echo "Image:  bash $HERE/scripts/image.sh \"a prompt\" out.png"
 echo "Video:  bash $HERE/scripts/video.sh \"a prompt\" out.mp4      (FIRST_FRAME=photo.jpg for image to video)"
+[ "$REF2VA" = 0 ] || echo "Ref:    REF_IMAGES=face.jpg bash $HERE/scripts/video.sh \"Use <Picture 1> as the person. The person ...\" out.mp4"
 echo "Fast:   bash $HERE/scripts/fast.sh \"a prompt\" out.mp4       (FastH3, text to video; STEPS=4|8|20, RES=480p|720p, UPSCALE=1)"

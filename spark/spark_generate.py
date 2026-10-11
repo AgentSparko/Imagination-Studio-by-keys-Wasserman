@@ -1,6 +1,7 @@
 """TensorFold Studio on a DGX Spark (CUDA): FastH3 video with sound and Qwen-Image-2.1 pictures through ComfyUI.
 
     spark_generate.py video --prompt "..." -o clip.mp4 [--first-frame photo.jpg] [--steps 8] [--frames 124]
+    spark_generate.py video --prompt "Use <Picture 1> as the person. ..." --ref face.png -o clip.mp4
     spark_generate.py image --prompt "..." -o picture.png [--seeds 1,2,3] [--base --steps 40]
 
 It talks to a ComfyUI server that it starts on first use (spark/comfy.sh) and leaves running with the models
@@ -29,6 +30,12 @@ ENGINE_LIB = PREFIX / "tf-h3" / "libtf_h3.so"
 
 FASTH3 = {"bf16": "fastvideo_fasth3_8step_v2_pruned_bf16.safetensors",
           "int8": "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors"}
+# MiniMax H3 Ref2VA: reference pictures hold a face or a subject through the clip. The adapter (LightX2V's Ref2VA Turbo,
+# 4 passes) is merged at run time, which only works on the bf16 file: on the 8-bit one the weights are rotated and an
+# adapter added to them silently spoils the picture. Without the adapter the 8-bit file runs the full 20 steps.
+REF2VA = {"bf16": "minimax_h3_ref2va_pruned_bf16.safetensors",
+          "int8": "minimax_h3_ref2va_pruned_int8_convrot.safetensors"}
+REF2VA_TURBO = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 H3_TEXT = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 # ComfyUI's 8-bit video decoder: half the decode time of the fp16 one on a GB10 (14 s against 26 s for 124 frames of
 # 864x480), the same picture to 42 to 44 dB. SPARK_VAE=minimax_h3_video_vae_fp16.safetensors selects the other.
@@ -164,6 +171,72 @@ def fetch(item: dict, target: Path) -> None:
         target.write_bytes(reply.read())
 
 
+def installed(kind: str, name: str) -> bool:
+    """Whether ComfyUI lists a model file (it reads its folders again on every call)."""
+
+    loader, field = {"unet": ("UNETLoader", "unet_name"), "lora": ("LoraLoaderModelOnly", "lora_name")}[kind]
+    return name in call(f"/object_info/{loader}")[loader]["input"]["required"][field][0]
+
+
+def reference(args) -> None:
+    """A clip from reference pictures (MiniMax H3 Ref2VA): `<Picture 1>` in the prompt is the first --ref."""
+
+    if len(args.ref) > 9:
+        sys.exit("at most 9 reference pictures")
+    if args.first_frame:
+        sys.exit("--ref and --first-frame do not combine: the reference model has no first-frame input")
+    ensure_server("ref2va")
+    mode = args.ref_mode
+    name = REF2VA["bf16"] if mode == "turbo" or not installed("unet", REF2VA["int8"]) else REF2VA["int8"]
+    missing = [f for kind, f in (("unet", name),) + ((("lora", REF2VA_TURBO),) if mode == "turbo" else ()) if not installed(kind, f)]
+    if missing:
+        sys.exit(f"not installed: {', '.join(missing)} (bash oneshot-setup-spark.sh --ref2va)")
+    # the bf16 and the 8-bit transformer never stay loaded together
+    ensure_server("ref2va-" + name)
+    steps = args.steps if args.steps is not None else (4 if mode == "turbo" else 20)
+    prompt = prompt_of(args)
+    if "<Picture" not in prompt:
+        prompt = "Use " + " and ".join(f"<Picture {i + 1}>" for i in range(len(args.ref))) + " as the subject. " + prompt
+    model = ["1", 0]
+    w = {
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": name, "weight_dtype": "default"}},
+        "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": H3_TEXT, "type": "minimax", "device": "default"}},
+        "4": {"class_type": "VAELoader", "inputs": {"vae_name": H3_VAE}},
+        "5": {"class_type": "VAELoader", "inputs": {"vae_name": H3_AUDIO_VAE}},
+        "6": {"class_type": "MiniMaxH3ReferenceToVideo",
+              "inputs": {"clip": ["3", 0], "vae": ["4", 0], "audio_vae": ["5", 0], "prompt": prompt, "width": args.width,
+                         "height": args.height, "length": args.frames, "ref_image_size": args.ref_size}},
+        "8": {"class_type": "RandomNoise", "inputs": {"noise_seed": args.seed}},
+        # the adapter was trained on plain Euler steps; the 20-step model on the multistep sampler ComfyUI ships it with
+        "9": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler" if mode == "turbo" else "res_multistep"}},
+        "13": {"class_type": "VAEDecode", "inputs": {"samples": ["12", 0], "vae": ["4", 0]}},
+        "14": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["12", 0], "vae": ["5", 0]}},
+        "15": {"class_type": "CreateVideo", "inputs": {"images": ["13", 0], "audio": ["14", 0], "fps": 24}},
+        "16": {"class_type": "SaveVideo", "inputs": {"video": ["15", 0], "filename_prefix": f"studio/ref_{uuid.uuid4().hex[:8]}",
+                                                     "format": "auto", "codec": "auto"}},
+    }
+    for i, picture in enumerate(args.ref):
+        w[str(30 + i)] = {"class_type": "LoadImage", "inputs": {"image": upload(picture)}}
+        w["6"]["inputs"][f"ref_images.ref_image_{i}"] = [str(30 + i), 0]
+    if mode == "turbo":
+        w["2"] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": model, "lora_name": REF2VA_TURBO, "strength_model": 1.0}}
+        model = ["2", 0]
+    w["10"] = {"class_type": "BasicScheduler", "inputs": {"model": model, "scheduler": "simple", "steps": steps, "denoise": 1.0}}
+    w["11"] = {"class_type": "BasicGuider", "inputs": {"model": model, "conditioning": ["6", 0]}}
+    w["12"] = {"class_type": "SamplerCustomAdvanced",
+               "inputs": {"noise": ["8", 0], "guider": ["11", 0], "sampler": ["9", 0], "sigmas": ["10", 0],
+                          "latent_image": ["6", 1]}}
+    kind = "Ref2VA with the Turbo adapter" if mode == "turbo" else "Ref2VA"
+    print(f"[tensorfold] engine: cuda (ComfyUI, MiniMax H3 {kind}, {name.split('pruned_')[1].split('.')[0]}), "
+          f"{len(args.ref)} reference picture(s), generating {args.width}x{args.height}, {args.frames} frames", flush=True)
+    item, seconds = render(w, "12")
+    target = Path(args.output)
+    fetch(item, target)
+    print("[tensorfold] " + json.dumps({"output": str(target), "engine": "cuda", "model": "ref2va", "mode": mode,
+                                        "forwards": steps, "total_s": round(seconds, 1), "frames": args.frames,
+                                        "size": [args.width, args.height], "references": len(args.ref)}), flush=True)
+
+
 def prompt_of(args) -> str:
     text = Path(args.prompt_file).read_text() if args.prompt_file else args.prompt
     if not text or not text.strip():
@@ -177,6 +250,10 @@ def video(args) -> None:
             sys.exit(f"--{name} must be a multiple of {step}, got {value}")
     if (args.frames - 5) % 17:
         sys.exit(f"--frames must be 17n + 5 (124, 192, 243, 362), got {args.frames}")
+    if args.ref:
+        return reference(args)
+    if args.steps is None:
+        args.steps = 8
     sparsity = args.sparsity
     if sparsity is None and args.engine == "tensorfold":
         sparsity = 0.8    # what FastH3 was trained with; the engine's sparse kernel is the faster one at every size
@@ -300,7 +377,15 @@ def main() -> None:
     v.add_argument("-o", "--output", required=True)
     v.add_argument("--width", type=int, default=864); v.add_argument("--height", type=int, default=480)
     v.add_argument("--frames", type=int, default=124); v.add_argument("--seed", type=int, default=0)
-    v.add_argument("--steps", type=int, default=8, help="passes: 8 is what FastH3 was trained for")
+    v.add_argument("--steps", type=int, default=None, help="passes: 8 is what FastH3 was trained for (the default); "
+                   "with --ref, 4 with the Turbo adapter and 20 without")
+    v.add_argument("--ref", action="append", default=[], help="a reference picture (repeat for up to 9): the clip "
+                   "comes from MiniMax H3 Ref2VA and `<Picture 1>` in the prompt is the first one")
+    v.add_argument("--ref-mode", choices=("turbo", "full"), default="full",
+                   help="full: 20 steps; turbo: the bf16 model with LightX2V's 4-pass adapter")
+    v.add_argument("--ref-size", choices=("match", "max"), default="match",
+                   help="match: references scaled down to the clip's pixel area (what the adapter was trained with); "
+                        "max: up to 2048 pixels on the short edge, several times slower")
     v.add_argument("--first-frame", default="", help="an image the clip starts from")
     v.add_argument("--crop", default="", help="WxH centre crop of the finished clip")
     v.add_argument("--weights", choices=sorted(FASTH3), default=os.environ.get("SPARK_WEIGHTS", "bf16"))

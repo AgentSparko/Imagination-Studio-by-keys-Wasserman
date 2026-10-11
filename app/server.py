@@ -79,6 +79,17 @@ ZIG_FROM_IMAGE = 1.13  # measured through this app: 72 s from an image against 6
 FASTH3_5S = {"fh4": {"small": 51, "p960": 61, "p720": 112, "qhd": 123},
              "fh8": {"small": 78, "p960": 88, "p720": 192, "qhd": 203},
              "fh20": {"small": 174, "p960": 184, "p720": 434, "qhd": 445}}
+# Reference to video (MiniMax H3 Ref2VA, oneshot-setup.sh --ref2va): plain 20 passes with the pictures' rows carried
+# through each, or LightX2V's 4-step Ref2VA adapter and the sound made again without it. Measured through
+# scripts/video.sh on an M5 Ultra with one portrait reference, 5 seconds: preset -> seconds.
+REF2VA_5S = {"small": 223}
+REF2VA_TURBO_5S = {"small": 88}
+# the same on a DGX Spark (oneshot-setup-spark.sh --ref2va), through ComfyUI's own blocks
+SPARK_REF2VA = Path(os.environ.get("SPARK_MODELS", Path.home() / "spark-studio-models")) / "MiniMax-H3-Comfy"
+SPARK_REF2VA_5S = {"small": 321}
+SPARK_REF2VA_TURBO_5S = {"small": 107}
+REF2VA_ADAPTER = "lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
+REFERENCE_LIMIT = 9
 LEAD = "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
 
 # On a DGX Spark (Linux, CUDA) the scripts hand over to spark/: FastH3 and Qwen-Image-2.1 through ComfyUI. There is no
@@ -135,6 +146,42 @@ def inside(path: str | Path) -> Path:
 
 def relative(path: Path) -> str:
     return str(Path(path).resolve().relative_to(HOME.resolve()))
+
+
+def compose_references(fields: dict, count: int) -> str:
+    """The Ref2VA model's own prompt form: who each picture is, what is kept of it, then the shot."""
+
+    count = max(1, min(int(count), REFERENCE_LIMIT))
+    names = [(text or "").strip() for text in (fields.get("subjects") or [])][:count]
+    names += [""] * (count - len(names))
+    subjects = [f"<Subject {i}> is {name or 'the main subject'} shown in <Picture {i}>." for i, name in enumerate(names, start=1)]
+    kept = [f"<Subject {i}> (appears in [Shot 1]): fully_preserved - the identity, face, hair, clothing and colours "
+            f"shown in <Picture {i}> are kept." for i in range(1, count + 1)]
+    scene = (fields.get("scene") or "").strip()
+    shot = " ".join(part.strip() for part in (scene, fields.get("camera", ""), fields.get("action", "")) if part and part.strip())
+    spoken = []
+    for index, line in enumerate(fields.get("dialogue") or [], start=1):
+        text = (line.get("text") or "").strip()
+        if not text:
+            continue
+        voice = (line.get("voice") or "a natural voice").strip()
+        verb = "sings" if line.get("sung") else "speaks"
+        language = (line.get("language") or "English").strip()
+        spoken.append(f"<Subject 1> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
+    if spoken:
+        shot += " " + " ".join(spoken) + " Mouth movements follow the words."
+    else:
+        shot += " Nobody speaks."
+    sound = (fields.get("soundscape") or "Natural ambient sound for the scene.").strip()
+    music = (fields.get("music") or "N/A").strip()
+    if music.upper() != "N/A":
+        sound += f" Music: {music}."
+    who = ", ".join(f"<Subject {i}>" for i in range(1, count + 1))
+    return ("subject_definitions:\n" + "\n".join(subjects)
+            + f"\n\nsummary:\n[subject reference] A new video with {who}, keeping how each looks in its picture. "
+            + (scene or "A new scene.")
+            + "\n\nretention_analysis:\n" + "\n".join(kept)
+            + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()} {sound}")
 
 
 def compose(fields: dict, first_frame: bool) -> str:
@@ -205,7 +252,52 @@ def turbo_ready() -> bool:
     return any((model / "FL2VA" / "transformer").glob("*.safetensors")) and any((ZIG_ENGINE.parent / "adapters").glob("lightx2v*"))
 
 
-def estimate(preset: str, quality: str, seconds: int, text_only: bool = False) -> int | None:
+def ref2va_ready() -> bool:
+    """Whether reference to video can run here: MiniMax H3's Ref2VA transformer (oneshot-setup.sh --ref2va) beside
+    the text encoder and decoders every install has. A Mac feature: the passes run on the MLX engine."""
+
+    if SPARK:
+        return any(SPARK_REF2VA.glob("diffusion_models/minimax_h3_ref2va_pruned_*.safetensors"))
+    model = Path(os.environ.get("H3_MODEL_DIR", Path.home() / "h3-models/MiniMax-H3"))
+    return any((model / "Ref2VA" / "transformer").glob("*.safetensors"))
+
+
+def ref2va_turbo_ready() -> bool:
+    if SPARK:
+        return ((SPARK_REF2VA / "diffusion_models/minimax_h3_ref2va_pruned_bf16.safetensors").is_file()
+                and (SPARK_REF2VA / "loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors").is_file())
+    return ref2va_ready() and (ZIG_ENGINE.parent / "adapters" / REF2VA_ADAPTER).is_file()
+
+
+def references(params: dict) -> list[str]:
+    """The job's reference pictures as paths under the studio folder, or [] when it has none."""
+
+    found = [str(inside(path)) for path in (params.get("references") or []) if path]
+    if not found:
+        return []
+    if len(found) > REFERENCE_LIMIT:
+        raise HTTPException(400, f"at most {REFERENCE_LIMIT} reference pictures")
+    if params.get("image") or params.get("first_frame_from"):
+        raise HTTPException(400, "reference pictures do not combine with a first frame")
+    if not ref2va_ready():
+        raise HTTPException(400, "MiniMax H3 Ref2VA is not installed here (oneshot-setup.sh --ref2va adds it)")
+    if params.get("ref_turbo") and not ref2va_turbo_ready():
+        raise HTTPException(400, "the Ref2VA Turbo adapter is not installed here (oneshot-setup.sh --ref2va adds it)")
+    missing = [path for path in found if not Path(path).is_file()]
+    if missing:
+        raise HTTPException(400, f"no reference picture at {relative(Path(missing[0]))}")
+    return found
+
+
+def estimate(preset: str, quality: str, seconds: int, text_only: bool = False, referenced: bool = False,
+             ref_turbo: bool = False) -> int | None:
+    if referenced:
+        # the same MLX engine as the 20-step qualities, whose time grows with the length to the power 1.6
+        if SPARK:
+            base = (SPARK_REF2VA_TURBO_5S if ref_turbo else SPARK_REF2VA_5S).get(preset)
+        else:
+            base = (REF2VA_TURBO_5S if ref_turbo else REF2VA_5S).get(preset)
+        return None if base is None or seconds > LONGEST else int(base * (seconds / 5.0) ** 1.6)
     if seconds > LONGEST:
         # every part after the first opens on a frame
         parts = [estimate(preset, quality, piece) for piece in plan(seconds)]
@@ -269,6 +361,13 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
     prompt = params["prompt"]
     image = params.get("image")
     if kind == "video":  # text to video, or from an image the user already has
+        pictures = references(params)
+        if pictures:
+            # Ref2VA takes neither the Turbo adapter nor FastH3: the quality setting does not apply
+            env = {k: v for k, v in env.items() if k not in QUALITIES[quality][1]}
+            env["REF_IMAGES"] = "\n".join(pictures) + "\n"  # one per line, so a path may hold spaces
+            if params.get("ref_turbo"):
+                env["REF_TURBO"] = "1"
         if image:
             return (["bash", str(scripts / "studio.sh"), "", prompt, str(target)],
                     {**env, "IMAGE_FILE": str(inside(image)), "RAW_PROMPT": "1"}, [str(target)])
@@ -469,19 +568,23 @@ def state() -> dict:
             "qualities": {k: v[0] for k, v in QUALITIES.items()}, "durations": DURATIONS, "long": LONG,
             "home": str(HOME), "pack": str(PACK), "version": (PACK / "VERSION").read_text().strip(),
             "zig": zig_ready(), "turbo": turbo_ready() and not SPARK, "x2": not SPARK,
+            "ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready(), "reference_limit": REFERENCE_LIMIT,
             "platform": machine()[0], "platform_label": machine()[1],
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
 
 
 @app.post("/api/compose")
 def compose_prompt(body: dict) -> dict:
+    if body.get("references"):
+        return {"prompt": compose_references(body.get("fields", {}), int(body["references"]))}
     return {"prompt": compose(body.get("fields", {}), bool(body.get("first_frame")))}
 
 
 @app.post("/api/estimate")
 def estimate_time(body: dict) -> dict:
     return {"seconds": estimate(body.get("preset", "draft"), body.get("quality", "standard"),
-                                int(body.get("seconds", 5)), bool(body.get("text_only")))}
+                                int(body.get("seconds", 5)), bool(body.get("text_only")), bool(body.get("referenced")),
+                                bool(body.get("ref_turbo")))}
 
 
 @app.post("/api/jobs")
@@ -498,7 +601,10 @@ def submit(body: dict) -> dict:
         build("video", {**params, "seconds": pieces[0], "output": None}, "check")
     if kind != "export" and not (params.get("prompt") or "").strip():
         raise HTTPException(400, "a prompt is needed")
-    if kind in ("video", "studio", "long") and not str(params.get("quality", "standard")).startswith("fh") and not turbo_ready():
+    if kind != "video" and params.get("references"):
+        raise HTTPException(400, "reference pictures are for single clips")
+    referenced = kind == "video" and bool(references(params))
+    if kind in ("video", "studio", "long") and not referenced and not str(params.get("quality", "standard")).startswith("fh") and not turbo_ready():
         raise HTTPException(400, "MiniMax H3 Turbo is not installed here (oneshot-setup.sh --turbo adds it): use FastH3, quality fh4, fh8 or fh20")
     job_id = time.strftime("%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     if kind not in ("export", "long"):
@@ -508,7 +614,8 @@ def submit(body: dict) -> dict:
            "finished": None, "estimate": estimate(params.get("preset", ""), params.get("quality", "standard"),
                                                   int(params.get("total_seconds") or params.get("seconds", 5)),
                                                   kind == "video" and not params.get("image")
-                                                  and not params.get("first_frame_from"))
+                                                  and not params.get("first_frame_from"), referenced,
+                                                  bool(params.get("ref_turbo")))
            if kind in ("video", "studio", "long") else None}
     with lock:
         jobs[job_id] = job

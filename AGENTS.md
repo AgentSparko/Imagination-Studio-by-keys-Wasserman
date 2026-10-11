@@ -8,12 +8,13 @@
 git clone https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min.git
 cd keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min
 brew install python@3.11 uv ffmpeg
-bash oneshot-setup.sh               # image model, FastH3 and its text encoder and decoders (175 GB) and a test clip; --image-only for 33 GB; --turbo adds MiniMax H3 Turbo (64 GB more, 128 GB of memory)
+bash oneshot-setup.sh               # image model, FastH3 and its text encoder and decoders (175 GB) and a test clip; --image-only for 33 GB; --turbo adds MiniMax H3 Turbo (64 GB more, 128 GB of memory); --ref2va adds reference pictures to video (64 GB more, 128 GB)
 bash scripts/studio.sh "the picture" "what happens in the clip" out.mp4   # text -> image -> video with sound
 bash scripts/scout.sh "the picture" 6 scouts/x      # six candidates + scouts/x/sheet.jpg, 27 s
 IMAGE_FILE=scouts/x/scout_s3.png QHD=1 FRAMES=192 bash scripts/studio.sh "" "what happens" final.mp4   # 2560x1440
 bash scripts/image.sh "a prompt" out.png
 FIRST_FRAME=photo.jpg bash scripts/video.sh "what happens next" out.mp4
+REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the person. The person ..." out.mp4   # needs --ref2va
 ```
 
 On a **DGX Spark** (Linux, CUDA) the same `bash oneshot-setup.sh` installs the CUDA build (it hands over to
@@ -72,6 +73,19 @@ Rules:
 - Standard video = Turbo adapter, 5 passes, then the sound made again by the base model (`REVOICE=20`). Do not go back
   to the adapter's own sound (`REVOICE=0`) unless asked: it was judged poor by ear. `QUALITY=high` = 20 steps, no
   adapter, about three times slower. `POINTS` is passes plus one.
+- Reference to video (`REF_IMAGES`, `oneshot-setup.sh --ref2va`) runs MiniMax H3's Ref2VA transformer on the MLX
+  engine: up to nine pictures, named `<Picture 1>`, `<Picture 2>`, ... in the prompt in the order given. A reference
+  is not a frame: never combine it with `FIRST_FRAME`, and never send it to FastH3. Default is 20 plain passes;
+  `REF_TURBO=1` is the 4-step Ref2VA adapter (`POINTS=5`) with `REVOICE=20`, `QUALITY=high` the fast recipe. The FL2VA Turbo adapter is not for this
+  transformer. `Ref2VA/` holds only the transformer; its text encoder, tokenizer, processor and decoders are links
+  to `FL2VA/`: do not download them twice. Reference videos and reference audio are not implemented.
+- On a DGX Spark reference to video is `oneshot-setup-spark.sh --ref2va` and the same `REF_IMAGES` / `REF_TURBO=1`
+  (`spark_generate.py video --ref`): ComfyUI's `MiniMaxH3ReferenceToVideo` on its own blocks, never
+  `TensorFoldH3Blocks`. The adapter is merged at run time, so it needs the bf16 transformer: on an 8-bit
+  (`int8_convrot`) file a run-time adapter silently spoils the picture. A ComfyUI that was running before the
+  install must be restarted (`bash spark/comfy.sh stop`) to see the new model folders.
+- A LightX2V adapter file (diffusers PEFT names) is rewritten with `scripts/convert-h3-adapter.py` before `--lora`
+  can read it; the scale (alpha / rank) differs between their files and is read from the file's metadata.
 - Levels are handled after the render (no hard clip; bass lifted on thin takes; `AUDIO_EQ=off` to skip). Leave
   `AUDIO_SHIFT` alone.
 - The image turbo adapter runs on six fixed nodes (`--nodes 1.0,0.9375,0.875,0.75,0.5,0.25`); do not change the step

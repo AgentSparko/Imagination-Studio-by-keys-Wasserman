@@ -3,6 +3,10 @@
 #   bash scripts/video.sh "a prompt" out.mp4
 #   FIRST_FRAME=photo.jpg bash scripts/video.sh "what happens next" out.mp4
 #   WIDTH=1344 HEIGHT=768 STEPS=8 FRAMES=124 SEED=3 bash scripts/video.sh "a prompt" out.mp4
+#   REF_IMAGES="face.png" bash scripts/video.sh "Use <Picture 1> as the person. She walks into a cafe." out.mp4
+# REF_IMAGES (one to nine pictures, separated by spaces; one per line when a path has spaces) renders with MiniMax H3
+# Ref2VA (`oneshot-setup-spark.sh --ref2va`), which holds a face or a subject through the clip: 20 steps by default,
+# REF_TURBO=1 for LightX2V's 4-pass Ref2VA adapter (107 s against 321 s for 5 s at 864x480). REF_SIZE=match|max.
 # Environment: PREFIX, WIDTH, HEIGHT (multiples of 32, default 864x480), FRAMES (17n+5), SEED, STEPS (4, 8 or 20
 # passes), FIRST_FRAME, PROMPT_FILE, CROP=WxH, SPARK_WEIGHTS (bf16, the default, or int8: no faster on a Spark, 22 GB
 # less memory), SPARK_SPARSITY (0 is dense attention; unset picks by size), SPARK_ENGINE (tensorfold: the transformer's
@@ -16,7 +20,21 @@ PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 [ -x "$PREFIX/venv/bin/python" ] || { echo "run oneshot-setup-spark.sh first: no environment at $PREFIX" >&2; exit 1; }
 PROMPT="${1:-}"; OUT="${2:-outputs/h3.mp4}"
 ARGS=(video -o "$OUT" --width "${WIDTH:-864}" --height "${HEIGHT:-480}" --frames "${FRAMES:-124}"
-      --seed "${SEED:-0}" --steps "${STEPS:-8}")
+      --seed "${SEED:-0}")
+REFS=()
+if [ -n "${REF_IMAGES:-}" ]; then
+  case "$REF_IMAGES" in *$'\n'*) while IFS= read -r r; do [ -z "$r" ] || REFS+=("$r"); done <<<"$REF_IMAGES";;
+    *) read -r -a REFS <<<"$REF_IMAGES";; esac
+fi
+for r in ${REFS[@]+"${REFS[@]}"}; do [ -f "$r" ] || { echo "no reference picture at $r" >&2; exit 2; }; ARGS+=(--ref "$r"); done
+if [ ${#REFS[@]} -gt 0 ]; then
+  [ -z "${STEPS:-}" ] || ARGS+=(--steps "$STEPS")
+  if [ "${REF_TURBO:-0}" = 1 ]; then ARGS+=(--ref-mode turbo); else ARGS+=(--ref-mode full); fi
+  [ -z "${REF_SIZE:-}" ] || ARGS+=(--ref-size "$REF_SIZE")
+  KIND="MiniMax H3 Ref2VA, ${#REFS[@]} reference picture(s)"
+else
+  ARGS+=(--steps "${STEPS:-8}"); KIND="FastH3 ${STEPS:-8} passes"
+fi
 [ -z "${FIRST_FRAME:-}" ] || ARGS+=(--first-frame "$FIRST_FRAME")
 [ -z "${CROP:-}" ] || ARGS+=(--crop "$CROP")
 [ -z "${SPARK_SPARSITY:-}" ] || ARGS+=(--sparsity "$SPARK_SPARSITY")
@@ -24,4 +42,4 @@ ARGS=(video -o "$OUT" --width "${WIDTH:-864}" --height "${HEIGHT:-480}" --frames
 if [ -n "${PROMPT_FILE:-}" ]; then ARGS+=(--prompt-file "$PROMPT_FILE"); else ARGS+=(--prompt "$PROMPT"); fi
 START=$(date +%s)
 PREFIX="$PREFIX" "$PREFIX/venv/bin/python" "$HERE/spark_generate.py" "${ARGS[@]}"
-echo "[studio] FastH3 ${STEPS:-8} passes, ${WIDTH:-864}x${HEIGHT:-480}, total $(( $(date +%s) - START )) s -> $OUT"
+echo "[studio] $KIND, ${WIDTH:-864}x${HEIGHT:-480}, total $(( $(date +%s) - START )) s -> $OUT"
