@@ -197,9 +197,7 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 > Slate. Not tested: the Codex and local-model brains, a LoRA stacked with another or added through the form, and the
 > QA gate's retake on a real failed clip.
 >
-> **Since 2.5:** the app is named *Wasserman Slate AI Studio, powered by TensorFold*. The optional community text
-> encoder is no longer offered by the app or the installers (its installer flag is gone); `TEXT_ENCODER` still takes a
-> file of your own from the scripts.
+> **Since 2.5:** the app is named *Wasserman Slate AI Studio, powered by TensorFold*.
 
 > **2.4 (2026-10-11): reference pictures to video, a Tutorial tab, your own size and passes.** On both machines. **Reference pictures** (`--ref2va`, MiniMax H3 Ref2VA): up to nine pictures of who or
 > what must look the same, in a scene the prompt describes; see
@@ -834,7 +832,8 @@ aspect ratio.
 
 From the scripts, `TEXT_ENCODER` may be the path of another MiniMax H3 text encoder file (on a DGX Spark, the name
 of a file in ComfyUI's `text_encoders` folder); unset, it is MiniMax's own. On the Mac FastH3 then runs on the MLX
-engine, not the native one. The app does not offer this.
+engine, not the native one.
+The app offers any such file it finds in the `text_encoders` folder beside the model, by its file name.
 
 In the app, *Resolution → Custom* takes a width and a height (multiples of 32, each side 256 to 1536, at most
 1344x768 pixels in all) and *Custom passes* a number of passes from 1 to 50; no time is estimated for either. From

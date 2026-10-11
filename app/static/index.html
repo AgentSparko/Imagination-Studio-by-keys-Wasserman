@@ -182,7 +182,7 @@ const toast = text => { const n = el("div", { style: "position:fixed;bottom:18px
 let S = null, jobs = [], tab = "Create", project = null;
 const TABS = ["Create", "Production", "Editor", "Library", "Tutorial"];
 const C = { step: 0, mode: "scout", preset: "draft", quality: "standard", seconds: 5, seed: 1, scene: "", action: "", camera: "",
-  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", loras: [] };
+  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", loras: [], textEncoder: "" };
 let LORAS = [];  // the LoRA hub's recipes, with whether each is installed here
 const field = (labelText, node) => el("div", {}, el("label", {}, labelText), node);
 const bind = (obj, key, node, after) => { const isBox = node.type === "checkbox"; if (isBox) node.checked = !!obj[key]; else node.value = obj[key] ?? "";
@@ -214,7 +214,7 @@ function sync() {
 // the output: a preset, or a size typed in by hand
 const output = () => C.preset === "custom" ? { label: "Custom " + C.cw + "x" + C.ch, size: [Number(C.cw), Number(C.ch)] } : S.presets[C.preset];
 // what a job carries beyond the preset: the hand-set size and passes, and the text encoder
-const extras = () => ({ ...(C.preset === "custom" ? { width: Number(C.cw), height: Number(C.ch) } : {}), ...(String(C.steps).trim() ? { steps: Number(C.steps) } : {}), ...(lorasOf(C).length && !isRef() ? { loras: lorasOf(C) } : {}) });
+const extras = () => ({ ...(C.preset === "custom" ? { width: Number(C.cw), height: Number(C.ch) } : {}), ...(String(C.steps).trim() ? { steps: Number(C.steps) } : {}), ...(lorasOf(C).length && !isRef() ? { loras: lorasOf(C) } : {}), ...(encoderOf() ? { text_encoder: encoderOf() } : {}) });
 function changed() { sync(); C.prompt = ""; render(); }
 // one decision shown as cards: options are value -> [title, detail]
 const choice = (obj, key, options, after, tight) => el("div", { class: "choice" + (tight ? " tight" : ""), role: "radiogroup" }, Object.entries(options).map(([v, [title, sub]]) =>
@@ -230,6 +230,9 @@ function sharpCreate() { if (isRef()) C.start = "text";
   Object.assign(C, { engine: "fasth3", passes: "8", res: "sharp", up: false, steps: "", seed: S.sharp.seed, seconds: S.sharp.seconds.includes(Number(C.seconds)) ? C.seconds : S.sharp.seconds[0] }); changed(); }
 /* ---------- Keys and Wasserman LoRA Hub ---------- */
 // what a job carries: the picked LoRAs that are installed on this machine
+// another text encoder file found on this machine, picked by its file name ("" is the model's own)
+const encoderOf = () => (S && (S.text_encoders || []).includes(C.textEncoder)) ? C.textEncoder : "";
+const encoderName = f => /uncensored/i.test(f) ? "Uncensored" : f.replace(/\.safetensors$/, "").replace(/^qwen3vl_32b_minimax_h3_/, "").replace(/[_-]+/g, " ");
 const lorasOf = obj => (obj.loras || []).filter(p => LORAS.some(r => r.id === p.id && r.installed));
 async function loadLoras() { try { LORAS = await api("/api/loras"); } catch { LORAS = []; } }
 const HUB = { open: false, form: { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" }, timer: null };
@@ -284,6 +287,8 @@ function videoControls(after) {
       el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Height"), bind(C, "ch", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
       el("div", { class: "note" }, "Multiples of 32, each side " + S.custom.sides[0] + " to " + S.custom.sides[1] + ", at most 1344 × 768 pixels in all. No time estimate for a custom size.")) : null,
     isRef() ? null : loraHub(C, () => { C.prompt = ""; }),
+    (S.text_encoders || []).length ? el("label", {}, "Text encoder") : null,
+    (S.text_encoders || []).length ? choice(C, "textEncoder", { "": ["Regular", "MiniMax H3's own"], ...Object.fromEntries(S.text_encoders.map(f => [f, [encoderName(f), /uncensored/i.test(f) ? "community build on this machine; personal, non-commercial use" : "a file in this machine's text_encoders folder"]])) }, changed, true) : null,
     el("div", { class: "row" },
       !S.x2 ? null : el("div", {}, el("label", {}, "Upscale"), el("label", { class: "switch" }, two, el("span", {}, "2x upscale", el("small", {}, UPSCALED[C.res] ? "2x decoder → " + UPSCALED[C.res][1] + ", about 10 s more" : "already part of this output")))),
       el("div", { class: "fit", style: "width:250px" }, el("label", {}, "Length"), select(C, "seconds", { ...Object.fromEntries(Object.keys(S.durations).map(k => [k, k + " s · " + S.durations[k] + " frames"])),
@@ -294,7 +299,7 @@ function videoControls(after) {
 function summary(est) {
   const size = output().size, hand = String(C.steps).trim() ? " · " + C.steps + " passes by hand" : "", engine = isRef() ? "MiniMax H3 Ref2VA · " + (C.refPasses === "4" ? "Turbo 4 passes" : "20 passes") : C.engine === "fasth3" ? "FastH3 · " + C.passes + " passes · " + S.engine : "MiniMax H3 · " + H3Q[C.h3quality][0];
   return el("div", { class: "summary" }, el("span", { class: "chip k" }, { t2v: "TEXT → VIDEO", scout: "QWEN IMAGE → VIDEO", i2v: "IMAGE → VIDEO", r2v: "REFERENCES → VIDEO" }[C.mode]),
-    el("span", { class: "chip" }, engine + hand), el("span", { class: "chip" }, size[0] + " × " + size[1]), el("span", { class: "chip" }, isLong() ? S.long[C.seconds] + " · " + Math.ceil(C.seconds / 15) + " × 15 s" : C.seconds + " s · " + S.durations[C.seconds] + " f"), est);
+    el("span", { class: "chip" }, engine + hand), encoderOf() ? el("span", { class: "chip" }, "text encoder: " + encoderName(encoderOf())) : null, el("span", { class: "chip" }, size[0] + " × " + size[1]), el("span", { class: "chip" }, isLong() ? S.long[C.seconds] + " · " + Math.ceil(C.seconds / 15) + " × 15 s" : C.seconds + " s · " + S.durations[C.seconds] + " f"), est);
 }
 function settingsRow(obj, after, keep = {}) {
   const presets = Object.entries(S.presets).filter(([k]) => !keep.presets || keep.presets(k));
