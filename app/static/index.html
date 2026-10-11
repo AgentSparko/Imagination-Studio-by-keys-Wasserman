@@ -107,6 +107,23 @@ video.main { width:100%; background:#000; border-radius:12px; max-height:52vh; b
 .clip video { width:100%; aspect-ratio:16/9; background:#000; border-radius:6px; } .clip .row > * { min-width:0; } .clip input { padding:3px 6px; font-size:12px; }
 a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
 ::-webkit-scrollbar { width:10px; height:10px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.12); border-radius:10px; border:2px solid transparent; background-clip:padding-box; }
+/* tutorial: lessons on the left, one step at a time on the right; the coach bar follows the user into the other tabs */
+.tut { display:grid; grid-template-columns:250px minmax(0,1fr); gap:20px; margin-top:16px; align-items:start; }
+.tut .list button { display:flex; gap:9px; align-items:flex-start; width:100%; text-align:left; margin-bottom:6px; padding:9px 11px; background:rgba(255,255,255,.028); }
+.tut .list button.on { border-color:var(--accent); background:rgba(103,227,255,.07); } .tut .list button span { display:block; color:var(--dim); font-size:11.5px; line-height:1.35; }
+.tick { flex:none; width:18px; height:18px; border-radius:50%; border:1px solid var(--line2); font:700 11px/16px var(--mono); text-align:center; color:#070810; margin-top:2px; } .tick.ok { background:var(--ok); border-color:transparent; }
+.dots { display:flex; gap:6px; margin:2px 0 16px; flex-wrap:wrap; } .dots button { min-width:34px; padding:4px 0; border-radius:8px; font:600 12px var(--mono); color:var(--dim); background:rgba(255,255,255,.04); }
+.dots button.past { color:var(--accent); border-color:rgba(103,227,255,.35); } .dots button.on { background:var(--grad); color:#070810; border-color:transparent; }
+.lead { font-size:15px; line-height:1.6; margin:8px 0; max-width:72ch; }
+.eg, .tip { border-radius:12px; padding:10px 13px; margin-top:10px; font-size:13px; max-width:78ch; } .eg { border:1px solid var(--line); background:rgba(4,5,9,.55); } .tip { border:1px solid rgba(245,193,92,.4); background:rgba(245,193,92,.07); }
+.eg b, .tip b { display:block; font:600 10.5px var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--dim); margin-bottom:3px; } .tip b { color:var(--warn); }
+.spot { outline:2px solid var(--warn); outline-offset:5px; border-radius:10px; animation:spot 1s ease-in-out infinite alternate; }
+@keyframes spot { from { box-shadow:0 0 0 0 rgba(245,193,92,0); } to { box-shadow:0 0 0 9px rgba(245,193,92,.22); } }
+#coach { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); width:min(820px,calc(100vw - 32px)); z-index:8; display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:12px 14px; border-radius:14px;
+  border:1px solid var(--accent); background:rgba(14,17,28,.96); box-shadow:0 18px 50px -12px rgba(0,0,0,.9),0 0 0 3px rgba(103,227,255,.1); }
+#coach .say { flex:1; min-width:220px; } #coach .say small { display:block; color:var(--accent); font:600 10.5px var(--mono); letter-spacing:.1em; text-transform:uppercase; } #coach .say span { color:var(--dim); font-size:12.5px; }
+@media (max-width:1000px) { .tut { grid-template-columns:1fr; } .tut > :last-child { order:-1; } nav { flex-wrap:wrap; } }
+@media (prefers-reduced-motion:reduce) { .spot { animation:none; } }
 @media (max-width:1000px) { main { grid-template-columns:1fr; padding:14px 16px 30px; } aside { position:static; max-height:none; } header { flex-wrap:wrap; padding:10px 16px; } }
 @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
 </style>
@@ -142,6 +159,7 @@ const put = (node, ...kids) => node.append(...kids.flat().filter(k => k != null 
 const toast = text => { const n = el("div", { style: "position:fixed;bottom:18px;left:18px;background:#2b3050;border:1px solid var(--accent);padding:9px 14px;border-radius:8px;z-index:9" }, text); document.body.append(n); setTimeout(() => n.remove(), 3500); };
 
 let S = null, jobs = [], tab = "Create", project = null;
+const TABS = ["Create", "Production", "Editor", "Library", "Tutorial"];
 const C = { step: 0, mode: "scout", preset: "draft", quality: "standard", seconds: 5, seed: 1, scene: "", action: "", camera: "",
   dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", textEncoder: "regular" };
 const field = (labelText, node) => el("div", {}, el("label", {}, labelText), node);
@@ -368,7 +386,7 @@ function viewProduction() {
           field("Opens on", select(seg, "start", { text: "nothing (text to video)", previous: "the last frame of the segment before", image: "an image from the library" }, () => { change(); render(); })),
           el("div", { class: "fit", style: "width:90px" }, el("label", {}, "Seed"), bind(seg, "seed", el("input", { type: "number" }), saveProject))),
         seg.start === "image" ? field("Image path (copy from the Library tab)", bind(seg, "image", el("input", { placeholder: "scouts/…/scout_s3.png" }), saveProject)) : null,
-        field("The picture", bind(seg, "scene", el("textarea", { style: "min-height:54px" }), change)), field("What happens", bind(seg, "action", el("textarea", { style: "min-height:54px" }), change)),
+        field("Describe the scene / condition where it takes place", bind(seg, "scene", el("textarea", { style: "min-height:54px" }), change)), field("What happens to the characters inside the scene / clip", bind(seg, "action", el("textarea", { style: "min-height:54px" }), change)),
         el("div", { class: "row" }, field("Voice", bind(seg, "voice", el("input", { placeholder: "a warm female voice" }), change)), field("Spoken line (optional)", bind(seg, "line", el("input"), change))),
         field("Soundscape", bind(seg, "soundscape", el("input"), change)),
         job && job.status === "running" ? jobCard(job) : null,
@@ -421,6 +439,122 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
       m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use")))))));
   return box; }
 
+/* ---------- Tutorial ---------- */
+// lessons per tab, one step on screen at a time; a step can point at the control it describes ("go"), and the coach bar then follows into that tab
+const T = { id: "first", step: 0, coach: false };
+const seen = (() => { try { return new Set(JSON.parse(localStorage.getItem("tutorial-done") || "[]")); } catch { return new Set(); } })();
+const finish = id => { seen.add(id); try { localStorage.setItem("tutorial-done", JSON.stringify([...seen])); } catch {} };
+const TRACKS = { Create: "one clip or image, start to finish", Production: "a film made of segments", Editor: "trim, order and export", Library: "everything you have made" };
+const BAKER = { goes: "video", start: "text", scene: "A middle-aged baker in a cream shirt and green apron stands behind a wooden counter in a small bakery at dawn, warm window light from the left.",
+  action: "He lifts a loaf with both hands, sets it down on the counter, looks at the camera and smiles.", camera: "The camera slowly pushes in throughout the single continuous shot.",
+  dialogue: [{ voice: "a warm, calm male voice", language: "English", text: "Good morning. The first loaf of the day is always the best one.", sung: false }], soundscape: "Quiet bakery room tone and a low oven hum. A light tap as the loaf is set down.", music: "N/A" };
+function lessons() {
+  const go = (step, spot, set) => ({ tab: "Create", step, spot, set: { goes: "video", ...set } }), on = (tabName, spot) => ({ tab: tabName, spot });
+  return [
+    { id: "first", track: "Create", title: "Your first clip", sub: "text to video, all five steps", example: BAKER, steps: [
+      { t: "Choose what you are making", d: ["Create is a five-step form. Step 1 starts with two choices: where the prompt goes (a video with sound, or an image only) and what the clip starts from.", "For a first clip leave it on “Video with sound” and pick “Text only”. The model then invents the whole picture from your words."], go: go(0, "The clip starts from", { start: "text" }) },
+      { t: "Describe the scene", d: ["The first box is the still picture: who is there, what they wear, where they are, the light and the framing. Write what stays the same for the whole clip."], eg: BAKER.scene, tip: "Name concrete things you can see. “A cozy mood” gives the model nothing to draw; “warm window light from the left” does.", go: go(0, "Describe the scene") },
+      { t: "Say what happens", d: ["The second box is the motion: what the characters do, in the order they do it. A 5 second clip has room for one or two actions; more actions need a longer clip or more passes."], eg: BAKER.action, tip: "Do not put spoken words in this box. Speech has its own place in step 3, and words typed here can end up spoken or ignored.", go: go(0, "What happens to the characters") },
+      { t: "Add words and sound", d: ["Step 3 holds everything you hear. “+ Add a line” gives a character something to say; Soundscape describes the background sound. Leave the lines empty for a clip with no speech."], eg: "Soundscape: " + BAKER.soundscape, go: go(2, "Soundscape") },
+      { t: "Review the prompt", d: ["Step 4 shows the exact text the video model receives, built from steps 1 to 3. You can edit it by hand.", "Open this step at least once: the Render button stays off until a prompt exists."], tip: "If you go back and change the boxes in step 1 or 3 afterwards, press “Rebuild from steps 1–3”. Otherwise the old prompt is rendered. Rebuild throws away hand edits.", go: go(3, "Rebuild from steps") },
+      { t: "Render and get your clip", d: ["Step 5 shows the settings in one line and a time estimate. “Queue this clip” sends it to the queue on the right, which shows the time left.", "When it is done the clip plays here, with “Add to the editor timeline” and “Download”. “Back to the start, keep this setup” lets you change one thing and try again; “Start a new clip” clears the words and pictures."], go: go(4, "Queue this clip") } ] },
+    { id: "settings", track: "Create", title: "Quality, size and length", sub: "what each setting changes", steps: [
+      { t: S.turbo ? "Engine and passes" : "Passes", d: [S.turbo ? "FastH3 is the fast engine. MiniMax H3 is the original model, slower, with a Turbo adapter or the full 20 steps." : "The engine here is FastH3. Passes are how many times the model refines the clip.",
+        "4 passes is the quickest and a little softer. 8 is what FastH3 was trained for and the usual choice. 20 is for prompts with several actions or when 8 misses part of the prompt."], tip: "Try an idea at 4 or 8 passes first, then spend 20 on the version you like, with the same seed.", go: go(0, S.turbo ? "Video engine" : "Passes") },
+      { t: "Resolution", d: ["480p (864 × 480) renders fastest and is the right size for testing. 720p and Native (1344 × 768) take longer and more memory." + (S.x2 ? " Draft and 2K render small and enlarge with the 2x decoder." : ""),
+        "Custom lets you type a width and height: multiples of 32, each side " + S.custom.sides[0] + " to " + S.custom.sides[1] + ", and no more than 1344 × 768 pixels in total. Use it for portrait or square clips."], eg: "Portrait: 480 × 864.  Square: 768 × 768.", tip: "A custom size has no time estimate, so the queue cannot show the time left.", go: go(0, "Resolution") },
+      { t: "Length", d: ["A single clip is 5, 8, 10 or 15 seconds. Longer choices chain several 15 second clips; the lesson “Videos longer than 15 seconds” covers them.", "Time and memory grow with length, so test at 5 seconds."], go: go(0, "Length") },
+      { t: "Seed", d: ["The seed picks the variation. The same prompt, settings and seed give the same clip again; a different seed gives a different take on the same prompt."], tip: "When a clip is nearly right, keep the prompt and try seeds 2, 3 and 4 before rewriting anything.", go: go(0, "Seed") },
+      { t: "Custom passes", d: ["Leave this empty and the Passes choice above decides. A number from " + S.custom.steps[0] + " to " + S.custom.steps[1] + " overrides it, for counts the buttons do not offer, such as 6 or 12."], tip: "Like a custom size, this removes the time estimate.", go: go(0, "Custom passes") },
+      ...(S.uncensored ? [{ t: "Text encoder", d: ["The text encoder is the part that reads your prompt. Regular is MiniMax H3's own. Uncensored is a community 8-bit build by linjian257 that does not hold back on prompts the regular one softens.", "It is for personal, non-commercial use only."], tip: "The first clip after switching can take longer while the model reloads.", go: go(0, "Text encoder") }] : []),
+      { t: "Read the summary strip", d: ["Under the settings a strip repeats your choices as chips: the mode, the engine and passes, the size and the length, with the time estimate on the right. Check it before you move on."], go: go(0, "Length") } ] },
+    { id: "speech", track: "Create", title: "Speech, sound and music", sub: "lines that are spoken as written", steps: [
+      { t: "Add a spoken line", d: ["In step 3 press “+ Add a line”. Voice describes how the speaker sounds; Line is the exact words. The words go into the prompt unchanged."], eg: "Voice: " + BAKER.dialogue[0].voice + "\nLine: " + BAKER.dialogue[0].text, go: go(2, "+ Add a line") },
+      { t: "Match the line to the clip length", d: ["People speak about three words a second. A 5 second clip holds about 15 words, 8 seconds about 25, 15 seconds about 45.", "A line much shorter than the clip leaves silence the model may fill with made-up speech. A line that is too long gets rushed or cut off."], tip: "Count the words, then set Length in step 1 to fit. This is the most common cause of gibberish at the end of a clip.", go: go(0, "Length") },
+      { t: "Several speakers, other languages, singing", d: ["Add one line per speaker and describe each voice differently so the model can tell them apart. Language is a plain word such as English or Spanish. Tick “sung” for a line that is sung."], go: go(2, "+ Add a line") },
+      { t: "Soundscape and music", d: ["Soundscape is the background: room tone, weather, footsteps, objects. Music is “N/A” for none, or a short description of the score."], eg: "Soundscape: Rain on a tin roof, distant traffic, a kettle starting to boil.\nMusic: slow solo piano, sparse and warm", tip: "Music under speech makes the words harder to hear. Keep it N/A for talking clips and add music in an editor later.", go: go(2, "Soundscape") } ] },
+    { id: "frame", track: "Create", title: "Start from a picture", sub: "a scout image or your own", steps: [
+      { t: "Why start from a picture", d: ["With a first frame you decide the look before the slow part. The clip opens on exactly that picture and moves from there, so faces, clothes and framing are fixed.", "Pick “A Qwen scout image” to have the app make candidates, or “Your own image” to upload one."], go: go(0, "The clip starts from", { start: "scout" }) },
+      { t: "Make scouts and pick one", d: ["Step 2 shows the image prompt, copied from your scene box. Set how many, press “Make scouts”, and click the one you want. Scouts are made at the size the video starts from."], tip: "Scouts take seconds each. Make six and choose, rather than rendering six videos.", go: go(1, "Make scouts", { start: "scout" }) },
+      { t: "Or upload your own", d: ["With “Your own image”, step 2 has an upload box. The picture is stretched onto the clip's canvas, so match the clip's shape: 16:9 for the presets, or set a Custom size with the picture's shape."], go: go(1, "Upload an image", { start: "own" }) },
+      { t: "Write for a clip that already has its picture", d: ["Keep the scene box true to the picture: describe what is in it. The work is in the second box, which says what changes from that frame on."], eg: "Scene: the picture as it is.  What happens: She turns from the window, picks up the cup and takes a sip.", tip: "Asking for things the picture does not show (a different outfit, another place) makes the clip jump or melt.", go: go(0, "What happens to the characters") } ] },
+    ...(S.ref2va ? [{ id: "refs", track: "Create", title: "Reference pictures", sub: "keep a face or a thing, in a new scene", steps: [
+      { t: "What reference pictures do", d: ["A reference is not a frame of the clip. It shows who or what must look the same; the scene itself comes from your words. Use it to put one person or object in new places.", "Pick “Reference pictures” under “The clip starts from”. Step 2 then becomes “2. Reference pictures”."], go: go(0, "The clip starts from", { start: "refs" }) },
+      { t: "Add the pictures", d: ["In step 2 add up to " + S.reference_limit + " pictures. A clear, front-facing, well-lit picture works best. They are numbered in the order you add them."], tip: "One good picture per person beats several mixed ones. Only use pictures you have the right to use.", go: go(1, "Add pictures", { start: "refs" }) },
+      { t: "Label every picture", d: ["Under each picture type who or what it is. The label is how your scene text points at the picture, so make it something you will repeat word for word."], eg: "Picture 1: the woman with red hair\nPicture 2: the brown leather jacket", tip: "Unlabeled pictures are only called “the main subject”. With two or more, the model cannot tell which is which.", go: go(1, "Add pictures", { start: "refs" }) },
+      { t: "Write the scene with the same labels", d: ["Back in step 1, describe the new scene and use the labels exactly as typed. Do not leave the scene boxes empty: the pictures say who, the boxes say where and what."], eg: "Scene: The woman with red hair sits at a wooden desk in a small radio studio at night, wearing the brown leather jacket.\nWhat happens: She leans to the microphone and speaks, then smiles.", go: go(0, "Describe the scene", { start: "refs" }) },
+      { t: "Passes and limits", d: [S.ref2va_turbo ? "20 passes is the model as released. Turbo 4 passes is about 2.5 times faster and good for trying ideas." : "Reference clips use 20 plain passes.", "Reference clips are at most 15 seconds and are slower than plain FastH3 clips."], tip: "Speech rules are the same as in “Speech, sound and music”: fit the line to the clip length.", go: go(0, "Reference to video", { start: "refs" }) } ] }] : []),
+    { id: "long", track: "Create", title: "Videos longer than 15 seconds", sub: "chained clips and story beats", steps: [
+      { t: "Pick a long length", d: ["The model makes at most 15 seconds at a time. Choose 30 seconds or more under Length and the app renders several 15 second clips, each opening on the last frame of the one before, then joins them."], tip: "Not available with reference pictures.", go: go(0, "Length", { start: "text" }) },
+      { t: "Write story beats", d: ["With a long length a “Story beats” box appears. Write one line per 15 second clip, in order. The last line is used for every clip after it."], eg: "He rides down the chute.\nHe stops at the river and looks back.\nHe wades across carrying the bike.", tip: "Without beats every clip gets the same action, so the video repeats itself. “Show me in the app” sets the length to 30 seconds so the box is there.", go: go(0, "Story beats", { start: "text", seconds: "30" }) },
+      { t: "What to expect", d: ["Finished clips appear in the queue as they land. The look drifts a little with every clip, so faces and colors change over a long video. For a film where each part must look right, use the Production tab and check each segment."], go: go(0, "Length") } ] },
+    { id: "image", track: "Create", title: "Images only", sub: "stills with Qwen-Image", steps: [
+      { t: "Switch to image", d: ["Set “The prompt goes to” to “Image only”. The form shrinks to one box, a size, how many and a seed."], go: { tab: "Create", step: 0, spot: "The prompt goes to", set: { goes: "image" } } },
+      { t: "Make and use them", d: ["“Make image” queues the batch; seeds count up from the one you gave. Each result has “Download” and “animate this”, which takes the image to Create as the first frame of a video."], go: { tab: "Create", step: 0, spot: "Make image", set: { goes: "image" } } } ] },
+    { id: "queue", track: "Create", title: "The queue", sub: "time left, cancel, logs", steps: [
+      { t: "One job at a time", d: ["Everything you queue from any tab lands in the list on the right and runs in order. You can keep working and queue more while a job runs."], go: { tab: "Create", spot: "Queue" } },
+      { t: "Reading a job", d: ["A running job shows its stage and the time left. “Cancel” stops a queued or running job. “Log” shows what the engine printed, which is where to look when a job fails.", "A finished job shows how long it took."], tip: "The list lives in memory. It empties when the app restarts; the files stay in the Library." } ] },
+    { id: "production", track: "Production", title: "A film in segments", sub: "plan, render and hand over to the editor", steps: [
+      { t: "Projects", d: ["Production is for a film made of several clips. A project holds its segments and its editor timeline. Pick one, rename it, or press “New project”."], go: on("Production", "Project") },
+      { t: "One output for all", d: ["“Output for every segment” and “Quality” apply to the whole project, so every segment has the same size and joins cleanly."], go: on("Production", "Output for every segment") },
+      { t: "Add segments", d: ["“+ Add a segment” adds one shot. Give it a title and a length. The strip above shows all segments in proportion with the total running time. A new segment copies the scene text of the one before, so you only change what differs."], go: on("Production", "+ Add a segment") },
+      { t: "Choose what each segment opens on", d: ["“Nothing” makes a fresh shot from text. “The last frame of the segment before” continues the previous shot without a cut. “An image from the library” opens on a picture: paste its path, copied from the Library tab."], tip: "Use “the last frame of the segment before” for one continuous scene and “nothing” or an image for a cut to a new place.", go: on("Production", "+ Add a segment") },
+      { t: "Write each segment", d: ["The boxes mean the same as in Create: the scene, what happens, a voice with one spoken line, and the soundscape. Keep the description of people identical across segments so they stay recognizable."], go: on("Production", "+ Add a segment") },
+      { t: "Render", d: ["“Render” on a segment queues just that one. “Generate every segment not yet rendered” queues the rest in order, including any that failed. “Render again” replaces a segment you do not like; change its seed first for a different take."], go: on("Production", "Generate every segment") },
+      { t: "Send to the editor", d: ["“Send rendered segments to the editor” puts every rendered segment on the project's timeline, in order, and opens the Editor."], tip: "This replaces the timeline that project had. Trims you made there are lost, so send first and trim after.", go: on("Production", "Send rendered segments") } ] },
+    { id: "editor", track: "Editor", title: "Cut and export", sub: "timeline, trims and the final file", steps: [
+      { t: "Put clips on the timeline", d: ["The media bin at the bottom shows your videos; hover one to play it. “+ timeline” adds it to the end of the timeline. Clips also arrive from Create (“Add to the editor timeline”), the Library and Production."], tip: "The timeline belongs to the project selected in the Production tab.", go: on("Editor", "Media bin") },
+      { t: "Order the clips", d: ["On each timeline clip, ← and → move it and ✕ removes it from the timeline. The file itself stays in the Library. Click a clip to show it in the preview."], go: on("Editor", "Timeline") },
+      { t: "Trim with In and Out", d: ["In and Out are seconds within the clip. In 0.5 skips the first half second; Out 4 stops at four seconds. Out left at 0 plays the clip to its end."], eg: "A 5 s clip with In 0.5 and Out 4.2 contributes 3.7 s.", tip: "Trim the first few frames of clips that open on the last frame of another, so the join does not stutter.", go: on("Editor", "Timeline") },
+      { t: "Play the sequence", d: ["“▶ Play the sequence” plays the timeline from the first clip with your trims applied. The line under it shows the total length."], go: on("Editor", "▶ Play the sequence") },
+      { t: "Export", d: ["Pick the size next to the button and press “Export”. The export runs in the queue; when it is done the result plays here with “Download the export”."], tip: "Pick the size your clips were rendered at or the next one up. Exporting much larger than the source does not add detail.", go: on("Editor", "Export") } ] },
+    { id: "library", track: "Library", title: "Find and reuse your files", sub: "clips, images and their paths", steps: [
+      { t: "What is in the Library", d: ["Every clip, scout, image and export the app has made, as files under " + S.home + ". They stay there when the app restarts."], go: on("Library", "Library") },
+      { t: "Copy a path", d: ["Click the name under a file to copy its path. Paste it into a Production segment that opens on “an image from the library”."], go: on("Library", "Library") },
+      { t: "Reuse a file", d: ["On a video, “+ timeline” adds it to the editor timeline. On an image, “use” takes it to Create as the first frame of a new clip."], go: on("Library", "Library") } ] } ]; }
+// outline the control a step talks about; Production and Editor draw themselves a moment after the tab opens, so look again
+function spot(text, tries = 14) { if (!text) return; const want = text.toLowerCase();
+  const hit = [...document.querySelectorAll("#view label, #view h2, #view h3, #view button, aside h2")].find(n => n.textContent.trim().toLowerCase().startsWith(want));
+  if (!hit) { if (tries) setTimeout(() => spot(text, tries - 1), 200); return; }
+  const kin = hit.parentElement, lone = hit.tagName !== "LABEL" || hit.classList.contains("switch");
+  const marks = hit.closest("aside") ? [hit.closest("aside")] : lone ? [hit] : kin.children.length === 2 ? [kin] : [hit, hit.nextElementSibling].filter(Boolean);
+  document.querySelectorAll(".spot").forEach(n => n.classList.remove("spot")); marks.forEach(n => n.classList.add("spot"));
+  marks[0].scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => marks.forEach(n => n.classList.remove("spot")), 7000); }
+function tutorialGo(go) { if (go.set && Object.entries(go.set).some(([k, v]) => C[k] !== v)) { Object.assign(C, go.set); sync(); C.prompt = ""; }
+  if (go.step != null) C.step = go.step; tab = go.tab; T.coach = true; history.replaceState(null, "", "#" + tab); render(); spot(go.spot); }
+function tutorialMove(by) { const L = lessons().find(l => l.id === T.id), n = T.step + by; if (n < 0) return;
+  if (n >= L.steps.length) { finish(L.id); T.coach = false; tab = "Tutorial"; render(); return; }
+  T.step = n; if (L.steps[n].go) tutorialGo(L.steps[n].go); else { tab = "Tutorial"; render(); } }
+// the bar that stays with the user outside the Tutorial tab
+function coach() { const old = $("#coach"); if (old) old.remove(); const L = T.coach && tab !== "Tutorial" && lessons().find(l => l.id === T.id);
+  document.body.style.paddingBottom = L ? "120px" : ""; if (!L) return; const st = L.steps[T.step], last = T.step === L.steps.length - 1;
+  document.body.append(el("div", { id: "coach", role: "region", "aria-label": "Tutorial" }, el("div", { class: "say" }, el("small", {}, L.title + " · step " + (T.step + 1) + " of " + L.steps.length), el("b", {}, st.t), el("span", {}, " " + st.d[0])),
+    el("button", { class: "small", disabled: T.step === 0, onclick: () => tutorialMove(-1) }, "‹ Previous"), el("button", { class: "small primary", onclick: () => tutorialMove(1) }, last ? "Finish lesson" : "Next ›"),
+    el("button", { class: "small", onclick: () => { tab = "Tutorial"; render(); } }, "Back to the tutorial"), el("button", { class: "small", title: "Hide this bar", "aria-label": "Hide this bar", onclick: () => { T.coach = false; render(); } }, "✕"))); }
+function viewTutorial() {
+  const all = lessons(), L = all.find(l => l.id === T.id) || all[0]; T.id = L.id; if (T.step >= L.steps.length) T.step = 0;
+  const st = L.steps[T.step], last = T.step === L.steps.length - 1, mine = all.filter(l => l.track === L.track), after = all[all.indexOf(L) + 1];
+  const open = (id, step = 0) => { T.id = id; T.step = step; T.coach = false; render(); };
+  const done = all.filter(l => seen.has(l.id)).length;
+  return el("section", { class: "card" }, el("h2", {}, "How to use TensorFold Studio"),
+    el("div", { class: "note" }, "Short lessons for each tab. Read a step, press “Show me in the app” to be taken to the control it is about, and follow the bar at the bottom from there. " + done + " of " + all.length + " lessons done. ",
+      done ? el("a", { href: "#", onclick: e => { e.preventDefault(); seen.clear(); try { localStorage.removeItem("tutorial-done"); } catch {} render(); } }, "Start over") : null),
+    el("label", {}, "Which part of the app"), el("div", { class: "choice", role: "radiogroup" }, Object.entries(TRACKS).map(([name, sub]) => { const set = all.filter(l => l.track === name);
+      return el("button", { type: "button", role: "radio", "aria-checked": String(name === L.track), class: name === L.track ? "on" : "", onclick: () => open(set[0].id) }, el("b", {}, name), el("span", {}, sub + " · " + set.filter(l => seen.has(l.id)).length + "/" + set.length + " done")); })),
+    el("div", { class: "tut" },
+      el("div", { class: "list" }, el("h3", { style: "margin-top:0" }, L.track + " lessons"), mine.map(l => el("button", { class: l.id === L.id ? "on" : "", onclick: () => open(l.id) },
+        el("i", { class: "tick" + (seen.has(l.id) ? " ok" : "") }, seen.has(l.id) ? "✓" : ""), el("div", {}, l.title, el("span", {}, l.sub + " · " + l.steps.length + " steps"))))),
+      el("div", {}, el("h3", { style: "margin-top:0" }, L.title + " · step " + (T.step + 1) + " of " + L.steps.length),
+        el("div", { class: "dots" }, L.steps.map((s, i) => el("button", { class: i === T.step ? "on" : i < T.step ? "past" : "", title: s.t, "aria-label": "Step " + (i + 1) + ": " + s.t, onclick: () => open(L.id, i) }, i + 1))),
+        el("h2", {}, st.t), st.d.map(p => el("p", { class: "lead" }, p)),
+        st.eg ? el("div", { class: "eg", style: "white-space:pre-line" }, el("b", {}, "Example"), st.eg) : null, st.tip ? el("div", { class: "tip" }, el("b", {}, "Tip"), st.tip) : null,
+        el("div", { class: "row", style: "margin-top:18px" }, el("button", { class: "fit", disabled: T.step === 0, onclick: () => open(L.id, T.step - 1) }, "Back"),
+          st.go ? el("button", { class: "primary fit", onclick: () => tutorialGo(st.go) }, "Show me in the app") : null,
+          L.example && T.step === 0 ? el("button", { class: "fit", onclick: () => { Object.assign(C, structuredClone(L.example), { step: 0, prompt: "", image: null }); sync(); toast("Example loaded into Create"); tutorialGo({ tab: "Create", step: 0, spot: "Describe the scene" }); } }, "Fill Create with this example") : null,
+          el("span"), last ? el("button", { class: "hot fit", onclick: () => { finish(L.id); if (after) open(after.id); else { toast("That was the last lesson"); render(); } } }, after ? "Finish · next: " + after.title : "Finish")
+            : el("button", { class: "primary fit", onclick: () => open(L.id, T.step + 1) }, "Next step")))));
+}
+
 /* ---------- Queue ---------- */
 // elapsed comes from the server: this browser's clock may differ from the machine that renders
 function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != null ? job.elapsed : (job.started ? ((job.finished || Date.now() / 1000) - job.started) : null);
@@ -441,9 +575,9 @@ async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
     if (JSON.stringify(fresh.timeline) !== JSON.stringify(project.timeline)) { project = fresh; render(); } } catch {} }
   const sig = jobs.map(j => j.id + j.status).join(); if (sig !== lastSig) { const had = lastSig; lastSig = sig; if (had && !document.activeElement.matches("input,textarea,select")) render(); } }
 
-function render() { $("#tabs").replaceChildren(...["Create", "Production", "Editor", "Library"].map(t => el("button", { class: t === tab ? "on" : "", onclick: () => { tab = t; history.replaceState(null, "", "#" + t); render(); } }, t)));
-  $("#view").replaceChildren({ Create: viewCreate, Production: viewProduction, Editor: viewEditor, Library: viewLibrary }[tab]()); }
-(async () => { const want = decodeURIComponent(location.hash.slice(1)); if (["Create", "Production", "Editor", "Library"].includes(want)) tab = want;
+function render() { $("#tabs").replaceChildren(...TABS.map(t => el("button", { class: t === tab ? "on" : "", onclick: () => { tab = t; history.replaceState(null, "", "#" + t); render(); } }, t)));
+  $("#view").replaceChildren({ Create: viewCreate, Production: viewProduction, Editor: viewEditor, Library: viewLibrary, Tutorial: viewTutorial }[tab]()); coach(); }
+(async () => { const want = decodeURIComponent(location.hash.slice(1)); if (TABS.includes(want)) tab = want;
   // links can preset the Create form: ?goes=image, ?engine=h3&res=720p&up=1&step=4 ...
   for (const [k, v] of new URLSearchParams(location.search)) if (k in C && k !== "mode") C[k] = k === "up" ? v === "1" : (k === "step" || k === "count" ? Number(v) : v);
   S = await api("/api/state"); if (!S.turbo) C.engine = "fasth3"; sync(); $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "TensorFold Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000); })();
