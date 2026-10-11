@@ -1,4 +1,4 @@
-# GHCR carrier for keys-TensorFold Studio (Mac+DGXSpark 64GB VRam Min), one image for both builds. This is NOT a
+# GHCR carrier for keys-TensorFold Studio × Wasserman Slate AI Studio (Mac + DGX Spark), one image for both builds. This is NOT a
 # runtime: neither Metal nor the Spark's models run in it. For a DGX Spark it carries the prebuilt CUDA engine
 # (/payload/spark-engine); for a Mac it carries
 # the pinned TensorFold wheel (with the H3 and Qwen-Image families), the dependency lock and the render scripts;
@@ -6,7 +6,7 @@
 #
 #   docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.5 cp -a /payload/. /out/
 FROM busybox:1.37
-LABEL org.opencontainers.image.source="https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min"
-LABEL org.opencontainers.image.description="Carrier (not a runtime): keys-TensorFold Studio (Mac+DGXSpark 64GB VRam Min) 2.5, both builds: the DGX Spark's prebuilt CUDA H3 engine; for Macs the TensorFold wheel with the MiniMax H3 and Qwen-Image-2.1 families, the prebuilt native Zig + Metal FastH3 engine, dependency lock and render scripts for Apple Silicon"
+LABEL org.opencontainers.image.source="https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark"
+LABEL org.opencontainers.image.description="Carrier (not a runtime): keys-TensorFold Studio × Wasserman Slate AI Studio (Mac + DGX Spark) 2.5, both builds: the DGX Spark's prebuilt CUDA H3 engine; for Macs the TensorFold wheel with the MiniMax H3 and Qwen-Image-2.1 families, the prebuilt native Zig + Metal FastH3 engine, dependency lock and render scripts for Apple Silicon"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 COPY payload/ /payload/

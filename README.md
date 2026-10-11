@@ -1,10 +1,20 @@
-# keys-TensorFold Studio (Mac+DGXSpark 64GB VRam Min)
+# keys-TensorFold Studio × Wasserman Slate AI Studio (Mac + DGX Spark)
 
-**Qwen-Image-2.1-Turbo images and MiniMax H3 / FastH3 video with sound, on TensorFold: Apple-silicon Macs (Metal) and the NVIDIA DGX Spark (CUDA).**
+**An AI film studio on your own machine: plan a film the way a crew does in the Wasserman Slate AI Studio, and render
+it here. Qwen-Image-2.1-Turbo images and MiniMax H3 / FastH3 video with sound, on TensorFold: Apple-silicon Macs
+(Metal) and the NVIDIA DGX Spark (CUDA).**
 
-[![TensorFold Studio: Qwen-Image 2.1, MiniMax H3 and FastH3 on Apple silicon](samples/banner.jpg)](https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min)
+[![TensorFold Studio with the Wasserman Slate AI Studio: an AI film studio for Mac and NVIDIA DGX Spark](samples/banner.jpg)](https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark)
 
-*Banner art made with this studio's own Qwen-Image-2.1 step (1664x928, seed 24); the lettering was set afterwards.*
+*Banner art made with this studio's own Qwen-Image-2.1 step (1664x928, seed 25); the lettering was set afterwards.*
+
+## Big credit: Sam Wasserman (wassermanproductions.com)
+
+**Sam Wasserman shaped the production side of this studio: the AI film workflow and the ideas behind it.** Slate, his
+prompt studio for AI filmmaking, is the workflow inside the Wasserman Slate AI Studio tab. The Wasserman Sharp Spec,
+the QA gate that follows it, and the 80s Horror LoRA that opens the Keys and Wasserman LoRA Hub are his too. The aim
+we share is the best AI film studio there is, and this pack is where his planning tools meet a render engine. See
+[CREDITS.md](CREDITS.md).
 
 **Thank you to everyone this stands on:** the Qwen team at Alibaba (Qwen-Image-2.1, Qwen3-VL), the MiniMax team
 (MiniMax H3), Ash Hart and the TensorFold contributors, antirez (h3.c), RobZombAI (H3MLX), mrbizarro (minimax-h3-mlx /
@@ -105,7 +115,7 @@ badge, or a purple `MAC · APPLE SILICON MX · H3-METAL`.
 the Qwen team for Qwen-Image-2.1-Turbo, and the ComfyUI team for the runtime this build stands on.
 
 ```bash
-git clone https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min.git && cd keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min
+git clone https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark.git && cd keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark
 sudo apt install -y git ffmpeg
 bash oneshot-setup.sh            # the same command as on a Mac: on Linux it runs oneshot-setup-spark.sh
                                  # 99 GB of models, the engine build, a test image and a 5 second test clip
@@ -322,8 +332,8 @@ megabytes. On an M1 to M4 the setup also writes the 8-bit FastH3 weights (37 GB)
 
 ```bash
 brew install python@3.11 uv ffmpeg
-git clone https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min.git
-cd keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min
+git clone https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark.git
+cd keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark
 bash oneshot-setup.sh --app             # engine, image model, FastH3, 2x decoder, the app; ends with a test clip
 bash oneshot-setup.sh --turbo --app     # the same plus MiniMax H3 Turbo (64 GB more on disk, 128 GB of memory)
 bash oneshot-setup.sh --ref2va --app    # the same plus reference pictures to video (64 GB more on disk, 128 GB of memory)
@@ -337,7 +347,7 @@ if it is not running and opens it in your browser; double-click again to come ba
 
 **Or hand it to your coding agent.** Paste this:
 
-> Clone https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min and follow its AGENTS.md section "Install for a
+> Clone https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark and follow its AGENTS.md section "Install for a
 > person and build the one-click app". Tell me before any large download starts and when the app is ready.
 
 `--turbo` adds MiniMax H3's own transformer and its Turbo adapter, and with them a second engine card in the app;
@@ -752,8 +762,8 @@ gives the same scene with a different rendering.
 ## One-shot
 
 ```bash
-git clone https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min.git
-cd keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min
+git clone https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark.git
+cd keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark
 brew install python@3.11 uv ffmpeg
 bash oneshot-setup.sh               # both models and the 2x decoder: 182 GB of weights
 bash oneshot-setup.sh --image-only  # or just Qwen-Image-2.1: 33 GB
@@ -764,7 +774,7 @@ bash oneshot-setup.sh --image-only  # or just Qwen-Image-2.1: 33 GB
 1. Gets TensorFold 0.6.5 with the H3 and Qwen-Image families (`drowzeys/TensorFold` at `a2068c03`), from the **GHCR
    prebuilt carrier** when Docker is available (checksums verified), otherwise from git at the same commit.
    The native FastH3 engine (`tf-h3-dit`) comes from the same carrier, or without Docker as a checksummed download
-   from the [v2.0 release](https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min/releases/tag/v2.0); no Zig toolchain is needed.
+   from the [v2.0 release](https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark/releases/tag/v2.0); no Zig toolchain is needed.
 2. Installs it with mflux at `add5164e` and the dependency lock ([`requirements.lock`](requirements.lock): mlx 0.32.3,
    mlx-lm 0.32.0, mlx-vlm 0.7.4, …) into its own venv at `~/.local/opt/tensorfold-studio`.
 3. Downloads `Qwen/Qwen-Image-2.1-Turbo` (33 GB) to `~/qwen-models/Qwen-Image-2.1-Turbo`. Where an earlier install's
