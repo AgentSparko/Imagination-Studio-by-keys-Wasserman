@@ -27,6 +27,7 @@ PREFIX = Path(os.environ.get("PREFIX", Path.home() / ".local/opt/tensorfold-stud
 URL = os.environ.get("SPARK_COMFY_URL", "http://127.0.0.1:8190")
 STATE = PREFIX / "comfy.kind"
 ENGINE_LIB = PREFIX / "tf-h3" / "libtf_h3.so"
+MODELS = Path(os.environ.get("SPARK_MODELS", Path.home() / "spark-studio-models"))
 
 FASTH3 = {"bf16": "fastvideo_fasth3_8step_v2_pruned_bf16.safetensors",
           "int8": "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors"}
@@ -259,6 +260,24 @@ def video(args) -> None:
         return reference(args)
     if args.steps is None:
         args.steps = 8
+    loras = []
+    for spec in args.lora:
+        # a style LoRA is merged by ComfyUI at run time, which only works on the bf16 file and on ComfyUI's own
+        # blocks: the 8-bit file's weights are rotated, and the TensorFold engine reads its own copy of the weights
+        path, _, strength = spec.rpartition(":") if spec.rsplit(":", 1)[-1].replace(".", "", 1).isdigit() else (spec, "", "1.0")
+        source = Path(path).resolve()
+        if not source.is_file():
+            sys.exit(f"no LoRA at {path}")
+        link = MODELS / "loras" / f"hub_{source.name}"
+        if not link.exists() or link.resolve() != source:
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.unlink(missing_ok=True)
+            link.symlink_to(source)
+        loras.append((link.name, float(strength)))
+    if loras:
+        if args.engine == "tensorfold" or args.weights != "bf16":
+            print("[tensorfold] a LoRA renders on ComfyUI's own blocks with the bf16 weights", flush=True)
+        args.engine, args.weights = "comfy", "bf16"
     sparsity = args.sparsity
     if sparsity is None and args.engine == "tensorfold":
         sparsity = 0.8    # what FastH3 was trained with; the engine's sparse kernel is the faster one at every size
@@ -268,7 +287,19 @@ def video(args) -> None:
         sparsity = 0.8 if args.width * args.height >= 700_000 else 0.0
     if args.engine == "tensorfold" and not ENGINE_LIB.exists():
         sys.exit(f"no TensorFold engine at {ENGINE_LIB}: run spark/build-engine.sh, or use --engine comfy")
-    ensure_server("video")
+    last = STATE.read_text().strip() if STATE.exists() else ""
+    if up() and (loras or "lora" in last):
+        # On a Spark the GPU and the system share one pool. With the bf16 weights (42 GB) a text encoder (26 GB) that
+        # comes back for a new prompt makes ComfyUI move the model aside and load it again, and the two copies do not
+        # fit: measured, free memory fell from 50 GB to 8. A server with nothing loaded keeps about 30 GB free.
+        print("[tensorfold] restarting ComfyUI: a LoRA render starts from a server with nothing loaded", flush=True)
+        subprocess.run(["bash", str(HERE / "comfy.sh"), "stop"], check=False)
+        for _ in range(60):
+            if not up():
+                break
+            time.sleep(1)
+        time.sleep(3)
+    ensure_server("video+lora" if loras else "video")
     model = ["2", 0]
     w = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": FASTH3[args.weights], "weight_dtype": "default"}},
@@ -295,6 +326,12 @@ def video(args) -> None:
     if args.first_frame:
         w["20"] = {"class_type": "LoadImage", "inputs": {"image": upload(args.first_frame)}}
         w["6"]["inputs"]["first_frame"] = ["20", 0]
+    for index, (name, strength) in enumerate(loras):
+        if not installed("lora", name):
+            sys.exit(f"ComfyUI does not list the LoRA {name}")
+        node = str(30 + index)
+        w[node] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": w["2"]["inputs"]["model"], "lora_name": name, "strength_model": strength}}
+        w["2"]["inputs"]["model"] = [node, 0]
     if args.engine == "tensorfold":
         # the 50 blocks of every pass on TensorFold's CUDA family, int8 on the tensor cores, with FastH3's own sparse
         # attention; ComfyUI keeps the text encoder, the sampler and the decoders
@@ -400,6 +437,7 @@ def main() -> None:
                    default=os.environ.get("SPARK_ENGINE") or ("tensorfold" if ENGINE_LIB.exists() else "comfy"),
                    help="what runs the transformer blocks: TensorFold's CUDA family (the default once "
                         "spark/build-engine.sh has built it) or ComfyUI's own")
+    v.add_argument("--lora", action="append", default=[], help="a style LoRA, PATH or PATH:STRENGTH (repeat to stack)")
     v.add_argument("--sparsity", type=float, default=None, help="sparse attention (0 is dense); default by size")
     v.set_defaults(run=video)
     i = kinds.add_parser("image")

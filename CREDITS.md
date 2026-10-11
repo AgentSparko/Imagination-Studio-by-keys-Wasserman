@@ -20,6 +20,11 @@ The **Wasserman Sharp Spec** button and the QA gate behind it are his too: the l
 passes, seed 42, one pass with no upscale) and the two gates, a transcript of the spoken line and a three-frame
 contact sheet checked by a vision model, with one retake at the next seed. `app/qa.py` is this pack's writing of them.
 
+The first preset of the *Keys and Wasserman LoRA Hub* is his **80s Horror LoRA** (Wasserman 80s Horror LoRA, a style
+LoRA for MiniMax H3). The pack holds only its recipe; the weights are downloaded from his release when a user installs
+them, as a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement. 80s Horror LoRA by Sam
+Wasserman (wassermanproductions.com). Powered by MiniMax H3.
+
 ## The image model: the Qwen team
 
 The **Qwen team at Alibaba** released **Qwen-Image-2.1**: the 7B single-stream transformer with its causal text

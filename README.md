@@ -424,6 +424,29 @@ Each clip made to the spec then goes through his **QA gate** (`app/qa.py`), abou
 
 A gate whose tool is missing on the machine is shown as skipped and does not fail the clip.
 
+#### Keys and Wasserman LoRA Hub
+
+A library of style LoRAs for MiniMax H3 that a clip can be rendered with. It is in the video settings of Create
+(step 1), on the Production board and in the Slate film settings.
+
+- **Pick.** Each LoRA in the hub is a button. Click one to render with it; click again to drop it. Up to four can be
+  stacked. Each picked LoRA has a strength and, when its recipe has them, a look to choose (VHS or 16mm film for the
+  first preset). Its trigger word and look phrase are put at the start of the shot for you.
+- **Install.** A LoRA that is not on the machine yet shows a download mark. The first click asks, shows the file's
+  licence, and downloads it from its author's own page into `~/TensorFoldStudio/loras/`. No weights ship with this
+  pack.
+- **Add.** "+ Add LoRA" takes a recipe: a name, the download address of the `.safetensors` file or an uploaded file,
+  the trigger word, the strength, and optional looks. It becomes a button in the hub on that machine. Presets that
+  ship with the pack are in `app/lora-presets.json`.
+- **First preset: Wasserman-80's Horror LORA** by Sam Wasserman (wassermanproductions.com), the look of a 1970s-80s
+  horror movie. Its weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement,
+  with that licence's territory limits; read WEIGHTS_LICENSE.md on the LoRA's page before downloading.
+
+How it renders: on a Mac the file is rewritten once (`scripts/convert-lora.py`) and merged at load by the MLX engine,
+for MiniMax H3 at any quality and for FastH3 (which then runs on the MLX engine, not the native one). On a DGX Spark
+ComfyUI merges it into FastH3's full-precision weights and its own blocks render the clip, not the TensorFold engine.
+Both are slower than the usual path and have no time estimate. A LoRA is not applied to reference-to-video clips.
+
 #### Wasserman Slate AI Studio
 
 At the top of **Production** there are two ways to plan a film: the board of segments above, or **Wasserman Slate AI

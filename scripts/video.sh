@@ -11,7 +11,7 @@
 #   ENGINE=fasth3 STEPS=8 bash scripts/video.sh "a prompt" out.mp4       # FastH3; see scripts/fast.sh
 # Environment: PREFIX, H3_MODEL_DIR, ADAPTER (a file, or none), FIRST_FRAME (an image the clip starts from; it is
 # stretched onto the canvas, so match its aspect ratio), WIDTH, HEIGHT, FRAMES (17n+5), SEED,
-# QUALITY (standard, high or full), POINTS (sigma points, one more than the passes: default 6 with the adapter, 21
+# LORA (style LoRAs, one PATH:STRENGTH per line), QUALITY (standard, high or full), POINTS (sigma points, one more than the passes: default 6 with the adapter, 21
 # without), REVOICE (audio steps made again without the adapter after an adapter render: default 20, 0 keeps the
 # adapter's own sound), AUDIO_EQ / AUDIO_BASS / AUDIO_BASS_TARGET (see below), AUDIO_SHIFT (experimental: the audio schedule's shift,
 # 3 in the model; lower values add bass but roughen speech), EXTRA (extra flags for h3_generate.py).
@@ -115,6 +115,7 @@ if [ "$ENGINE" = fasth3 ]; then
   [ -n "$WHY" ] || sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -Eq 'Apple M([5-9]|[1-9][0-9])' || WHY="this chip has no tensor units"
   [ -n "$WHY" ] || [ -z "${AUDIO_SHIFT:-}${EXTRA:-}" ] || WHY="AUDIO_SHIFT and EXTRA are MLX options"
   [ -n "$WHY" ] || [ -z "$TEXT_ENCODER" ] || WHY="TEXT_ENCODER is an MLX option"
+  [ -n "$WHY" ] || [ -z "${LORA:-}" ] || WHY="a LoRA is merged by the MLX engine"
   case "${FASTH3_ENGINE:-auto}" in
     mlx) WHY="FASTH3_ENGINE=mlx";;
     zig) [ -z "$WHY" ] || { echo "FASTH3_ENGINE=zig, but $WHY" >&2; exit 2; };;
@@ -142,6 +143,8 @@ if [ "$ENGINE" = fasth3 ]; then
   echo "[tensorfold] engine: mlx ($WHY)"
 fi
 [ "$ADAPTER" = none ] || ARGS+=(--lora "$ADAPTER")
+# style LoRAs from the hub, one PATH:STRENGTH per line, already in the layout --lora reads (scripts/convert-lora.py)
+if [ -n "${LORA:-}" ]; then while IFS= read -r ONE; do [ -z "$ONE" ] || ARGS+=(--lora "$ONE"); done <<<"$LORA"; fi
 [ -z "${AUDIO_SHIFT:-}" ] || ARGS+=(--audio-shift "$AUDIO_SHIFT")
 [ -z "${FIRST_FRAME:-}" ] || ARGS+=(--first-frame "$FIRST_FRAME")
 [ -z "$TEXT_ENCODER" ] || ARGS+=(--text-encoder "$TEXT_ENCODER")

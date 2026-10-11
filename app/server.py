@@ -415,6 +415,12 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
     fast_h3 = SPARK or env.get("ENGINE") == "fasth3"
     prompt = params["prompt"]
     image = params.get("image")
+    styles = lora_resolve(params.get("loras"))  # the LoRA hub (loras.py): files to merge, and their trigger words
+    if styles:
+        if kind == "video" and references(params):
+            raise HTTPException(400, "a LoRA from the hub is for MiniMax H3 and FastH3 clips, not for reference to video")
+        env["LORA"] = "\n".join(f"{one['path']}:{one['strength']:g}" for one in styles) + "\n"
+        prompt = lora_lead(prompt, styles)
     if kind == "video":  # text to video, or from an image the user already has
         pictures = references(params)
         if pictures:
@@ -681,8 +687,8 @@ def compose_prompt(body: dict) -> dict:
 
 @app.post("/api/estimate")
 def estimate_time(body: dict) -> dict:
-    if body.get("preset") == "custom" or body.get("steps") not in (None, ""):
-        return {"seconds": None}
+    if body.get("preset") == "custom" or body.get("steps") not in (None, "") or body.get("loras"):
+        return {"seconds": None}  # a LoRA changes which engine renders the clip: no time is measured for it
     return {"seconds": estimate(body.get("preset", "draft"), body.get("quality", "standard"),
                                 int(body.get("seconds", 5)), bool(body.get("text_only")), bool(body.get("referenced")),
                                 bool(body.get("ref_turbo")))}
@@ -712,7 +718,7 @@ def submit(body: dict) -> dict:
         build(kind, params, job_id)  # reject bad settings now, not when the job's turn comes
     job = {"id": job_id, "kind": kind, "status": "queued", "title": body.get("title") or kind, "params": params,
            "outputs": [], "progress": None, "error": None, "log": "", "created": time.time(), "started": None,
-           "finished": None, "estimate": None if params.get("preset") == "custom" or params.get("steps") not in (None, "") else estimate(params.get("preset", ""), params.get("quality", "standard"),
+           "finished": None, "estimate": None if params.get("preset") == "custom" or params.get("steps") not in (None, "") or params.get("loras") else estimate(params.get("preset", ""), params.get("quality", "standard"),
                                                   int(params.get("total_seconds") or params.get("seconds", 5)),
                                                   kind == "video" and not params.get("image")
                                                   and not params.get("first_frame_from"), referenced,
@@ -753,7 +759,7 @@ def cancel(job_id: str) -> dict:
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)) -> dict:
     suffix = Path(file.filename or "image.png").suffix.lower()
-    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov"):
+    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov", ".safetensors"):  # .safetensors: a LoRA for the hub
         raise HTTPException(400, "images (png, jpg, webp) and videos (mp4, mov) only")
     target = HOME / "uploads" / f"{uuid.uuid4().hex[:10]}{suffix}"
     with open(target, "wb") as handle:
@@ -872,6 +878,9 @@ async def errors(_, error: HTTPException):
     return JSONResponse({"error": error.detail}, status_code=error.status_code)
 
 
+import loras  # noqa: E402  (Keys and Wasserman LoRA Hub, beside this file)
+lora_router, lora_resolve, lora_lead = loras.attach(HOME, PACK, SPARK)
+app.include_router(lora_router)
 import qa  # noqa: E402  (Sam Wasserman's QA gate, beside this file)
 import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)
 
