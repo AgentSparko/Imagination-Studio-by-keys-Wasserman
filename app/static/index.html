@@ -220,7 +220,7 @@ function viewCreate() {
     el("span"), C.step < 4 ? el("button", { class: "primary fit", onclick: () => { C.step++; render(); } }, "Next") : null);
   sync();
   const goes = el("div", {}, el("label", {}, "The prompt goes to"), choice(C, "goes", { video: ["Video with sound", S.turbo ? "FastH3 or MiniMax H3" : "FastH3"], image: ["Image only", "Qwen-Image-2.1"] }, changed));
-  const picture = field("The picture: who and what is in frame, where, the light", bind(C, "scene", el("textarea", { placeholder: "A middle-aged baker in a cream shirt and green apron behind a wooden counter in a small bakery at dawn, warm window light from the left…" })));
+  const picture = field("Describe the scene / condition where it takes place", bind(C, "scene", el("textarea", { placeholder: isRef() ? "The woman with red hair sits at a wooden desk in a small radio studio at night, medium close-up, a warm lamp on the left." : "A middle-aged baker in a cream shirt and green apron behind a wooden counter in a small bakery at dawn, warm window light from the left…" })));
   if (C.mode === "image") {
     // the prompt goes to the image model and stops there
     const made = C.imageJob && jobs.find(j => j.id === C.imageJob);
