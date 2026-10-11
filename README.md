@@ -403,6 +403,27 @@ sends a clip to the editor, and 🗑 moves a file to `~/TensorFoldStudio/trash`.
 
 ![Tutorial](samples/ui_tutorial.png)
 
+#### Wasserman Sharp Spec
+
+A **Wasserman Sharp Spec** button sits in Create (step 1), on the Production board and in the Slate film settings. One
+click sets Sam Wasserman's locked recipe, so every clip is made the same way: 1376x768 generated in one pass with no
+upscale and no crop, FastH3 at 8 passes (sparse attention 0.8), seed 42, and 8 or 10 seconds (192 or 243 frames at
+24 fps). The file is H.264 High yuv420p with 32 kHz stereo AAC, as for every clip here. A retake is the next seed. The
+button shows a tick while every setting still matches; changing one of them turns it off.
+
+Each clip made to the spec then goes through his **QA gate** (`app/qa.py`), about a quarter of a minute:
+
+- **Speech.** The clip's sound is transcribed (faster-whisper if it is installed, else the `whisper` command) and has
+  to hold the line the prompt asked for. A prompt with no spoken line passes.
+- **Identity.** Three frames (1 s, the middle, 1 s before the end) go side by side on one contact sheet, and a vision
+  model checks that face, hair and wardrobe are the same in all three with no smeared faces. The model is the film's
+  brain, or Claude Code, Codex or a local vision model, under your own sign-in: the sheet is sent to that model.
+- **Retake.** A clip that fails either gate is rendered once more at the next seed; the failed take and every contact
+  sheet are kept in `~/TensorFoldStudio/qa/`. The job card shows what each gate found, and the sharpness figure of
+  the three frames as a diagnosis.
+
+A gate whose tool is missing on the machine is shown as skipped and does not fail the clip.
+
 #### Wasserman Slate AI Studio
 
 At the top of **Production** there are two ways to plan a film: the board of segments above, or **Wasserman Slate AI

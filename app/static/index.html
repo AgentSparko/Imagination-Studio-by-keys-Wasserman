@@ -107,6 +107,8 @@ video.main { width:100%; background:#000; border-radius:12px; max-height:52vh; b
 a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
 ::-webkit-scrollbar { width:10px; height:10px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.12); border-radius:10px; border:2px solid transparent; background-clip:padding-box; }
 /* the active tab glows like low sun; Home goes back to step 1 of Create */
+button.sharp { border-color:rgba(255,205,110,.55); color:#ffe9b8; white-space:nowrap; }
+button.sharp.on { background:rgba(255,196,84,.16); box-shadow:inset 0 0 0 1px rgba(255,205,110,.8),0 0 14px rgba(255,186,60,.45); }
 nav button.on { background:rgba(255,196,84,.14); color:#ffe9b8; box-shadow:inset 0 0 0 1px rgba(255,205,110,.8),0 0 16px rgba(255,186,60,.55),0 0 36px rgba(255,150,40,.3); text-shadow:0 0 10px rgba(255,200,90,.7); }
 .homebtn { padding:6px 12px; border-radius:9px; font-weight:600; color:#ffe9b8; border-color:rgba(255,205,110,.35); background:rgba(255,196,84,.06); white-space:nowrap; }
 .homebtn:hover:not(:disabled) { border-color:rgba(255,205,110,.8); background:rgba(255,196,84,.14); box-shadow:0 0 16px rgba(255,186,60,.4); }
@@ -200,6 +202,7 @@ function sync() {
   C.mode = C.goes === "image" ? "image" : { text: "t2v", scout: "scout", own: "i2v", refs: "r2v" }[C.start];
   if (isRef() && isLong()) C.seconds = 15;
   if (!(S && S.ref2va_turbo)) C.refPasses = "20";
+  if (C.res === "sharp" && !(S && S.sharp)) C.res = "480p";
   C.quality = C.engine === "fasth3" ? "fh" + C.passes : C.h3quality;
   if (!UPSCALED[C.res]) C.up = false;
   C.preset = UPSCALED[C.res] ? (C.up ? UPSCALED[C.res][0] : { "480p": "small", "720p": "p720" }[C.res]) : C.res;
@@ -215,10 +218,18 @@ const choice = (obj, key, options, after, tight) => el("div", { class: "choice" 
   el("button", { type: "button", role: "radio", "aria-checked": String(obj[key]) === v ? "true" : "false", class: String(obj[key]) === v ? "on" : "", onclick: () => { obj[key] = v; if (after) after(); } }, el("b", {}, title), sub ? el("span", {}, sub) : null)));
 const PASSES = { 4: ["4 passes", "fastest, a little softer"], 8: ["8 passes", "what FastH3 was trained for"], 20: ["20 passes", "for prompts with several actions"] };
 const H3Q = { standard: ["Turbo 5 + base sound", "the standard"], fast: ["Turbo 3", "quickest, adapter sound"], high: ["20 steps, fast recipe", "higher quality"], full: ["20 steps, plain", "slowest"] };
-const RES = { "480p": ["480p", "864 × 480"], "720p": ["720p", "1280 × 720"], draft: ["Draft", "1344 × 768 via 2x"], "2k": ["2K", "2048 × 1152 via 2x"], native: ["Native", "1344 × 768"], custom: ["Custom", "your own size"] };
+const RES = { "480p": ["480p", "864 × 480"], "720p": ["720p", "1280 × 720"], draft: ["Draft", "1344 × 768 via 2x"], "2k": ["2K", "2048 × 1152 via 2x"], native: ["Native", "1344 × 768"], sharp: ["Wasserman Sharp", "1376 × 768"], custom: ["Custom", "your own size"] };
+// Sam Wasserman's locked recipe (S.sharp): one click sets every setting it fixes, so each clip is made the same way
+const sharpButton = (on, apply) => el("button", { type: "button", class: "fit sharp" + (on ? " on" : ""), title: "Sam Wasserman's locked recipe: 1376 × 768, FastH3 at 8 passes, seed 42, 8 or 10 seconds, one pass with no upscale", onclick: apply },
+  (on ? "✓ " : "") + "Wasserman Sharp Spec");
+const sharpOn = () => !!S.sharp && !isRef() && C.engine === "fasth3" && C.passes === "8" && C.res === "sharp" && !String(C.steps).trim() && S.sharp.seconds.includes(Number(C.seconds));
+function sharpCreate() { if (isRef()) C.start = "text";
+  Object.assign(C, { engine: "fasth3", passes: "8", res: "sharp", up: false, steps: "", seed: S.sharp.seed, seconds: S.sharp.seconds.includes(Number(C.seconds)) ? C.seconds : S.sharp.seconds[0] }); changed(); }
 function videoControls(after) {
   const two = bind(C, "up", el("input", { type: "checkbox", disabled: !UPSCALED[C.res] }), changed);
   return el("div", { class: "group" },
+    S.sharp ? el("div", { class: "row" }, sharpButton(sharpOn(), sharpCreate), el("div", { class: "note" }, sharpOn() ? "On: 1376 × 768, FastH3 8 passes, one pass, no upscale. Seed " + C.seed + (Number(C.seed) === S.sharp.seed ? "" : " (the spec starts at " + S.sharp.seed + "; the next seed is a retake)") + ". His QA gate checks each clip: the spoken line by transcript, then three frames by a vision model (Claude Code, Codex or a local model, under your own sign-in). A clip that fails is made once more at the next seed."
+      : "Sam Wasserman's locked recipe in one click: 1376 × 768, FastH3 8 passes, seed 42, 8 or 10 seconds, then his QA gate on each clip.")) : null,
     // MiniMax H3 Turbo is an optional part of the install; without it FastH3 is the engine
     isRef() ? el("label", {}, "Reference to video · MiniMax H3 Ref2VA") : null,
     isRef() ? (S.ref2va_turbo ? choice(C, "refPasses", { 20: ["20 passes", "the model as released, its own sound"], 4: ["Turbo 4 passes", "LightX2V adapter, then base-model sound: about 2.5x faster"] }, changed, true)
@@ -226,7 +237,7 @@ function videoControls(after) {
     isRef() ? null :
     S.turbo ? el("label", {}, "Video engine") : null, isRef() ? null : S.turbo ? choice(C, "engine", { fasth3: ["FastH3", S.zig ? "FastVideo's distilled H3 on the native Zig engine: fastest" : "FastVideo's distilled H3 on the sparse tile kernel: fastest"], h3: ["MiniMax H3", "Turbo adapter with base-model sound, or the full 20 steps"] }, changed) : null,
     isRef() ? null : el("label", {}, C.engine === "fasth3" ? "Passes" : "Quality"), isRef() ? null : C.engine === "fasth3" ? choice(C, "passes", PASSES, changed, true) : choice(C, "h3quality", H3Q, changed, true),
-    el("label", {}, "Resolution"), choice(C, "res", Object.fromEntries(Object.entries(RES).filter(([k]) => S.x2 || !["draft", "2k"].includes(k))), changed, true),
+    el("label", {}, "Resolution"), choice(C, "res", Object.fromEntries(Object.entries(RES).filter(([k]) => (S.x2 || !["draft", "2k"].includes(k)) && (k !== "sharp" || S.sharp))), changed, true),
     C.res === "custom" ? el("div", { class: "row" }, el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Width"), bind(C, "cw", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
       el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Height"), bind(C, "ch", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
       el("div", { class: "note" }, "Multiples of 32, each side " + S.custom.sides[0] + " to " + S.custom.sides[1] + ", at most 1344 × 768 pixels in all. No time estimate for a custom size.")) : null,
@@ -387,7 +398,9 @@ function viewProduction() {
     put(box, el("div", { class: "row" }, field("Project", pick), field("Name", bind(project, "name", el("input"), saveProject)),
         el("button", { class: "fit", onclick: async () => { project = await api("/api/projects", { name: "Project " + (list.length + 1) }); render(); } }, "New project")),
       el("div", { class: "row" }, field("Output for every segment", select(project, "preset", Object.fromEntries(Object.entries(S.presets).map(([k, v]) => [k, v.label])), saveProject)),
-        field("Quality", select(project, "quality", S.qualities, saveProject))),
+        field("Quality", select(project, "quality", S.qualities, saveProject)),
+        S.sharp ? sharpButton(project.preset === "sharp" && project.quality === S.sharp.quality, () => { project.preset = "sharp"; project.quality = S.sharp.quality;
+          for (const g of project.segments) { g.seed = S.sharp.seed; if (!S.sharp.seconds.includes(Number(g.seconds))) g.seconds = S.sharp.seconds[0]; } saveProject(); render(); }) : null),
       el("h3", {}, "Segment overview · " + total + " s total"),
       el("div", { class: "strip" }, project.segments.map((s, i) => el("div", { style: "flex:" + (s.seconds || 5) }, (i + 1) + " · " + (s.title || "") + " · " + s.seconds + " s"))),
       el("div", { class: "row" }, el("button", { class: "fit", onclick: () => { project.segments.push({ title: "", scene: project.segments.at(-1)?.scene || "", action: "", camera: "", voice: "", line: "", soundscape: "", seconds: 5, seed: 1,
@@ -588,6 +601,11 @@ function viewTutorial() {
 
 /* ---------- Queue ---------- */
 // elapsed comes from the server: this browser's clock may differ from the machine that renders
+// Sam Wasserman's QA gate on a Sharp Spec clip: one line per take, with its contact sheet
+function qaLines(job) { const q = job.qa; if (!q) return null; const mark = r => ({ pass: "✓", fail: "✗", skipped: "–" }[r] || "?");
+  return el("div", { class: "note" }, el("b", { style: "color:" + (q.passed ? "var(--ok)" : q.passed === false ? "var(--bad)" : "inherit") }, "Wasserman QA gate: " + (q.passed && q.takes.at(-1).audio.result === "skipped" && q.takes.at(-1).identity.result === "skipped" ? "not checked, both gates are missing their tool on this machine" : q.passed ? "passed" + (q.takes.at(-1).audio.result === "skipped" || q.takes.at(-1).identity.result === "skipped" ? " the one gate that could run" : "") : q.passed === false ? "failed on both takes, the last take is kept" : "could not run")), q.error ? " · " + q.error : "",
+    q.takes.map(t => el("div", {}, "Take " + t.take + " · seed " + t.seed + " · speech " + mark(t.audio.result) + " " + (t.audio.heard ? "“" + t.audio.heard + "” · " : "") + t.audio.note + " · identity " + mark(t.identity.result) + " " + t.identity.note + (t.sharpness.length ? " · sharpness " + t.sharpness.join(" / ") : "") + " · ",
+      el("a", { href: file(t.sheet), target: "_blank" }, "contact sheet")))); }
 function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != null ? job.elapsed : (job.started ? ((job.finished || Date.now() / 1000) - job.started) : null);
   // the bar follows the time against the estimate (a job has several stages, each with its own step count)
   const share = job.estimate && elapsed != null ? Math.min(99, Math.max(3, Math.round(100 * elapsed / job.estimate))) : (p ? Math.round(100 * p.at / p.of) : 3);
@@ -597,7 +615,7 @@ function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != n
       el("button", { class: "small", onclick: () => pre.classList.toggle("hide") }, "Log")),
     job.status === "running" ? el("div", {}, el("div", { class: "bar" }, el("i", { style: "width:" + share + "%" })),
       el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + (job.estimate && elapsed != null ? (job.estimate - elapsed > 5 ? "about " + mmss(job.estimate - elapsed) + " left" : "almost done") : "no time estimate for this setting") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : ""))) : null,
-    job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, pre); }
+    job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, qaLines(job), pre); }
 let lastSig = "";
 async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
   const box = $("#jobs"); box.replaceChildren(...(jobs.length ? jobs.slice(0, 30).map(jobCard) : [el("div", { class: "note" }, "Nothing queued yet.")]));

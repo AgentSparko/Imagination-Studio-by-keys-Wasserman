@@ -46,7 +46,12 @@ PRESETS = {
     "native": ("Native 1344x768 (no 2x decoder)", (1344, 768), {"WIDTH": "1344", "HEIGHT": "768"}),
     "p720": ("720p 1280x720 (native)", (1280, 720), {"WIDTH": "1280", "HEIGHT": "736", "CROP": "1280x720"}),
     "p960": ("960p 1728x960 (generated at 480p, 2x decoder)", (1728, 960), {"X2": "1", "WIDTH": "1728", "HEIGHT": "960"}),
+    "sharp": ("Wasserman Sharp Spec 1376x768 (native, one pass, no upscale)", (1376, 768), {"WIDTH": "1376", "HEIGHT": "768"}),
 }
+# Sam Wasserman's locked recipe for a sharp clip: this size with FastH3 at 8 passes (sparse attention 0.8), seed 42 and
+# a retake at the next seed, 8 or 10 seconds, one generation pass with no upscale and no crop.
+SHARP = {"preset": "sharp", "quality": "fh8", "seed": 42, "seconds": [8, 10]}
+QA_TAKES = 2  # his QA gate (qa.py) follows each such clip: one that fails is rendered again at the next seed
 QUALITIES = {
     "standard": ("Standard: Turbo 5 passes + base-model sound", {}),
     "high": ("High: 20 steps, no adapter, fast recipe (about 1.5x slower)", {"QUALITY": "high"}),
@@ -57,7 +62,7 @@ QUALITIES = {
     "fh20": ("FastH3: 20 passes, for prompts with several actions", {"ENGINE": "fasth3", "STEPS": "20"}),
 }
 SCOUT_SIZES = {"draft": (1344, 768), "2k": (1024, 576), "qhd": (1280, 736), "small": (864, 480),
-               "native": (1344, 768), "p720": (1280, 736), "p960": (864, 480)}
+               "native": (1344, 768), "p720": (1280, 736), "p960": (864, 480), "sharp": (1376, 768)}
 # measured on a Mac Studio M5 Ultra, 8 second clips, standard quality, image step included (README)
 MEASURED_8S = {"draft": 108, "2k": 299, "qhd": 635, "small": 174, "native": 709}
 # FastH3 on the native engine (TensorFold 1.0's Zig + Metal runtime), 5 second text-to-video clips, same machine.
@@ -109,7 +114,7 @@ if SPARK:
 # follow from the pass time.
 SPARK_ENGINE_LIB = Path(os.environ.get("PREFIX", Path.home() / ".local/opt/tensorfold-studio")) / "tf-h3" / "libtf_h3.so"
 SPARK_FASTH3_5S = {"fh4": {"small": 45, "p720": 111, "native": 113},
-                   "fh8": {"small": 73, "p720": 183, "native": 195},
+                   "fh8": {"small": 73, "p720": 183, "native": 195, "sharp": 202},  # sharp: Sam Wasserman's 330 to 380 s at 8 s
                    "fh20": {"small": 158, "p720": 399, "native": 441}}
 # On ComfyUI's own blocks in bf16 (no engine built): 864x480 at 8 passes 118 s (a pass 10.5 s) and 1344x768 289 s
 # (a pass 29.4 s with its sparse attention); 720p is scaled from 1344x768 by its rows.
@@ -516,6 +521,31 @@ def run(job: dict, command: list[str], env: dict, label: str = "") -> bool:
     return True
 
 
+def gated(job: dict, clip: Path) -> bool:
+    """Sam Wasserman's QA gate on a clip made to his Sharp Spec; False when the job was cancelled meanwhile."""
+
+    params, takes = job["params"], []
+    for take in range(1, QA_TAKES + 1):
+        if take > 1:
+            shutil.copy(clip, HOME / "qa" / f"{job['id']}-take{take - 1}.mp4")  # the failed take is kept
+            params["seed"] = int(params.get("seed", 0)) + 1
+            command, env, _ = build("video", params, job["id"])
+            if not run(job, command, env, f"take {take} · "):
+                return False
+        job["progress"] = {"stage": "QA gate, take", "at": take, "of": QA_TAKES}
+        picture = HOME / "qa" / f"{job['id']}-take{take}.jpg"
+        try:
+            report = qa.check(clip, params["prompt"], picture, params.get("brain"))
+        except Exception as error:  # noqa: BLE001 - the clip is made; a gate that cannot run does not lose it
+            job["qa"] = {"passed": None, "takes": takes, "error": str(error)[-300:]}
+            break
+        takes.append({**report, "take": take, "seed": int(params.get("seed", 0)), "sheet": relative(picture)})
+        job["qa"] = {"passed": report["passed"], "takes": takes}
+        if report["passed"] or job["status"] == "cancelled":
+            break
+    return job["status"] != "cancelled"
+
+
 def long_take(job: dict) -> bool:
     """A video longer than one clip: render it piece by piece, each opening on the last frame of the one before, and join."""
 
@@ -606,6 +636,9 @@ def work() -> None:
                 job["outputs"] = [relative(Path(p)) for p in outputs if Path(p).is_file()]
                 if not job["outputs"]:
                     raise RuntimeError("the script finished without writing its output")
+                if job["kind"] == "video" and params.get("preset") == "sharp" and params.get("qa", True):
+                    if not gated(job, Path(outputs[0])):
+                        continue
             job["status"] = "done"
         except Exception as error:  # noqa: BLE001 - a failed job must not stop the queue
             if job["status"] != "cancelled":
@@ -619,7 +652,7 @@ threading.Thread(target=work, daemon=True).start()
 
 def public(job: dict) -> dict:
     out = {k: job.get(k) for k in ("id", "kind", "status", "title", "outputs", "progress", "error", "created",
-                                    "started", "finished", "estimate", "engine")}
+                                    "started", "finished", "estimate", "engine", "qa")}
     # by this machine's clock: the page may be open on another one
     out["elapsed"] = (job.get("finished") or time.time()) - job["started"] if job.get("started") else None
     out["log"] = job["log"][-3000:]
@@ -634,7 +667,7 @@ def state() -> dict:
             "home": str(HOME), "pack": str(PACK), "version": (PACK / "VERSION").read_text().strip(),
             "zig": zig_ready(), "turbo": turbo_ready() and not SPARK, "x2": not SPARK,
             "ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready(), "reference_limit": REFERENCE_LIMIT,
-            "uncensored": uncensored_ready(), "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
+            "uncensored": uncensored_ready(), "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
             "platform": machine()[0], "platform_label": machine()[1],
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
 
@@ -839,6 +872,7 @@ async def errors(_, error: HTTPException):
     return JSONResponse({"error": error.detail}, status_code=error.status_code)
 
 
+import qa  # noqa: E402  (Sam Wasserman's QA gate, beside this file)
 import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)
 
 app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, REFERENCE_LIMIT,

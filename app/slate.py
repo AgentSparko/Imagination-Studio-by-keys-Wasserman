@@ -31,7 +31,8 @@ CLI_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", str(Path.home() / ".local/bin
 TIER_MODEL = {"fast": "haiku", "standard": "sonnet", "top": None}  # top: the sign-in's own default model
 # the output for a shot's aspect ratio, per resolution tier: a preset where one exists, else a custom size
 SIZES = {"480p": {"16:9": "small", "9:16": (480, 864), "1:1": (640, 640), "4:3": (640, 480), "3:4": (480, 640), "21:9": (1120, 480)},
-         "720p": {"16:9": "p720", "9:16": (704, 1280), "1:1": (960, 960), "4:3": (1088, 832), "3:4": (832, 1088), "21:9": (1536, 672)}}
+         "720p": {"16:9": "p720", "9:16": (704, 1280), "1:1": (960, 960), "4:3": (1088, 832), "3:4": (832, 1088), "21:9": (1536, 672)},
+         "sharp": {"16:9": "sharp"}}  # the Wasserman Sharp Spec is one size
 SIZE_WORDS = {"EWS": "Extreme wide shot", "WS": "Wide shot", "MWS": "Medium wide shot", "MS": "Medium shot", "MCU": "Medium close-up",
               "CU": "Close-up", "ECU": "Extreme close-up", "Insert": "Insert shot of a detail"}
 ANGLE_WORDS = {"eye level": "at eye level", "low": "from a low angle", "high": "from a high angle", "overhead": "from directly overhead",

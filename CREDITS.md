@@ -16,6 +16,10 @@ H3's prompt form, the queue, and takes with their clips. Slate does much more th
 takes, punch-ups, the tone dial, reference and audio analysis, the stills library, per-model compiles for a dozen
 generators, and its MCP server. (Apache-2.0.)
 
+The **Wasserman Sharp Spec** button and the QA gate behind it are his too: the locked recipe (1376x768, FastH3 at 8
+passes, seed 42, one pass with no upscale) and the two gates, a transcript of the spoken line and a three-frame
+contact sheet checked by a vision model, with one retake at the next seed. `app/qa.py` is this pack's writing of them.
+
 ## The image model: the Qwen team
 
 The **Qwen team at Alibaba** released **Qwen-Image-2.1**: the 7B single-stream transformer with its causal text
