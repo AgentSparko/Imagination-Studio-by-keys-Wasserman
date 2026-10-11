@@ -263,6 +263,18 @@ def turbo_ready() -> bool:
     return any((model / "FL2VA" / "transformer").glob("*.safetensors")) and any((ZIG_ENGINE.parent / "adapters").glob("lightx2v*"))
 
 
+def text_encoders() -> dict[str, str]:
+    """Other MiniMax H3 text encoder files found on this machine: file name -> what TEXT_ENCODER is set to for it.
+    A file put in the text_encoders folder beside the model (on a Spark, ComfyUI's own folder) is offered by name."""
+
+    if SPARK:
+        folder = SPARK_REF2VA.parent / "FastH3-Comfy/text_encoders"
+        own = {"qwen3vl_32b_minimax_h3_int8_convrot.safetensors"}
+        return {f.name: f.name for f in sorted(folder.glob("*minimax_h3*.safetensors")) if f.name not in own}
+    folder = Path(os.environ.get("H3_MODEL_DIR", Path.home() / "h3-models/MiniMax-H3")).parent / "text_encoders"
+    return {f.name: str(f) for f in sorted(folder.glob("*.safetensors"))}
+
+
 def ref2va_ready() -> bool:
     """Whether reference to video can run here: MiniMax H3's Ref2VA transformer (oneshot-setup.sh --ref2va) beside
     the text encoder and decoders every install has. A Mac feature: the passes run on the MLX engine."""
@@ -296,6 +308,11 @@ def custom(params: dict) -> tuple[dict, bool]:
         if not CUSTOM_STEPS[0] <= steps <= CUSTOM_STEPS[1]:
             raise HTTPException(400, f"passes is between {CUSTOM_STEPS[0]} and {CUSTOM_STEPS[1]}")
         env["STEPS"] = str(steps)
+    if params.get("text_encoder") not in (None, "", "regular"):
+        found = text_encoders().get(str(params["text_encoder"]))
+        if not found:
+            raise HTTPException(400, f"no text encoder file named {params['text_encoder']} on this machine")
+        env["TEXT_ENCODER"] = found
     return env, bool(env)
 
 
@@ -657,7 +674,7 @@ def state() -> dict:
             "home": str(HOME), "pack": str(PACK), "version": (PACK / "VERSION").read_text().strip(),
             "zig": zig_ready(), "turbo": turbo_ready() and not SPARK, "x2": not SPARK,
             "ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready(), "reference_limit": REFERENCE_LIMIT,
-            "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
+            "text_encoders": sorted(text_encoders()), "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
             "platform": machine()[0], "platform_label": machine()[1],
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
 
