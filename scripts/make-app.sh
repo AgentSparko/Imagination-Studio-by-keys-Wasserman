@@ -1,27 +1,27 @@
 #!/bin/bash
-# Build a double-clickable macOS app that starts TensorFold Studio and opens it in the browser.
-#   bash scripts/make-app.sh                      # -> ~/Applications/TensorFold Studio.app
+# Build a double-clickable macOS app that starts Wasserman Slate AI Studio and opens it in the browser.
+#   bash scripts/make-app.sh                      # -> ~/Applications/Wasserman Slate AI Studio.app
 #   APP_DIR=/Applications bash scripts/make-app.sh
 #   DESKTOP=1 bash scripts/make-app.sh            # also put a shortcut to it on the Desktop
 # The app is a small launcher around scripts/app.sh in this clone: it starts the server if it is not running, waits
 # for it and opens http://127.0.0.1:$PORT. Double-click again to reopen the page. The paths in use now (PREFIX,
 # QWEN_MODEL_DIR, H3_MODEL_DIR, FASTH3_DIR, STUDIO_HOME, PORT) are written into the app, so set them before building
 # if yours are not the defaults. The clone must stay where it is; rebuild the app if you move it.
-# Stop the server: "TensorFold Studio.app/Contents/MacOS/TensorFoldStudio" stop     Log: ~/Library/Logs/TensorFoldStudio.log
+# Stop the server: "Wasserman Slate AI Studio.app/Contents/MacOS/TensorFoldStudio" stop     Log: ~/Library/Logs/TensorFoldStudio.log
 set -euo pipefail
 [ "$(uname -s)" = Darwin ] || { echo "macOS only" >&2; exit 1; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 [ -x "$PREFIX/venv/bin/python" ] || { echo "run oneshot-setup.sh first: no environment at $PREFIX" >&2; exit 1; }
-APP="${APP_DIR:-$HOME/Applications}/TensorFold Studio.app"
+APP="${APP_DIR:-$HOME/Applications}/Wasserman Slate AI Studio.app"
 PORT="${PORT:-7870}"
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleName</key><string>TensorFold Studio</string>
-  <key>CFBundleDisplayName</key><string>TensorFold Studio</string>
+  <key>CFBundleName</key><string>Wasserman Slate AI Studio</string>
+  <key>CFBundleDisplayName</key><string>Wasserman Slate AI Studio</string>
   <key>CFBundleIdentifier</key><string>studio.tensorfold.launcher</string>
   <key>CFBundleExecutable</key><string>TensorFoldStudio</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -41,15 +41,15 @@ PLIST
   cat <<'LAUNCH'
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 URL="http://127.0.0.1:$PORT"; LOG="$HOME/Library/Logs/TensorFoldStudio.log"
-say() { osascript -e "display dialog \"$1\" with title \"TensorFold Studio\" buttons {\"OK\"} default button 1" >/dev/null 2>&1 || echo "$1" >&2; }
+say() { osascript -e "display dialog \"$1\" with title \"Wasserman Slate AI Studio\" buttons {\"OK\"} default button 1" >/dev/null 2>&1 || echo "$1" >&2; }
 up() { curl -s -m 2 "$URL/api/state" >/dev/null 2>&1; }
 if [ "${1:-}" = stop ]; then lsof -ti "tcp:$PORT" | xargs kill 2>/dev/null; exit 0; fi
 if ! up; then
-  [ -f "$PACK/scripts/app.sh" ] || { say "The TensorFold Studio folder is not at $PACK any more. Run scripts/make-app.sh again from where it is now."; exit 1; }
+  [ -f "$PACK/scripts/app.sh" ] || { say "The studio's folder is not at $PACK any more. Run scripts/make-app.sh again from where it is now."; exit 1; }
   mkdir -p "$(dirname "$LOG")"
   nohup bash "$PACK/scripts/app.sh" >> "$LOG" 2>&1 &
   for _ in $(seq 60); do up && break; sleep 0.5; done
-  up || { say "TensorFold Studio did not start. See $LOG"; exit 1; }
+  up || { say "Wasserman Slate AI Studio did not start. See $LOG"; exit 1; }
 fi
 open "$URL"
 LAUNCH
@@ -84,6 +84,6 @@ then
   rm "$ICONSET/base.png"
   iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null || true
 fi
-if [ "${DESKTOP:-0}" = 1 ]; then ln -sfn "$APP" "$HOME/Desktop/TensorFold Studio"; echo "Shortcut on the Desktop: TensorFold Studio"; fi
+if [ "${DESKTOP:-0}" = 1 ]; then ln -sfn "$APP" "$HOME/Desktop/Wasserman Slate AI Studio"; echo "Shortcut on the Desktop: Wasserman Slate AI Studio"; fi
 echo "Built $APP"
 echo "Double-click it (or: open \"$APP\"). It serves http://127.0.0.1:$PORT from $HERE."

@@ -9,5 +9,5 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 export PATH="/opt/homebrew/bin:$PATH"
 [ -x "$PREFIX/venv/bin/python" ] || { echo "run oneshot-setup.sh first: no environment at $PREFIX" >&2; exit 1; }
-echo "TensorFold Studio on http://${HOST:-127.0.0.1}:${PORT:-7870}"
+echo "Wasserman Slate AI Studio (powered by TensorFold) on http://${HOST:-127.0.0.1}:${PORT:-7870}"
 exec "$PREFIX/venv/bin/python" "$HERE/app/server.py"
