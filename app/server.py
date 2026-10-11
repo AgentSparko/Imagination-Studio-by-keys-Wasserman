@@ -79,6 +79,22 @@ ZIG_FROM_IMAGE = 1.13  # measured through this app: 72 s from an image against 6
 FASTH3_5S = {"fh4": {"small": 51, "p960": 61, "p720": 112, "qhd": 123},
              "fh8": {"small": 78, "p960": 88, "p720": 192, "qhd": 203},
              "fh20": {"small": 174, "p960": 184, "p720": 434, "qhd": 445}}
+# Reference to video (MiniMax H3 Ref2VA, oneshot-setup.sh --ref2va): plain 20 passes with the pictures' rows carried
+# through each, or LightX2V's 4-step Ref2VA adapter and the sound made again without it. Measured through
+# scripts/video.sh on an M5 Ultra with one portrait reference, 5 seconds: preset -> seconds.
+REF2VA_5S = {"small": 223}
+REF2VA_TURBO_5S = {"small": 88}
+# the same on a DGX Spark (oneshot-setup-spark.sh --ref2va), through ComfyUI's own blocks
+SPARK_REF2VA = Path(os.environ.get("SPARK_MODELS", Path.home() / "spark-studio-models")) / "MiniMax-H3-Comfy"
+SPARK_REF2VA_5S = {"small": 321}
+SPARK_REF2VA_TURBO_5S = {"small": 107}
+REF2VA_ADAPTER = "lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
+REFERENCE_LIMIT = 9
+# An optional second text encoder for MiniMax H3 (oneshot-setup.sh --uncensored): linjian257's community build, for
+# personal, non-commercial use under its own licence. TEXT_ENCODER=uncensored in the scripts.
+UNCENSORED_NAME = "qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors"
+# a size typed in by hand: multiples of 32, and no more pixels than the largest size the model is run at here
+CUSTOM_SIDES, CUSTOM_PIXELS, CUSTOM_STEPS = (256, 1536), 1344 * 768, (1, 50)
 LEAD = "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
 
 # On a DGX Spark (Linux, CUDA) the scripts hand over to spark/: FastH3 and Qwen-Image-2.1 through ComfyUI. There is no
@@ -137,6 +153,45 @@ def relative(path: Path) -> str:
     return str(Path(path).resolve().relative_to(HOME.resolve()))
 
 
+def compose_references(fields: dict, count: int) -> str:
+    """The Ref2VA model's own prompt form: who each picture is, what is kept of it, then the shot."""
+
+    count = max(1, min(int(count), REFERENCE_LIMIT))
+    names = [(text or "").strip() for text in (fields.get("subjects") or [])][:count]
+    names += [""] * (count - len(names))
+    subjects = [f"<Subject {i}> is {name or 'the main subject'} shown in <Picture {i}>." for i, name in enumerate(names, start=1)]
+    kept = [f"<Subject {i}> (appears in [Shot 1]): fully_preserved - the identity, face, hair, clothing and colours "
+            f"shown in <Picture {i}> are kept." for i in range(1, count + 1)]
+    scene = (fields.get("scene") or "").strip()
+    shot = " ".join(part.strip() for part in (scene, fields.get("camera", ""), fields.get("action", "")) if part and part.strip())
+    spoken = []
+    for index, line in enumerate(fields.get("dialogue") or [], start=1):
+        text = (line.get("text") or "").strip()
+        if not text:
+            continue
+        voice = (line.get("voice") or "a natural voice").strip()
+        verb = "sings" if line.get("sung") else "speaks"
+        language = (line.get("language") or "English").strip()
+        spoken.append(f"<Subject 1> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
+    if spoken:
+        # a clip longer than its lines: without this the model may keep the mouth moving and invent words
+        shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
+                 " talking, closes the mouth and stays silent until the end of the clip.")
+    else:
+        shot += " Nobody speaks."
+    sound = (fields.get("soundscape") or "Natural ambient sound for the scene.").strip()
+    sound += " No speech after the spoken lines." if spoken else " No voices, no speech."
+    music = (fields.get("music") or "N/A").strip()
+    if music.upper() != "N/A":
+        sound += f" Music: {music}."
+    who = ", ".join(f"<Subject {i}>" for i in range(1, count + 1))
+    return ("subject_definitions:\n" + "\n".join(subjects)
+            + f"\n\nsummary:\n[subject reference] A new video with {who}, keeping how each looks in its picture. "
+            + (scene or "A new scene.")
+            + "\n\nretention_analysis:\n" + "\n".join(kept)
+            + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()} {sound}")
+
+
 def compose(fields: dict, first_frame: bool) -> str:
     """MiniMax H3's three-field prompt from the wizard's parts."""
 
@@ -152,12 +207,13 @@ def compose(fields: dict, first_frame: bool) -> str:
         language = (line.get("language") or "English").strip()
         spoken.append(f"The speaker, in {voice} (S{index}), {verb}: <d>[{language}] {text}</d>")
     if spoken:
-        shot += " " + " ".join(spoken) + " Mouth movements follow the words."
+        shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
+                 " talking, closes the mouth and stays silent until the end of the clip.")
     else:
         shot += " Nobody speaks."
     sound = (fields.get("soundscape") or "Natural ambient sound for the scene.").strip()
-    if not spoken and "no speech" not in sound.lower():
-        sound += " No voices, no speech."
+    if "no speech" not in sound.lower():
+        sound += " No speech after the spoken lines." if spoken else " No voices, no speech."
     music = (fields.get("music") or "N/A").strip()
     body = (f"integrated_multimodal_description: [Shot 1] {shot.strip()}\n\n"
             f"overall_soundscape: {sound}\n\nnon_diegetic_music: {music}")
@@ -205,7 +261,91 @@ def turbo_ready() -> bool:
     return any((model / "FL2VA" / "transformer").glob("*.safetensors")) and any((ZIG_ENGINE.parent / "adapters").glob("lightx2v*"))
 
 
-def estimate(preset: str, quality: str, seconds: int, text_only: bool = False) -> int | None:
+def ref2va_ready() -> bool:
+    """Whether reference to video can run here: MiniMax H3's Ref2VA transformer (oneshot-setup.sh --ref2va) beside
+    the text encoder and decoders every install has. A Mac feature: the passes run on the MLX engine."""
+
+    if SPARK:
+        return any(SPARK_REF2VA.glob("diffusion_models/minimax_h3_ref2va_pruned_*.safetensors"))
+    model = Path(os.environ.get("H3_MODEL_DIR", Path.home() / "h3-models/MiniMax-H3"))
+    return any((model / "Ref2VA" / "transformer").glob("*.safetensors"))
+
+
+def uncensored_ready() -> bool:
+    if os.environ.get("UNCENSORED_TEXT_ENCODER"):
+        return Path(os.environ["UNCENSORED_TEXT_ENCODER"]).is_file()
+    if SPARK:
+        return (SPARK_REF2VA.parent / "FastH3-Comfy/text_encoders" / UNCENSORED_NAME).is_file()
+    model = Path(os.environ.get("H3_MODEL_DIR", Path.home() / "h3-models/MiniMax-H3"))
+    return (model.parent / "text_encoders" / UNCENSORED_NAME).is_file()
+
+
+def custom(params: dict) -> tuple[dict, bool]:
+    """(environment, whether anything was set) for a size, a number of passes or a text encoder chosen by hand."""
+
+    env = {}
+    if params.get("preset") == "custom":
+        try:
+            width, height = int(params["width"]), int(params["height"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(400, "a custom size needs a width and a height")
+        low, high = CUSTOM_SIDES
+        if width % 32 or height % 32 or not (low <= width <= high and low <= height <= high):
+            raise HTTPException(400, f"width and height are multiples of 32 between {low} and {high}")
+        if width * height > CUSTOM_PIXELS:
+            raise HTTPException(400, f"at most {CUSTOM_PIXELS} pixels (1344x768), got {width}x{height}")
+        env.update(WIDTH=str(width), HEIGHT=str(height))
+    if params.get("steps") not in (None, ""):
+        try:
+            steps = int(params["steps"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "passes is a whole number")
+        if not CUSTOM_STEPS[0] <= steps <= CUSTOM_STEPS[1]:
+            raise HTTPException(400, f"passes is between {CUSTOM_STEPS[0]} and {CUSTOM_STEPS[1]}")
+        env["STEPS"] = str(steps)
+    if params.get("text_encoder") == "uncensored":
+        if not uncensored_ready():
+            raise HTTPException(400, "the uncensored text encoder is not installed here (oneshot-setup.sh --uncensored)")
+        env["TEXT_ENCODER"] = "uncensored"
+    return env, bool(env)
+
+
+def ref2va_turbo_ready() -> bool:
+    if SPARK:
+        return ((SPARK_REF2VA / "diffusion_models/minimax_h3_ref2va_pruned_bf16.safetensors").is_file()
+                and (SPARK_REF2VA / "loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors").is_file())
+    return ref2va_ready() and (ZIG_ENGINE.parent / "adapters" / REF2VA_ADAPTER).is_file()
+
+
+def references(params: dict) -> list[str]:
+    """The job's reference pictures as paths under the studio folder, or [] when it has none."""
+
+    found = [str(inside(path)) for path in (params.get("references") or []) if path]
+    if not found:
+        return []
+    if len(found) > REFERENCE_LIMIT:
+        raise HTTPException(400, f"at most {REFERENCE_LIMIT} reference pictures")
+    if params.get("image") or params.get("first_frame_from"):
+        raise HTTPException(400, "reference pictures do not combine with a first frame")
+    if not ref2va_ready():
+        raise HTTPException(400, "MiniMax H3 Ref2VA is not installed here (oneshot-setup.sh --ref2va adds it)")
+    if params.get("ref_turbo") and not ref2va_turbo_ready():
+        raise HTTPException(400, "the Ref2VA Turbo adapter is not installed here (oneshot-setup.sh --ref2va adds it)")
+    missing = [path for path in found if not Path(path).is_file()]
+    if missing:
+        raise HTTPException(400, f"no reference picture at {relative(Path(missing[0]))}")
+    return found
+
+
+def estimate(preset: str, quality: str, seconds: int, text_only: bool = False, referenced: bool = False,
+             ref_turbo: bool = False) -> int | None:
+    if referenced:
+        # the same MLX engine as the 20-step qualities, whose time grows with the length to the power 1.6
+        if SPARK:
+            base = (SPARK_REF2VA_TURBO_5S if ref_turbo else SPARK_REF2VA_5S).get(preset)
+        else:
+            base = (REF2VA_TURBO_5S if ref_turbo else REF2VA_5S).get(preset)
+        return None if base is None or seconds > LONGEST else int(base * (seconds / 5.0) ** 1.6)
     if seconds > LONGEST:
         # every part after the first opens on a frame
         parts = [estimate(preset, quality, piece) for piece in plan(seconds)]
@@ -260,19 +400,29 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
     preset = params.get("preset", "small" if SPARK else "draft")
     quality = params.get("quality", "standard")
     seconds = int(params.get("seconds", 5))
-    if seconds not in DURATIONS or preset not in PRESETS or quality not in QUALITIES:
+    chosen, _ = custom(params)
+    if seconds not in DURATIONS or (preset not in PRESETS and preset != "custom") or quality not in QUALITIES:
         raise HTTPException(400, "unknown duration, preset or quality")
     target = Path(params["output"]) if params.get("output") else HOME / "renders" / f"{job_id}.mp4"
     target = inside(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    env = {"SEED": seed, "FRAMES": DURATIONS[seconds], **PRESETS[preset][2], **QUALITIES[quality][1]}
+    env = {"SEED": seed, "FRAMES": DURATIONS[seconds], **(PRESETS[preset][2] if preset in PRESETS else {}), **QUALITIES[quality][1]}
+    fast_h3 = SPARK or env.get("ENGINE") == "fasth3"
     prompt = params["prompt"]
     image = params.get("image")
     if kind == "video":  # text to video, or from an image the user already has
+        pictures = references(params)
+        if pictures:
+            # Ref2VA takes neither the Turbo adapter nor FastH3: the quality setting does not apply
+            env = {k: v for k, v in env.items() if k not in QUALITIES[quality][1]}
+            env["REF_IMAGES"] = "\n".join(pictures) + "\n"  # one per line, so a path may hold spaces
+            if params.get("ref_turbo"):
+                env["REF_TURBO"] = "1"
+        env.update(passes(chosen, SPARK or (fast_h3 and not pictures)))  # Ref2VA runs on MiniMax H3
         if image:
             return (["bash", str(scripts / "studio.sh"), "", prompt, str(target)],
                     {**env, "IMAGE_FILE": str(inside(image)), "RAW_PROMPT": "1"}, [str(target)])
-        size = PRESETS[preset][1]
+        size = PRESETS[preset][1] if preset in PRESETS else (int(env["WIDTH"]), int(env["HEIGHT"]))
         plain = {k: v for k, v in env.items() if k not in ("TWOK", "QHD")}
         if "TWOK" in env:
             plain.update(X2="1", WIDTH="2048", HEIGHT="1152")
@@ -282,9 +432,20 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
             plain.update(WIDTH=str(size[0]), HEIGHT=str(size[1]))
         return ["bash", str(scripts / "video.sh"), prompt, str(target)], plain, [str(target)]
     if kind == "studio":  # text to image to video in one go
+        env.update(passes(chosen, fast_h3))
         return (["bash", str(scripts / "studio.sh"), params["image_prompt"], prompt, str(target)],
                 {**env, "RAW_PROMPT": "1"}, [str(target), str(target.with_suffix(".png"))])
     raise HTTPException(400, f"unknown job kind {kind}")
+
+
+def passes(chosen: dict, steps: bool) -> dict:
+    """A hand-set number of passes in the form the engine takes: STEPS for FastH3 and on a Spark, sigma points (one
+    more than the passes) for MiniMax H3 on the Mac."""
+
+    out = dict(chosen)
+    if "STEPS" in out and not steps:
+        out["POINTS"] = str(int(out.pop("STEPS")) + 1)
+    return out
 
 
 def last_frame(video: Path, image: Path) -> None:
@@ -368,7 +529,8 @@ def long_take(job: dict) -> bool:
     for index, seconds in enumerate(pieces):
         prompt = params["prompt"]
         if beats:  # one line per piece says what happens in it; the last line holds for the rest
-            prompt = f"{prompt}\n\nIn this part of the video: {beats[min(index, len(beats) - 1)]}"
+            beat = f"In this part of the video: {beats[min(index, len(beats) - 1)].rstrip('.')}."
+            prompt = prompt.replace("[Shot 1] ", f"[Shot 1] {beat} ", 1) if "[Shot 1] " in prompt else f"{beat} {prompt}"
         if index:
             still = folder / f"seg{index:03d}_first.jpg"
             last_frame(clips[-1], still)
@@ -458,6 +620,8 @@ threading.Thread(target=work, daemon=True).start()
 def public(job: dict) -> dict:
     out = {k: job.get(k) for k in ("id", "kind", "status", "title", "outputs", "progress", "error", "created",
                                     "started", "finished", "estimate", "engine")}
+    # by this machine's clock: the page may be open on another one
+    out["elapsed"] = (job.get("finished") or time.time()) - job["started"] if job.get("started") else None
     out["log"] = job["log"][-3000:]
     out["params"] = {k: v for k, v in job["params"].items() if k != "clips"}
     return out
@@ -469,19 +633,26 @@ def state() -> dict:
             "qualities": {k: v[0] for k, v in QUALITIES.items()}, "durations": DURATIONS, "long": LONG,
             "home": str(HOME), "pack": str(PACK), "version": (PACK / "VERSION").read_text().strip(),
             "zig": zig_ready(), "turbo": turbo_ready() and not SPARK, "x2": not SPARK,
+            "ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready(), "reference_limit": REFERENCE_LIMIT,
+            "uncensored": uncensored_ready(), "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
             "platform": machine()[0], "platform_label": machine()[1],
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
 
 
 @app.post("/api/compose")
 def compose_prompt(body: dict) -> dict:
+    if body.get("references"):
+        return {"prompt": compose_references(body.get("fields", {}), int(body["references"]))}
     return {"prompt": compose(body.get("fields", {}), bool(body.get("first_frame")))}
 
 
 @app.post("/api/estimate")
 def estimate_time(body: dict) -> dict:
+    if body.get("preset") == "custom" or body.get("steps") not in (None, ""):
+        return {"seconds": None}
     return {"seconds": estimate(body.get("preset", "draft"), body.get("quality", "standard"),
-                                int(body.get("seconds", 5)), bool(body.get("text_only")))}
+                                int(body.get("seconds", 5)), bool(body.get("text_only")), bool(body.get("referenced")),
+                                bool(body.get("ref_turbo")))}
 
 
 @app.post("/api/jobs")
@@ -498,17 +669,21 @@ def submit(body: dict) -> dict:
         build("video", {**params, "seconds": pieces[0], "output": None}, "check")
     if kind != "export" and not (params.get("prompt") or "").strip():
         raise HTTPException(400, "a prompt is needed")
-    if kind in ("video", "studio", "long") and not str(params.get("quality", "standard")).startswith("fh") and not turbo_ready():
+    if kind != "video" and params.get("references"):
+        raise HTTPException(400, "reference pictures are for single clips")
+    referenced = kind == "video" and bool(references(params))
+    if kind in ("video", "studio", "long") and not referenced and not str(params.get("quality", "standard")).startswith("fh") and not turbo_ready():
         raise HTTPException(400, "MiniMax H3 Turbo is not installed here (oneshot-setup.sh --turbo adds it): use FastH3, quality fh4, fh8 or fh20")
     job_id = time.strftime("%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     if kind not in ("export", "long"):
         build(kind, params, job_id)  # reject bad settings now, not when the job's turn comes
     job = {"id": job_id, "kind": kind, "status": "queued", "title": body.get("title") or kind, "params": params,
            "outputs": [], "progress": None, "error": None, "log": "", "created": time.time(), "started": None,
-           "finished": None, "estimate": estimate(params.get("preset", ""), params.get("quality", "standard"),
+           "finished": None, "estimate": None if params.get("preset") == "custom" or params.get("steps") not in (None, "") else estimate(params.get("preset", ""), params.get("quality", "standard"),
                                                   int(params.get("total_seconds") or params.get("seconds", 5)),
                                                   kind == "video" and not params.get("image")
-                                                  and not params.get("first_frame_from"))
+                                                  and not params.get("first_frame_from"), referenced,
+                                                  bool(params.get("ref_turbo")))
            if kind in ("video", "studio", "long") else None}
     with lock:
         jobs[job_id] = job

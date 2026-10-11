@@ -6,6 +6,7 @@
 #   PROMPT_FILE=prompts/black-mirror-scene.txt bash scripts/video.sh "" out.mp4
 #   QUALITY=high bash scripts/video.sh "a prompt" out.mp4               # 20 steps, no adapter, fast recipe (QUALITY=full for plain)
 #   FIRST_FRAME=photo.jpg bash scripts/video.sh "what happens next" out.mp4   # image to video
+#   REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the person. The person ..." out.mp4   # reference to video
 #   X2=1 WIDTH=1344 HEIGHT=768 bash scripts/video.sh "a prompt" out.mp4   # generate at 672x384, decode at 2x
 #   ENGINE=fasth3 STEPS=8 bash scripts/video.sh "a prompt" out.mp4       # FastH3; see scripts/fast.sh
 # Environment: PREFIX, H3_MODEL_DIR, ADAPTER (a file, or none), FIRST_FRAME (an image the clip starts from; it is
@@ -21,6 +22,19 @@
 # FastH3's passes run on TensorFold 1.0's native Zig + Metal runtime ($PREFIX/zig-engine) when it is installed and
 # the chip has tensor units (M5 or later), with or without FIRST_FRAME; a machine without the engine uses the MLX
 # engine as before. FASTH3_ENGINE=zig or mlx forces one.
+# REF_IMAGES (reference to video, MiniMax H3 Ref2VA: `oneshot-setup.sh --ref2va`) is one to nine pictures, separated
+# by spaces (one per line when a path has spaces). They are not frames of the clip: each fixes how a person or a
+# thing looks, and the prompt names them <Picture 1>, <Picture 2>, ... in that order. A picture is used at the clip's
+# pixel area with its own aspect ratio, so a portrait can guide a landscape clip. Plain 20 passes by default (3 min
+# 43 s for 5 s at 864x480 on an M5 Ultra). REF_TURBO=1 uses LightX2V's 4-step Ref2VA adapter instead ($REF_ADAPTER,
+# installed by --ref2va): 4 passes, then the sound made again by the Ref2VA model without the adapter (REVOICE=20),
+# 1 min 28 s for the same clip. QUALITY=high is the 20 passes with the fast recipe (1 min 58 s). Not with FIRST_FRAME,
+# and not with ENGINE=fasth3.
+# TEXT_ENCODER=uncensored renders with linjian257's community build of the text encoder ($UNCENSORED_TEXT_ENCODER,
+# by default text_encoders/qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors beside
+# $H3_MODEL_DIR; personal, non-commercial use under its own licence). It is a 26 GB ComfyUI int8 file, decoded to
+# bfloat16 as it loads, and works with every start: text, FIRST_FRAME and REF_IMAGES. TEXT_ENCODER may also be the
+# path of such a file; unset or regular is MiniMax's own. With ENGINE=fasth3 it renders on the MLX engine.
 # X2=1 makes WIDTH x HEIGHT the size of the finished clip: the model generates at half of each and the 2x decoder
 # ($X2_VAE) doubles it, so both must be multiples of 64 (default 1344x768). CROP=WxH centre-crops the frames before the clip is written.
 set -euo pipefail
@@ -32,9 +46,41 @@ H3_MODEL_DIR="${H3_MODEL_DIR:-$HOME/h3-models/MiniMax-H3}"
 # velocity cache and attention reuse in between: about twice as fast as plain). QUALITY=full: plain 20 steps.
 case "${QUALITY:-standard}" in high) ADAPTER=none; RECIPE="--step-cache 0.05 --attention-every 2";; full) ADAPTER=none; RECIPE="";; *) RECIPE="";; esac
 FASTH3_DIR="${FASTH3_DIR:-$HOME/h3-models/FastH3-8-Step-V2}"
+# TEXT_ENCODER: regular (MiniMax's own, in the model folder), uncensored (the community file), or a file's path
+case "${TEXT_ENCODER:-regular}" in
+  regular) TEXT_ENCODER="";;
+  uncensored) TEXT_ENCODER="${UNCENSORED_TEXT_ENCODER:-$(dirname "$H3_MODEL_DIR")/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors}"
+    [ -f "$TEXT_ENCODER" ] || { echo "no uncensored text encoder at $TEXT_ENCODER (download linjian257's file there, or set UNCENSORED_TEXT_ENCODER)" >&2; exit 2; };;
+  *) [ -f "$TEXT_ENCODER" ] || { echo "TEXT_ENCODER is regular, uncensored or a safetensors file, and there is no file at $TEXT_ENCODER" >&2; exit 2; };;
+esac
 # MiniMax H3's own transformer (the Turbo adapter and the 20-step qualities run on it) is an optional part of the
 # install: oneshot-setup.sh --turbo. Without it the engine is FastH3, which needs only H3's text encoder and decoders.
 TURBO_OK=0; ls "$H3_MODEL_DIR"/FL2VA/transformer/*.safetensors >/dev/null 2>&1 && TURBO_OK=1
+REFS=()
+if [ -n "${REF_IMAGES:-}" ]; then
+  case "$REF_IMAGES" in *$'\n'*) while IFS= read -r REF; do [ -z "$REF" ] || REFS+=("$REF"); done <<<"$REF_IMAGES";;
+    *) read -r -a REFS <<<"$REF_IMAGES";; esac
+fi
+if [ "${#REFS[@]}" -gt 0 ]; then
+  # reference to video runs on the Ref2VA transformer; the text encoder and the two decoders are FL2VA's own files
+  [ -z "${FIRST_FRAME:-}" ] || { echo "REF_IMAGES and FIRST_FRAME do not combine: a reference is not a frame of the clip" >&2; exit 2; }
+  [ "${ENGINE:-h3}" = h3 ] || { echo "REF_IMAGES needs MiniMax H3's Ref2VA transformer, not ENGINE=$ENGINE" >&2; exit 2; }
+  [ "${#REFS[@]}" -le 9 ] || { echo "at most 9 reference pictures, got ${#REFS[@]}" >&2; exit 2; }
+  for REF in "${REFS[@]}"; do [ -s "$REF" ] || { echo "no reference picture at $REF" >&2; exit 2; }; done
+  ls "$H3_MODEL_DIR"/Ref2VA/transformer/*.safetensors >/dev/null 2>&1 \
+    || { echo "MiniMax H3's Ref2VA transformer is not installed (oneshot-setup.sh --ref2va adds it: 62 GB, 128 GB of memory)" >&2; exit 2; }
+  for PART in text_encoder tokenizer processor video_vae audio_vae; do
+    [ -e "$H3_MODEL_DIR/Ref2VA/$PART" ] || [ ! -e "$H3_MODEL_DIR/FL2VA/$PART" ] || ln -s "../FL2VA/$PART" "$H3_MODEL_DIR/Ref2VA/$PART"
+  done
+  ENGINE=h3; TURBO_OK=1
+  # the FL2VA Turbo adapter is not for this transformer: plain 20 passes, or the Ref2VA adapter with REF_TURBO=1
+  ADAPTER=none
+  if [ "${REF_TURBO:-0}" = 1 ]; then
+    ADAPTER="${REF_ADAPTER:-$PREFIX/adapters/lightx2v_ref2v_4step_v0.1_ourlayout.safetensors}"; RECIPE=""
+    [ -f "$ADAPTER" ] || { echo "no Ref2VA Turbo adapter at $ADAPTER (oneshot-setup.sh --ref2va adds it)" >&2; exit 2; }
+    POINTS="${POINTS:-5}"  # four passes, what the adapter was trained for
+  fi
+fi
 ENGINE="${ENGINE:-$([ "$TURBO_OK" = 1 ] && echo h3 || echo fasth3)}"; STEPS="${STEPS:-8}"
 [ "$ENGINE" = fasth3 ] || [ "$TURBO_OK" = 1 ] || { echo "MiniMax H3's transformer is not installed (oneshot-setup.sh --turbo adds it, 128 GB of memory): use ENGINE=fasth3" >&2; exit 2; }
 if [ "$ENGINE" = fasth3 ]; then
@@ -68,6 +114,7 @@ if [ "$ENGINE" = fasth3 ]; then
   [ -x "$ZIG_ENGINE/tf-h3-dit" ] && [ -f "$PREFIX/zig_fasth3.py" ] || WHY="the native engine is not installed"
   [ -n "$WHY" ] || sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -Eq 'Apple M([5-9]|[1-9][0-9])' || WHY="this chip has no tensor units"
   [ -n "$WHY" ] || [ -z "${AUDIO_SHIFT:-}${EXTRA:-}" ] || WHY="AUDIO_SHIFT and EXTRA are MLX options"
+  [ -n "$WHY" ] || [ -z "$TEXT_ENCODER" ] || WHY="TEXT_ENCODER is an MLX option"
   case "${FASTH3_ENGINE:-auto}" in
     mlx) WHY="FASTH3_ENGINE=mlx";;
     zig) [ -z "$WHY" ] || { echo "FASTH3_ENGINE=zig, but $WHY" >&2; exit 2; };;
@@ -97,6 +144,8 @@ fi
 [ "$ADAPTER" = none ] || ARGS+=(--lora "$ADAPTER")
 [ -z "${AUDIO_SHIFT:-}" ] || ARGS+=(--audio-shift "$AUDIO_SHIFT")
 [ -z "${FIRST_FRAME:-}" ] || ARGS+=(--first-frame "$FIRST_FRAME")
+[ -z "$TEXT_ENCODER" ] || ARGS+=(--text-encoder "$TEXT_ENCODER")
+for REF in ${REFS[@]+"${REFS[@]}"}; do ARGS+=(--ref-image "$REF"); done
 if [ -n "${PROMPT_FILE:-}" ]; then ARGS+=(--prompt-file "$PROMPT_FILE"); else ARGS+=(--prompt "$PROMPT"); fi
 [ -z "${CROP:-}" ] || ARGS+=(--crop "$CROP")
 # shellcheck disable=SC2086

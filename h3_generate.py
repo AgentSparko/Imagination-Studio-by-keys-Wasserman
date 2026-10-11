@@ -6,6 +6,13 @@
 The text encoder, the audio decoder and the MP4 writer come from minimax-h3-mlx until the family has its own;
 the transformer, sampler, adapters and video decoder are `tensorfold.families.h3`. `--parity` also runs
 the reference transformer on the first step's inputs and reports the difference.
+
+`--ref-image` (repeatable) is reference to video, on the Ref2VA transformer: each picture is named in the prompt as
+`<Picture 1>`, `<Picture 2>`, ... and fixes how a person or a thing looks without being a frame of the clip.
+`model_dir` is then the folder holding `Ref2VA/` (or the Ref2VA folder itself).
+
+`--text-encoder` takes the text encoder's weights from one ComfyUI int8 file (`int8_tensorwise`, with or without
+ConvRot) instead of the model folder, for community builds of the encoder that are published only in that form.
 """
 
 from __future__ import annotations
@@ -13,6 +20,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import math
 import time
 from pathlib import Path
 
@@ -67,26 +75,133 @@ def _streamed(encoder):
     encoder._hidden_states = hidden_states
 
 
-def encode_text(root: Path, prompt: str, image=None):
+def _hadamard(size: int):
+    """ConvRot's rotation: the regular Hadamard matrix of a power-of-4 size, scaled to be orthogonal (comfy_kitchen's
+    `_build_hadamard`). It is symmetric, so it is also its own inverse."""
+
+    h4 = np.array([[1, 1, 1, -1], [1, 1, -1, 1], [1, -1, 1, 1], [-1, 1, 1, 1]], np.float32)
+    h = h4
+    while h.shape[0] < size:
+        h = np.kron(h, h4)
+    if h.shape[0] != size:
+        raise ValueError(f"a ConvRot group is a power of 4, got {size}")
+    return mx.array(h / np.sqrt(np.float32(size)))
+
+
+def comfy_int8_weights(path, dtype=mx.bfloat16):
+    """The tensors of a ComfyUI `int8_tensorwise` checkpoint by name, in ``dtype``, and how many were int8 and rotated.
+
+    A quantized layer is three tensors: `weight` (int8), `weight_scale` (float32, one per output row) and
+    `comfy_quant` (its settings, JSON as bytes). The weight is ``int8 * scale``; with `convrot` the columns were
+    rotated in groups before rounding (``W_rot = W @ H^T`` per group of `convrot_groupsize` columns, H orthogonal), so
+    the same product turns them back. Nothing is read here: the arrays are lazy, each computed from the file when it
+    is first used, so a caller that drops a layer after using it never holds the whole model.
+    """
+
+    tensors = mx.load(str(path))
+    weights, used, rotated = {}, set(), 0
+    for name, tensor in tensors.items():
+        stem, _, leaf = name.rpartition(".")
+        if leaf in ("comfy_quant", "weight_scale"):
+            continue
+        settings, scale = f"{stem}.comfy_quant", f"{stem}.weight_scale"
+        if leaf != "weight" or settings not in tensors:
+            if tensor.dtype not in (mx.bfloat16, mx.float16, mx.float32):
+                raise ValueError(f"{name} is {tensor.dtype} without quantization settings")
+            weights[name] = tensor.astype(dtype)
+            continue
+        conf = json.loads(bytes(np.array(tensors[settings])))
+        if conf.get("format") != "int8_tensorwise" or tensor.dtype != mx.int8 or tensor.ndim != 2:
+            raise ValueError(f"{name}: only int8_tensorwise matrices are read, got {conf} as {tensor.dtype}")
+        if scale not in tensors or tensors[scale].shape != (tensor.shape[0], 1):
+            raise ValueError(f"{name}: no scale per output row")
+        used.update((settings, scale))
+        weight = tensor.astype(mx.float32) * tensors[scale].astype(mx.float32)
+        if conf.get("convrot", False):
+            group = int(conf.get("convrot_groupsize", 256))
+            rows, columns = weight.shape
+            if columns % group:
+                raise ValueError(f"{name}: {columns} columns are not whole groups of {group}")
+            weight = (weight.reshape(rows, columns // group, group) @ _hadamard(group).T).reshape(rows, columns)
+            rotated += 1
+        weights[name] = weight.astype(dtype)
+    stray = sorted(name for name in tensors if name.endswith((".comfy_quant", ".weight_scale")) and name not in used)
+    if stray:
+        raise ValueError(f"{path}: {len(stray)} quantization tensors without an int8 weight, e.g. {stray[:4]}")
+    return weights, len(used) // 2, rotated
+
+
+def _from_comfy_int8(base, path):
+    """``base`` (minimax-h3-mlx's text encoder) reading its weights from one ComfyUI int8 file instead of the model
+    folder: `model.*` is the language model's 50 layers and its embedding, `visual.*` the vision tower, under the
+    names the MLX modules already use. The folder still gives the config and the tokenizer.
+
+    Every weight the modules have must be in the file and every tensor of the file must have a place; the one
+    exception is the final norm, which a file cut at the conditioning layer does not carry and H3 never applies.
+    """
+
+    class Encoder(base):
+        def _load_weights(self, model_dir, dtype, verbose):
+            from mlx.utils import tree_flatten, tree_unflatten
+
+            weights, quantized, rotated = comfy_int8_weights(path, dtype)
+            parts = {"model.": self.language, "visual.": self.vision}
+            unknown = sorted(name for name in weights if not name.startswith(tuple(parts)))
+            for prefix, module in parts.items():
+                mine = {name[len(prefix):]: tensor for name, tensor in weights.items() if name.startswith(prefix)}
+                if module is None:  # a request without pictures does not build the vision tower
+                    continue
+                expected = {name: tensor.shape for name, tensor in tree_flatten(module.parameters())}
+                if prefix == "model.":
+                    expected.pop("norm.weight", None)
+                sanitize = getattr(module, "sanitize", None)  # the patch convolution's layout, as in the base loader
+                if sanitize is not None:
+                    mine = sanitize(mine)
+                missing = sorted(expected.keys() - mine.keys())
+                unknown += sorted(prefix + name for name in mine.keys() - expected.keys())
+                wrong = sorted(name for name in expected.keys() & mine.keys() if mine[name].shape != expected[name])
+                if missing or wrong:
+                    raise KeyError(f"{path}: {len(missing)} weights of {prefix}* missing, e.g. {missing[:4]}; "
+                                   f"{len(wrong)} of another shape, e.g. {wrong[:4]}")
+                module.update(tree_unflatten(list(mine.items())))
+            if unknown:
+                raise KeyError(f"{path}: {len(unknown)} tensors the text encoder has no place for, e.g. {unknown[:4]}")
+            self.skipped_tensors = 0
+            print(f"[tensorfold] text encoder: {Path(path).name}, {quantized} int8 weights ({rotated} rotated) "
+                  f"decoded to {dtype}", flush=True)
+
+    return Encoder
+
+
+def encode_text(root: Path, prompt: str, images=None, weights=None):
+    """Text rows and their tags. ``images`` (one picture or a list) go ahead of the prompt, each as
+    ``<Picture i>: `` and its vision block, which is how the prompt refers to them. ``weights`` is a ComfyUI int8
+    file to take the encoder's weights from, in place of the ones in the model folder."""
+
+    if images is not None and not isinstance(images, (list, tuple)):
+        images = [images]
+    images = list(images) if images else None
     import minimax_h3_mlx.text_encoder as module
     from minimax_h3_mlx.text_encoder import MiniMaxH3TextEncoder
 
+    if weights is not None:
+        MiniMaxH3TextEncoder = _from_comfy_int8(MiniMaxH3TextEncoder, weights)
     original = module.mx
     module.mx = _NoEval()  # the loader ends by reading every weight into memory; leave them for _streamed
     try:
-        encoder = MiniMaxH3TextEncoder(root / "text_encoder", dtype=mx.bfloat16, load_vision=image is not None)
+        encoder = MiniMaxH3TextEncoder(root / "text_encoder", dtype=mx.bfloat16, load_vision=images is not None)
     finally:
         module.mx = original
     if encoder.vision is not None:
         mx.eval(encoder.vision.parameters())
     _streamed(encoder)
-    if image is not None:
+    if images is not None:
         # the checkpoint's processor folder asks for PyTorch; the image processor built from the vision config
         # needs only numpy, and the image arrives already on the render canvas
         from minimax_h3_mlx.text_encoder import _FallbackProcessor
 
         encoder._processor = _FallbackProcessor(encoder._build_image_processor())
-    embeds, tags = encoder.encode(prompt, [image] if image is not None else None)
+    embeds, tags = encoder.encode(prompt, images)
     mx.eval(embeds)
     del encoder
     gc.collect()
@@ -107,6 +222,121 @@ def encode_first_frame(root: Path, image, width: int, height: int, patch):
     gc.collect()
     mx.clear_cache()
     return rows
+
+
+REFERENCE_MULTIPLE = 32  # a reference picture's sides, as the canvas's: whole 2x2 patches of 16x latents
+REFERENCE_LIMIT = 9  # pictures the Ref2VA model takes in one request
+_POSITION_SCALE = 32  # the spatial axes of the rotary positions, as in tensorfold.families.h3.packing
+
+
+def reference_size(width: int, height: int, canvas_width: int, canvas_height: int) -> tuple[int, int]:
+    """The size a reference picture is encoded at: scaled down, never up, to the clip's pixel area with its own
+    aspect ratio kept, each side rounded to a multiple of 32 (ComfyUI's "match", h3.c's default)."""
+
+    scale = min(1.0, math.sqrt((canvas_width * canvas_height) / (width * height)))
+    return (max(REFERENCE_MULTIPLE, round(width * scale / REFERENCE_MULTIPLE) * REFERENCE_MULTIPLE),
+            max(REFERENCE_MULTIPLE, round(height * scale / REFERENCE_MULTIPLE) * REFERENCE_MULTIPLE))
+
+
+def prepare_references(paths, canvas_width: int, canvas_height: int):
+    from PIL import Image
+
+    images = []
+    for path in paths:
+        image = Image.open(path).convert("RGB")
+        size = reference_size(*image.size, canvas_width, canvas_height)
+        images.append(image if image.size == size else image.resize(size, Image.Resampling.LANCZOS))
+    return images
+
+
+def encode_references(root: Path, images, patch):
+    """Conditioning rows of the reference pictures, in order, and each one's latent (height, width).
+
+    A picture is one latent frame of the video VAE at the picture's own size: the middle of the encoder's
+    distribution (not a draw from it, unlike a first frame), normalised and cut into the same 2x2 patches as the
+    clip's own latents.
+    """
+
+    from minimax_h3_mlx.load import load_video_vae
+    from minimax_h3_mlx.pipeline import PIXEL_MEAN, PIXEL_STD
+
+    from tensorfold.families.h3.packing import patchify
+
+    vae = load_video_vae(root / "video_vae")
+    cfg = vae.config
+    latents_mean = mx.array(np.array(cfg.latents_mean, np.float32)).reshape(1, -1, 1, 1, 1)
+    latents_std = mx.array(np.array(cfg.latents_std, np.float32)).reshape(1, -1, 1, 1, 1)
+    pixel_mean = np.array(PIXEL_MEAN, np.float32).reshape(1, 3, 1, 1, 1)
+    pixel_std = np.array(PIXEL_STD, np.float32).reshape(1, 3, 1, 1, 1)
+    rows, shapes = [], []
+    for image in images:
+        pixels = np.asarray(image, dtype=np.float32).transpose(2, 0, 1)[None, :, None]
+        pixels = (pixels / 255.0 - pixel_mean) / pixel_std
+        moments = vae._encode_clip(mx.array(pixels).transpose(0, 2, 3, 4, 1))  # (1, 1, h, w, 2 C), channels last
+        mean = moments[..., :cfg.latent_channels].transpose(0, 4, 1, 2, 3).astype(mx.float32)
+        if mean.shape[2] != 1:
+            raise ValueError(f"a reference picture should encode to one latent frame, got {mean.shape[2]}")
+        normalized = (mean - latents_mean) / latents_std
+        rows.append(patchify(normalized, patch))
+        shapes.append((int(mean.shape[3]), int(mean.shape[4])))
+    rows = mx.concatenate(rows)
+    mx.eval(rows)
+    del vae
+    gc.collect()
+    mx.clear_cache()
+    return rows, tuple(shapes)
+
+
+def reference_layout(shapes):
+    """A stand-in for the family's ``layout`` that packs reference pictures: [text | references | audio | video].
+
+    Reference ``i`` is one latent frame at time ``text + i`` on a height/width grid normalised by its own area, and
+    the clip's audio and video start at ``text + len(shapes)`` instead of ``text``. Its rows are video rows that are
+    held (noised once, pinned at the keyframe timestep, never stepped), which is what the sampler already does
+    with the rows the layout counts as ``condition_video_rows``. The clip's own rows come from the family's layout,
+    called with one placeholder text row per reference so that their clock starts where it must.
+    """
+
+    from tensorfold.families.h3 import packing
+
+    def grid(size: int, patch: int, sqrt_area: float) -> np.ndarray:
+        ratio = size / sqrt_area
+        left = (1.0 - ratio) / 2.0
+        return np.linspace(left, left + ratio, size // patch, endpoint=False) * _POSITION_SCALE
+
+    def build(text_tags, latent_frames, latent_height, latent_width, audio_latents, patch, keyframes=()):
+        if keyframes:
+            raise ValueError("reference pictures cannot be combined with a first or last frame")
+        _, ph, pw = patch
+        text_tags = np.asarray(text_tags, dtype=np.int64)
+        text, count = int(text_tags.shape[0]), len(shapes)
+        base = packing.layout(np.concatenate([text_tags, np.full(count, packing.TAG_TEXT, dtype=np.int64)]),
+                              latent_frames, latent_height, latent_width, audio_latents, patch)
+        positions = np.array(base.position_ids)
+        blocks = []
+        for index, (height, width) in enumerate(shapes):
+            sqrt_area = np.sqrt(height * width)
+            hh, ww = np.meshgrid(grid(height, ph, sqrt_area), grid(width, pw, sqrt_area), indexing="ij")
+            block = np.empty((hh.size, 3), dtype=np.float64)
+            block[:, 0] = float(text + index)
+            block[:, 1], block[:, 2] = hh.reshape(-1), ww.reshape(-1)
+            blocks.append(block.astype(np.float32))
+        held = sum(block.shape[0] for block in blocks)
+        positions = np.concatenate([positions[:text], *blocks, positions[text + count:]])
+        rows = int(positions.shape[0])
+        audio_start = text + held
+        video_start = audio_start + audio_latents * packing.AUDIO_CHANNELS
+        video_rows = np.concatenate([np.arange(text, audio_start), np.arange(video_start, rows)])
+        audio_rows = np.arange(audio_start, video_start)
+        tags = np.empty(rows, dtype=np.int64)
+        tags[:text] = text_tags
+        tags[audio_rows] = packing.TAG_AUDIO
+        tags[video_rows] = packing.TAG_VIDEO
+        return packing.Layout(rows, mx.array(positions), mx.array(tags.astype(np.int32)),
+                              mx.array(video_rows.astype(np.int32)), mx.array(audio_rows.astype(np.int32)),
+                              mx.array(np.arange(text, dtype=np.int32)), held)
+
+    return build
 
 
 def _lazy_fasth3():
@@ -289,10 +519,38 @@ def main():
                         help="clip the decoded audio at full scale, as the reference decoder does (for comparisons)")
     parser.add_argument("--float-vae", action="store_true", help="video decoder in float32, without int8 kernels")
     parser.add_argument("--first-frame", default=None, help="image the clip starts from (image to video)")
+    parser.add_argument("--ref-image", action="append", default=[], metavar="PATH",
+                        help="a reference picture (repeatable, up to 9): <Picture 1>, <Picture 2>, ... in the "
+                             "prompt. Needs the Ref2VA transformer; not with --first-frame or --fasth3")
+    parser.add_argument("--text-encoder", default=None, metavar="PATH",
+                        help="a ComfyUI int8 (int8_tensorwise, ConvRot) safetensors of the Qwen3-VL text encoder, "
+                             "decoded to bfloat16 as it loads; the tokenizer stays the model folder's")
     parser.add_argument("--parity", action="store_true")
     args = parser.parse_args()
+    if args.text_encoder and not (args.text_encoder.endswith(".safetensors") and Path(args.text_encoder).is_file()):
+        raise SystemExit(f"--text-encoder takes a .safetensors file, and {args.text_encoder} is not one")
 
+    references = None
+    if args.ref_image:
+        if args.first_frame or args.fasth3:
+            raise SystemExit("--ref-image cannot be combined with --first-frame or --fasth3")
+        if len(args.ref_image) > REFERENCE_LIMIT:
+            raise SystemExit(f"at most {REFERENCE_LIMIT} reference pictures, got {len(args.ref_image)}")
+        if (Path(args.model_dir) / "Ref2VA" / "transformer").is_dir():
+            args.model_dir = str(Path(args.model_dir) / "Ref2VA")
     root = h3.pipeline_root(args.model_dir)
+    if root is None:
+        raise SystemExit(f"{args.model_dir} is not a MiniMax H3 pipeline folder")
+    if args.ref_image:
+        with open(root / "model_index.json") as handle:
+            partition = json.load(handle).get("_minimax_h3", {}).get("partition")
+        if partition != "ref2va":
+            raise SystemExit(f"--ref-image needs the Ref2VA transformer; {root} is {partition or 'not marked'} "
+                             "(oneshot-setup.sh --ref2va fetches it)")
+        missing = [name for name in ("text_encoder", "tokenizer", "video_vae", "audio_vae") if not (root / name).exists()]
+        if missing:
+            raise SystemExit(f"{root} lacks {', '.join(missing)}: link them from FL2VA (oneshot-setup.sh --ref2va)")
+        references = prepare_references(args.ref_image, args.width, args.height)
     prompt = Path(args.prompt_file).read_text() if args.prompt_file else args.prompt
     started = time.perf_counter()
     image = None
@@ -302,8 +560,15 @@ def main():
 
         image = prepare_keyframe_image(Image.open(args.first_frame).convert("RGB"), args.height, args.width,
                                        stretch=True)
-    text, tags = encode_text(root, prompt, image)
+    text, tags = encode_text(root, prompt, references if references is not None else image, args.text_encoder)
     condition = None
+    if references is not None:
+        from tensorfold.families.h3 import sampler
+
+        condition, shapes = encode_references(root, references, h3.DiTConfig.from_checkpoint(args.model_dir).patch_size)
+        sampler.layout = reference_layout(shapes)  # the sampler packs the references ahead of the clip
+        print(f"[tensorfold] references: {len(shapes)} pictures at "
+              f"{', '.join(f'{w * 16}x{h * 16}' for h, w in shapes)}, {condition.shape[0]} rows", flush=True)
     if image is not None:
         condition = encode_first_frame(root, image, args.width, args.height,
                                        h3.DiTConfig.from_checkpoint(args.model_dir).patch_size)
@@ -361,7 +626,7 @@ def main():
     started = time.perf_counter()
     latents = denoise(dit, text, tags, args.width, args.height, args.frames, points, args.seed, subset,
                       release=not args.keep_adaln, condition=condition,
-                      keyframes=("first",) if condition is not None else (),
+                      keyframes=("first",) if image is not None else (),
                       on_step=lambda i, n, s: print(f"[tensorfold] step {i}/{n} {s:.2f}s", flush=True),
                       audio_shift=args.audio_shift, step_cache=args.step_cache,
                       attention_every=args.attention_every,

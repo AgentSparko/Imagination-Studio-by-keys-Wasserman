@@ -12,7 +12,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.3** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.4** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -85,7 +85,7 @@ How to configure it:
 |---|---|
 | 2.0 and earlier | 128 GB (M5 for the fast path) |
 | 2.1 | 64 GB on an M5; 96 GB on an M1 to M4 |
-| 2.2 and 2.3 | 64 GB on any Apple silicon |
+| 2.2 to 2.4 | 64 GB on any Apple silicon |
 
 On a **DGX Spark** the setup asks for 100 GB of memory for video (a Spark has 128 GB; about 70 GB was in use during a
 clip). No NVIDIA machine with 64 GB has been tried.
@@ -171,6 +171,20 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 
 ## What changed
 
+> **2.4 (2026-10-11): reference pictures to video, a Tutorial tab, a choice of text encoder, your own size and
+> passes.** On both machines. **Reference pictures** (`--ref2va`, MiniMax H3 Ref2VA): up to nine pictures of who or
+> what must look the same, in a scene the prompt describes; see
+> [Reference pictures to video](#reference-pictures-to-video-ref2va). **Tutorial** is a fifth tab in the app: short
+> lessons for Create, Production, Editor and Library, where *Show me in the app* opens the tab and outlines the
+> control a step is about, and a bar at the bottom walks the lesson from there. **Text encoder**: with `--uncensored`
+> the app offers linjian257's community build beside MiniMax's own (personal, non-commercial use). **Custom** takes a
+> width, a height and a number of passes. In the app: a running job shows the time left, not the time spent; a clip
+> added to the timeline shows at once; step 5 has a way back to step 1; the two boxes of step 1 are named for what
+> goes in them. When a clip has spoken lines the prompt now asks the speaker to stay silent after the last one (a
+> line shorter than its clip was sometimes followed by invented speech; three words a second is the rule of thumb).
+> Speed is unchanged. Not tested: `--uncensored` and `--ref2va` from an empty disk (the files were already on the
+> test machines), and whether the new prompt wording stops the invented speech in every case.
+>
 > **2.3 (2026-10-09): a DGX Spark build on TensorFold's own CUDA engine, Qwen-Image-2.1-Turbo for images, one install
 > command.** The same Studio now runs on an NVIDIA DGX Spark: FastH3's transformer on a new CUDA family of TensorFold
 > (the Mac engine's design in int8 on the GB10's tensor cores), with ComfyUI hosting the text encoder, the sampler
@@ -243,6 +257,7 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 | The default: images and FastH3 video, the web app | **64 GB** | 175 GB | M5 family: the native engine, fastest |
 | The default on an M1 to M4 | **64 GB** | 212 GB | FastH3 on the MLX engine with 8-bit weights, much slower |
 | With `--turbo`: MiniMax H3 Turbo and its 20-step modes as well | **128 GB** | 240 GB | M5 family for the fast path |
+| With `--ref2va`: reference pictures to video (MiniMax H3 Ref2VA) | **128 GB** | 64 GB more | M5 family for the fast path |
 
 The setup enforces the memory figures. All of this was measured on one machine, a Mac Studio M5 Ultra with 256 GB:
 the figures below are what each stage of a job used there (`/usr/bin/time -l`, peak memory footprint), not a run
@@ -297,6 +312,7 @@ git clone https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-V
 cd keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min
 bash oneshot-setup.sh --app             # engine, image model, FastH3, 2x decoder, the app; ends with a test clip
 bash oneshot-setup.sh --turbo --app     # the same plus MiniMax H3 Turbo (64 GB more on disk, 128 GB of memory)
+bash oneshot-setup.sh --ref2va --app    # the same plus reference pictures to video (64 GB more on disk, 128 GB of memory)
 ```
 
 **Step-by-step tutorial with screenshots: [TUTORIAL.md](TUTORIAL.md).**
@@ -326,7 +342,7 @@ and roughly how long it takes.
 | Choice | What it does |
 |---|---|
 | **The prompt goes to** | *Video with sound*, or *Image only*: Qwen-Image-2.1 makes the pictures and stops there. |
-| **The clip starts from** | *Text only*; *a Qwen scout image* (step 2 makes several, you pick one); or *your own image* (step 2 uploads it). |
+| **The clip starts from** | *Text only*; *a Qwen scout image* (step 2 makes several, you pick one); *your own image* (step 2 uploads it); or, with `--ref2va` installed, *reference pictures* (step 2 takes up to nine: who or what must look the same, in a scene the prompt describes). |
 | **Video engine** (shown only with `--turbo` installed) | *FastH3*: fastest; text to video runs on the native Zig engine, and the bar under the cards says which engine a clip will use. *MiniMax H3*: the Turbo adapter with the sound made again by the base model, or the full 20 steps. |
 | **Passes** (FastH3) | 4 (fastest, a little softer), 8 (what it was trained for), 20 (for prompts with several actions; slowest). |
 | **Quality** (MiniMax H3, with `--turbo`) | Turbo 5 + base sound (the standard), Turbo 3, 20 steps with the fast recipe, or plain 20 steps. |
@@ -335,7 +351,7 @@ and roughly how long it takes.
 | **Length** | 5, 8, 10 or 15 s as one clip; 30 s to 30 min as a chain of clips (below). |
 | **Seed** | Same seed and settings give the same clip. |
 
-Then write the picture, what happens, and optionally the camera move. Steps 3 to 5: add spoken or sung lines and
+Then write the scene, what happens to the characters, and optionally the camera move. Steps 3 to 5: add spoken or sung lines and
 the soundscape, review the exact prompt the model will receive (edit it freely), and queue the render. The **Queue**
 on the right shows progress by pass, a time estimate, the log, and a cancel button.
 
@@ -369,7 +385,7 @@ without them every clip gets the same prompt. Finished clips can be watched from
 - Expect drift: each clip only sees one frame of the last, so faces, clothes and light can wander over many clips,
   and sound does not carry across a join. For a planned story with different shots, use Production instead.
 
-### Production, Editor, Library
+### Production, Editor, Library, Tutorial
 
 ![Production board](samples/ui_production.png)
 
@@ -384,6 +400,12 @@ length. A segment can open on the last frame of the one before; one button rende
 
 **Library** lists every render, scout and export; *use* makes an image the first frame of a new clip, *+ timeline*
 sends a clip to the editor.
+
+![Tutorial](samples/ui_tutorial.png)
+
+**Tutorial** teaches the other four: eleven short lessons, one step on screen at a time, with an example and a tip
+where they help. *Show me in the app* opens the tab a step is about and outlines the control; a bar at the bottom
+then carries the lesson forward from inside the app. Finished lessons are remembered in the browser.
 
 The app drives the same scripts as the command line, one job at a time, and keeps projects, uploads and renders
 under `~/TensorFoldStudio`. What it is not: the editor has one video track with trims and ordering only (no
@@ -704,12 +726,60 @@ QUALITY=high bash scripts/video.sh "..." out.mp4            # 20 steps, no adapt
 `FRAMES` must be `17n + 5` (56, 73, 90, 124, 192, 243, 362). `FIRST_FRAME` is stretched onto the canvas, so match its
 aspect ratio.
 
+### Another text encoder, your own size and passes
+
+`TEXT_ENCODER=uncensored` renders with linjian257's community build of MiniMax H3's text encoder in place of
+MiniMax's own (`oneshot-setup.sh --uncensored`, 26 GB more; on a DGX Spark `oneshot-setup-spark.sh --uncensored`).
+It is for personal, non-commercial use under its own licence: read its model card first. It works with text, a first
+frame and reference pictures. On the Mac the file is read as it is and its 8-bit weights are restored in memory
+(about 5 s more per clip, 93 s against 88 s for a 5 s 864x480 clip on an M5 Ultra); FastH3 then runs on the MLX
+engine, not the native one. On a Spark it is ComfyUI's loader with the other file (88 s against 89 s).
+
+In the app, *Resolution → Custom* takes a width and a height (multiples of 32, each side 256 to 1536, at most
+1344x768 pixels in all) and *Custom passes* a number of passes from 1 to 50; no time is estimated for either. From
+the scripts these are `WIDTH`, `HEIGHT` and `STEPS` (FastH3, and everything on a Spark) or `POINTS` (MiniMax H3 on
+the Mac: one more than the passes).
+
+### Reference pictures to video (Ref2VA)
+
+A first frame is the clip's opening picture. A reference picture is not in the clip at all: it fixes how a person or
+a thing looks, and the prompt puts them in a new scene. This is MiniMax H3's second transformer, Ref2VA, installed
+with `bash oneshot-setup.sh --ref2va` (62 GB; the text encoder and the two decoders are the ones already installed,
+linked into `Ref2VA/`).
+
+```bash
+REF_IMAGES="face.jpg" bash scripts/video.sh \
+  "Use <Picture 1> as the person. The person walks through a rainy neon street, turns to the camera and says hello." out.mp4
+REF_IMAGES="face.jpg bike.png" bash scripts/video.sh "Use <Picture 1> as the person and <Picture 2> as the bicycle. ..." out.mp4
+REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the person. ..." out.mp4   # 4 passes
+```
+
+- Up to nine pictures, named `<Picture 1>`, `<Picture 2>`, ... in the order given. Each is used at the clip's pixel
+  area with its own aspect ratio (a 768x1024 portrait becomes 544x736 for an 864x480 clip), so nothing is stretched.
+- 20 plain passes with the model's own sound by default: 3 min 43 s for 5 s at 864x480 on an M5 Ultra (9.7 s a pass
+  over 16.2K rows, 64 GiB peak). `REF_TURBO=1` uses LightX2V's 4-step Ref2VA adapter and then makes the sound again
+  without it: 1 min 28 s, 103 GiB peak while the adapter is merged. `QUALITY=high` runs the 20 passes with the fast
+  recipe: 1 min 58 s. Two pictures (a person and a bicycle) took 4 min 5 s at 20 passes and 1 min 29 s with the adapter.
+- Not with `FIRST_FRAME`, and not with FastH3, which has no reference-trained weights.
+- In the app: **The clip starts from → Reference pictures**. Step 4 writes the prompt in the model's own reference
+  form (`subject_definitions`, `summary`, `retention_analysis`, `detailed_description`); edit it freely.
+- **On a DGX Spark** the same `REF_IMAGES` and `REF_TURBO=1` work after `bash oneshot-setup-spark.sh --ref2va` (39 GB:
+  the Ref2VA transformer for ComfyUI in bf16 and LightX2V's adapter). Measured on one Spark, 5 s at 864x480, one
+  portrait: 20 steps 288 s, `REF_TURBO=1` (4 passes, the adapter's own sound) 107 s; the app's *Reference pictures*
+  start works there too (101 s). The passes run on ComfyUI's own blocks, not on TensorFold's CUDA engine. Free memory
+  fell to 7 GB of 128 during these renders, with a browser and the app open: close what you can first. One picture
+  was tested there, not several.
+- Checked on one fictional portrait: the same face, hair and glasses in the clip, against a different person from the
+  same prompt and seed without the reference, and the same identity as h3.c's `--ref-image` gives. The token layout
+  matches h3.c's to the last float32 bit. Not checked: reference videos and reference audio (not implemented), sound
+  by ear, lengths over 5 s.
+
 ### GHCR prebuilt carrier
 
 ```bash
-docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.3
+docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.4
 # index digest: sha256:6d27fa35d57cae1f66a5ad4bb002c15086207cb1eab8ecec0544a3367b9466bc (linux/arm64 + linux/amd64)
-docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.3 cp -a /payload/. /out/payload/
+docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.4 cp -a /payload/. /out/payload/
 ```
 
 One image for both builds. For a Mac it holds the TensorFold wheel, `requirements.lock`, the render scripts, the
@@ -768,7 +838,7 @@ the image was `ghcr.io/drowzeys/keys-mac-tensorfold-studio`; the Mac setup still
   (video) run the base models.
 - **M5 only for these numbers.** The int8 kernels need Metal 4 tensor operations; elsewhere both families run
   bfloat16 and slower.
-- **Memory.** `--image-only` asks for 48 GB; the default install 64 GB; `--turbo` 128 GB. Measured on 256 GB only; see [Minimum requirements](#minimum-requirements).
+- **Memory.** `--image-only` asks for 48 GB; the default install 64 GB; `--turbo` and `--ref2va` 128 GB. Measured on 256 GB only; see [Minimum requirements](#minimum-requirements).
 - **Not part of upstream TensorFold.** The H3 family, the Qwen-Image family and the audio step were offered to
   ashhart/TensorFold as draft pull requests (#384, #393, #405) and closed on 2026-10-07: the engine is built around
   token lanes with exact output, it does not trade precision as the int8 kernels do, its Python engine is frozen and
