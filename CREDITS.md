@@ -88,6 +88,9 @@ only; the reference-detail branch in the same file is not ported. (MiniMax H3 Co
   the adapter behind every fast video number in this pack.
 - **LightX2V** (ModelTC) — the **Ref2VA Turbo** 4-step adapter from the same repository (Apache-2.0), behind
   `REF_TURBO=1` for reference pictures.
+- **linjian257** — the optional uncensored build of MiniMax H3's text encoder
+  (`qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257`, Personal Entertainment Use License v1.0: personal,
+  non-commercial use, no redistribution), fetched by `--uncensored` and never shipped here.
 - **larryvrh** — `MiniMax-H3-Turbo-Lora`, the adapter lineage minimax-h3-mlx's loader was written for.
 - **Ash Hart** and the TensorFold contributors — the **TensorFold 1.0 native runtime** (Zig driving Metal, Apache-2.0)
   that the FastH3 text-to-video passes run on since 2.0: its Metal bindings, checkpoint readers and build. The H3

@@ -143,7 +143,7 @@ const toast = text => { const n = el("div", { style: "position:fixed;bottom:18px
 
 let S = null, jobs = [], tab = "Create", project = null;
 const C = { step: 0, mode: "scout", preset: "draft", quality: "standard", seconds: 5, seed: 1, scene: "", action: "", camera: "",
-  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "" };
+  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", textEncoder: "regular" };
 const field = (labelText, node) => el("div", {}, el("label", {}, labelText), node);
 const bind = (obj, key, node, after) => { const isBox = node.type === "checkbox"; if (isBox) node.checked = !!obj[key]; else node.value = obj[key] ?? "";
   node.addEventListener("input", () => { obj[key] = isBox ? node.checked : (node.type === "number" ? Number(node.value) : node.value); if (after) after(); }); return node; };
@@ -169,14 +169,19 @@ function sync() {
   C.quality = C.engine === "fasth3" ? "fh" + C.passes : C.h3quality;
   if (!UPSCALED[C.res]) C.up = false;
   C.preset = UPSCALED[C.res] ? (C.up ? UPSCALED[C.res][0] : { "480p": "small", "720p": "p720" }[C.res]) : C.res;
+  if (!(S && S.uncensored)) C.textEncoder = "regular";
 }
+// the output: a preset, or a size typed in by hand
+const output = () => C.preset === "custom" ? { label: "Custom " + C.cw + "x" + C.ch, size: [Number(C.cw), Number(C.ch)] } : S.presets[C.preset];
+// what a job carries beyond the preset: the hand-set size and passes, and the text encoder
+const extras = () => ({ ...(C.preset === "custom" ? { width: Number(C.cw), height: Number(C.ch) } : {}), ...(String(C.steps).trim() ? { steps: Number(C.steps) } : {}), ...(C.textEncoder === "uncensored" ? { text_encoder: "uncensored" } : {}) });
 function changed() { sync(); C.prompt = ""; render(); }
 // one decision shown as cards: options are value -> [title, detail]
 const choice = (obj, key, options, after, tight) => el("div", { class: "choice" + (tight ? " tight" : ""), role: "radiogroup" }, Object.entries(options).map(([v, [title, sub]]) =>
   el("button", { type: "button", role: "radio", "aria-checked": String(obj[key]) === v ? "true" : "false", class: String(obj[key]) === v ? "on" : "", onclick: () => { obj[key] = v; if (after) after(); } }, el("b", {}, title), sub ? el("span", {}, sub) : null)));
 const PASSES = { 4: ["4 passes", "fastest, a little softer"], 8: ["8 passes", "what FastH3 was trained for"], 20: ["20 passes", "for prompts with several actions"] };
 const H3Q = { standard: ["Turbo 5 + base sound", "the standard"], fast: ["Turbo 3", "quickest, adapter sound"], high: ["20 steps, fast recipe", "higher quality"], full: ["20 steps, plain", "slowest"] };
-const RES = { "480p": ["480p", "864 × 480"], "720p": ["720p", "1280 × 720"], draft: ["Draft", "1344 × 768 via 2x"], "2k": ["2K", "2048 × 1152 via 2x"], native: ["Native", "1344 × 768"] };
+const RES = { "480p": ["480p", "864 × 480"], "720p": ["720p", "1280 × 720"], draft: ["Draft", "1344 × 768 via 2x"], "2k": ["2K", "2048 × 1152 via 2x"], native: ["Native", "1344 × 768"], custom: ["Custom", "your own size"] };
 function videoControls(after) {
   const two = bind(C, "up", el("input", { type: "checkbox", disabled: !UPSCALED[C.res] }), changed);
   return el("div", { class: "group" },
@@ -188,16 +193,22 @@ function videoControls(after) {
     S.turbo ? el("label", {}, "Video engine") : null, isRef() ? null : S.turbo ? choice(C, "engine", { fasth3: ["FastH3", S.zig ? "FastVideo's distilled H3 on the native Zig engine: fastest" : "FastVideo's distilled H3 on the sparse tile kernel: fastest"], h3: ["MiniMax H3", "Turbo adapter with base-model sound, or the full 20 steps"] }, changed) : null,
     isRef() ? null : el("label", {}, C.engine === "fasth3" ? "Passes" : "Quality"), isRef() ? null : C.engine === "fasth3" ? choice(C, "passes", PASSES, changed, true) : choice(C, "h3quality", H3Q, changed, true),
     el("label", {}, "Resolution"), choice(C, "res", Object.fromEntries(Object.entries(RES).filter(([k]) => S.x2 || !["draft", "2k"].includes(k))), changed, true),
+    C.res === "custom" ? el("div", { class: "row" }, el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Width"), bind(C, "cw", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
+      el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Height"), bind(C, "ch", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
+      el("div", { class: "note" }, "Multiples of 32, each side " + S.custom.sides[0] + " to " + S.custom.sides[1] + ", at most 1344 × 768 pixels in all. No time estimate for a custom size.")) : null,
+    S.uncensored ? el("label", {}, "Text encoder") : null,
+    S.uncensored ? choice(C, "textEncoder", { regular: ["Regular", "MiniMax H3's own"], uncensored: ["Uncensored", "community build, 8-bit; personal non-commercial use"] }, changed, true) : null,
     el("div", { class: "row" },
       !S.x2 ? null : el("div", {}, el("label", {}, "Upscale"), el("label", { class: "switch" }, two, el("span", {}, "2x upscale", el("small", {}, UPSCALED[C.res] ? "2x decoder → " + UPSCALED[C.res][1] + ", about 10 s more" : "already part of this output")))),
       el("div", { class: "fit", style: "width:250px" }, el("label", {}, "Length"), select(C, "seconds", { ...Object.fromEntries(Object.keys(S.durations).map(k => [k, k + " s · " + S.durations[k] + " frames"])),
         ...(isRef() ? {} : Object.fromEntries(Object.entries(S.long).map(([k, v]) => [k, v + " · " + Math.ceil(k / 15) + " clips chained"]))) }, after)),
-      el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Seed"), bind(C, "seed", el("input", { type: "number", min: 0 })))));
+      el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Seed"), bind(C, "seed", el("input", { type: "number", min: 0 }))),
+      el("div", { class: "fit", style: "width:150px" }, el("label", {}, "Custom passes"), bind(C, "steps", el("input", { type: "number", min: S.custom.steps[0], max: S.custom.steps[1], placeholder: "auto" }), after))));
 }
 function summary(est) {
-  const size = S.presets[C.preset].size, engine = isRef() ? "MiniMax H3 Ref2VA · " + (C.refPasses === "4" ? "Turbo 4 passes" : "20 passes") : C.engine === "fasth3" ? "FastH3 · " + C.passes + " passes · " + S.engine : "MiniMax H3 · " + H3Q[C.h3quality][0];
+  const size = output().size, hand = String(C.steps).trim() ? " · " + C.steps + " passes by hand" : "", engine = isRef() ? "MiniMax H3 Ref2VA · " + (C.refPasses === "4" ? "Turbo 4 passes" : "20 passes") : C.engine === "fasth3" ? "FastH3 · " + C.passes + " passes · " + S.engine : "MiniMax H3 · " + H3Q[C.h3quality][0];
   return el("div", { class: "summary" }, el("span", { class: "chip k" }, { t2v: "TEXT → VIDEO", scout: "QWEN IMAGE → VIDEO", i2v: "IMAGE → VIDEO", r2v: "REFERENCES → VIDEO" }[C.mode]),
-    el("span", { class: "chip" }, engine), el("span", { class: "chip" }, size[0] + " × " + size[1]), el("span", { class: "chip" }, isLong() ? S.long[C.seconds] + " · " + Math.ceil(C.seconds / 15) + " × 15 s" : C.seconds + " s · " + S.durations[C.seconds] + " f"), est);
+    el("span", { class: "chip" }, engine + hand), C.textEncoder === "uncensored" ? el("span", { class: "chip" }, "uncensored text encoder") : null, el("span", { class: "chip" }, size[0] + " × " + size[1]), el("span", { class: "chip" }, isLong() ? S.long[C.seconds] + " · " + Math.ceil(C.seconds / 15) + " × 15 s" : C.seconds + " s · " + S.durations[C.seconds] + " f"), est);
 }
 function settingsRow(obj, after, keep = {}) {
   const presets = Object.entries(S.presets).filter(([k]) => !keep.presets || keep.presets(k));
@@ -208,7 +219,7 @@ function settingsRow(obj, after, keep = {}) {
     field("Quality", select(obj, "quality", qualities, after)),
     el("div", { class: "fit", style: "width:110px" }, el("label", {}, "Seed"), bind(obj, "seed", el("input", { type: "number", min: 0 }))));
 }
-async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, seconds: Number(obj.seconds), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_turbo: obj === C && isRef() && C.refPasses === "4" });
+async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, seconds: Number(obj.seconds), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_turbo: obj === C && isRef() && C.refPasses === "4", ...(obj === C ? { steps: String(C.steps).trim() } : {}) });
   node.textContent = r.seconds ? "≈ " + mmss(r.seconds) + (S.platform === "spark" ? " on a DGX Spark, models loaded" : " on an M5 Ultra") : ""; } catch { node.textContent = ""; } }
 
 /* ---------- Create ---------- */
@@ -273,7 +284,7 @@ function viewCreate() {
         put(body, field("Image prompt (Qwen-Image-2.1)", bind(C, "imagePrompt", el("textarea"))),
           el("div", { class: "row" }, el("div", { class: "fit", style: "width:120px" }, el("label", {}, "How many"), bind(C, "count", el("input", { type: "number", min: 1, max: 12 }))),
             el("button", { class: "primary fit", disabled: !C.imagePrompt.trim(), onclick: async () => { try { const j = await api("/api/jobs", { kind: "scout", title: "Scouts",
-              params: { prompt: C.imagePrompt, count: C.count, seed: C.seed, preset: C.preset } }); C.scoutJob = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, "Make scouts"), el("span")),
+              params: { prompt: C.imagePrompt, count: C.count, seed: C.seed, preset: C.preset, ...(C.preset === "custom" ? { width: Number(C.cw), height: Number(C.ch) } : {}) } }); C.scoutJob = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, "Make scouts"), el("span")),
           scout ? el("div", { class: "note" }, "Scout job: ", el("span", { class: "pill " + scout.status }, scout.status)) : el("div", { class: "note" }, "Six scouts take about half a minute. They are made at the size the video model starts from."));
         if (scout && scout.status === "done") put(body, el("div", { class: "grid", style: "margin-top:10px" }, scout.outputs.filter(p => !p.endsWith("sheet.jpg")).map(p =>
           el("div", { class: "tile" + (C.image === p ? " on" : ""), onclick: () => { C.image = p; render(); } }, media(p), el("div", { class: "cap" }, p.split("/").pop(), C.image === p ? "✓ selected" : "pick")))));
@@ -301,13 +312,16 @@ function viewCreate() {
     const est = el("div", { class: "note" }); showEstimate(C, est);
     const job = C.job && jobs.find(j => j.id === C.job);
     const ready = C.prompt.trim() && (isRef() ? C.refs.length > 0 : noFrame() || C.image);
-    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, S.presets[C.preset].label + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + (C.refPasses === "4" ? "Turbo 4 passes, " : "20 passes, ") + C.refs.length + " reference picture" + (C.refs.length === 1 ? "" : "s") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
+    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() ? " · " + C.steps + " passes by hand" : "") + (C.textEncoder === "uncensored" ? " · uncensored text encoder" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + (C.refPasses === "4" ? "Turbo 4 passes, " : "20 passes, ") + C.refs.length + " reference picture" + (C.refs.length === 1 ? "" : "s") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
       !ready ? el("div", { class: "note", style: "color:var(--warn)" }, C.prompt.trim() ? (isRef() ? "Add a reference picture in step 2." : "Pick or upload a first frame in step 2.") : "Open step 4 once to build the prompt.") : null,
       el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "hot fit", disabled: !ready, onclick: async () => { try {
-        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed, ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4" } : {}) };
+        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed, ...extras(), ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4" } : {}) };
         const j = await api("/api/jobs", isLong() ? { kind: "long", title: S.long[C.seconds] + ": " + (C.action || C.scene || "Video").slice(0, 40), params: { ...base, total_seconds: Number(C.seconds), beats: (C.beats || "").split("\n") } }
           : { kind: "video", title: (C.action || C.scene || "Clip").slice(0, 48), params: { ...base, seconds: Number(C.seconds) } });
-        C.job = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, "Queue this clip"), el("span")));
+        C.job = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, "Queue this clip"),
+        // the way back to step 1 once a clip is queued: with the same settings, or with the words cleared
+        el("button", { class: "fit", onclick: () => { C.step = 0; C.job = null; render(); } }, "Back to the start, keep this setup"),
+        el("button", { class: "fit", onclick: () => { Object.assign(C, { step: 0, job: null, prompt: "", scene: "", action: "", camera: "", dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, beats: "", refs: [], subjects: [] }); render(); } }, "Start a new clip"), el("span")));
     if (job) { put(body, el("h3", {}, "This clip"), jobCard(job));
       if (job.status === "done") put(body, el("video", { class: "main", src: file(job.outputs[0]), controls: true }),
         el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "fit", onclick: () => addToTimeline(job.outputs[0]) }, "Add to the editor timeline"), el("a", { class: "fit", href: file(job.outputs[0]), download: "" }, "Download"), el("span"))); }
@@ -417,7 +431,7 @@ function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != n
       ["queued", "running"].includes(job.status) ? el("button", { class: "small", onclick: async () => { await api("/api/jobs/" + job.id + "/cancel", {}); poll(); } }, "Cancel") : null,
       el("button", { class: "small", onclick: () => pre.classList.toggle("hide") }, "Log")),
     job.status === "running" ? el("div", {}, el("div", { class: "bar" }, el("i", { style: "width:" + share + "%" })),
-      el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + mmss(elapsed) + (job.estimate ? " of about " + mmss(job.estimate) : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : ""))) : null,
+      el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + (job.estimate && elapsed != null ? (job.estimate - elapsed > 5 ? "about " + mmss(job.estimate - elapsed) + " left" : "almost done") : "no time estimate for this setting") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : ""))) : null,
     job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, pre); }
 let lastSig = "";
 async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }

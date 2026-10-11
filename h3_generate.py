@@ -10,6 +10,9 @@ the reference transformer on the first step's inputs and reports the difference.
 `--ref-image` (repeatable) is reference to video, on the Ref2VA transformer: each picture is named in the prompt as
 `<Picture 1>`, `<Picture 2>`, ... and fixes how a person or a thing looks without being a frame of the clip.
 `model_dir` is then the folder holding `Ref2VA/` (or the Ref2VA folder itself).
+
+`--text-encoder` takes the text encoder's weights from one ComfyUI int8 file (`int8_tensorwise`, with or without
+ConvRot) instead of the model folder, for community builds of the encoder that are published only in that form.
 """
 
 from __future__ import annotations
@@ -72,9 +75,108 @@ def _streamed(encoder):
     encoder._hidden_states = hidden_states
 
 
-def encode_text(root: Path, prompt: str, images=None):
+def _hadamard(size: int):
+    """ConvRot's rotation: the regular Hadamard matrix of a power-of-4 size, scaled to be orthogonal (comfy_kitchen's
+    `_build_hadamard`). It is symmetric, so it is also its own inverse."""
+
+    h4 = np.array([[1, 1, 1, -1], [1, 1, -1, 1], [1, -1, 1, 1], [-1, 1, 1, 1]], np.float32)
+    h = h4
+    while h.shape[0] < size:
+        h = np.kron(h, h4)
+    if h.shape[0] != size:
+        raise ValueError(f"a ConvRot group is a power of 4, got {size}")
+    return mx.array(h / np.sqrt(np.float32(size)))
+
+
+def comfy_int8_weights(path, dtype=mx.bfloat16):
+    """The tensors of a ComfyUI `int8_tensorwise` checkpoint by name, in ``dtype``, and how many were int8 and rotated.
+
+    A quantized layer is three tensors: `weight` (int8), `weight_scale` (float32, one per output row) and
+    `comfy_quant` (its settings, JSON as bytes). The weight is ``int8 * scale``; with `convrot` the columns were
+    rotated in groups before rounding (``W_rot = W @ H^T`` per group of `convrot_groupsize` columns, H orthogonal), so
+    the same product turns them back. Nothing is read here: the arrays are lazy, each computed from the file when it
+    is first used, so a caller that drops a layer after using it never holds the whole model.
+    """
+
+    tensors = mx.load(str(path))
+    weights, used, rotated = {}, set(), 0
+    for name, tensor in tensors.items():
+        stem, _, leaf = name.rpartition(".")
+        if leaf in ("comfy_quant", "weight_scale"):
+            continue
+        settings, scale = f"{stem}.comfy_quant", f"{stem}.weight_scale"
+        if leaf != "weight" or settings not in tensors:
+            if tensor.dtype not in (mx.bfloat16, mx.float16, mx.float32):
+                raise ValueError(f"{name} is {tensor.dtype} without quantization settings")
+            weights[name] = tensor.astype(dtype)
+            continue
+        conf = json.loads(bytes(np.array(tensors[settings])))
+        if conf.get("format") != "int8_tensorwise" or tensor.dtype != mx.int8 or tensor.ndim != 2:
+            raise ValueError(f"{name}: only int8_tensorwise matrices are read, got {conf} as {tensor.dtype}")
+        if scale not in tensors or tensors[scale].shape != (tensor.shape[0], 1):
+            raise ValueError(f"{name}: no scale per output row")
+        used.update((settings, scale))
+        weight = tensor.astype(mx.float32) * tensors[scale].astype(mx.float32)
+        if conf.get("convrot", False):
+            group = int(conf.get("convrot_groupsize", 256))
+            rows, columns = weight.shape
+            if columns % group:
+                raise ValueError(f"{name}: {columns} columns are not whole groups of {group}")
+            weight = (weight.reshape(rows, columns // group, group) @ _hadamard(group).T).reshape(rows, columns)
+            rotated += 1
+        weights[name] = weight.astype(dtype)
+    stray = sorted(name for name in tensors if name.endswith((".comfy_quant", ".weight_scale")) and name not in used)
+    if stray:
+        raise ValueError(f"{path}: {len(stray)} quantization tensors without an int8 weight, e.g. {stray[:4]}")
+    return weights, len(used) // 2, rotated
+
+
+def _from_comfy_int8(base, path):
+    """``base`` (minimax-h3-mlx's text encoder) reading its weights from one ComfyUI int8 file instead of the model
+    folder: `model.*` is the language model's 50 layers and its embedding, `visual.*` the vision tower, under the
+    names the MLX modules already use. The folder still gives the config and the tokenizer.
+
+    Every weight the modules have must be in the file and every tensor of the file must have a place; the one
+    exception is the final norm, which a file cut at the conditioning layer does not carry and H3 never applies.
+    """
+
+    class Encoder(base):
+        def _load_weights(self, model_dir, dtype, verbose):
+            from mlx.utils import tree_flatten, tree_unflatten
+
+            weights, quantized, rotated = comfy_int8_weights(path, dtype)
+            parts = {"model.": self.language, "visual.": self.vision}
+            unknown = sorted(name for name in weights if not name.startswith(tuple(parts)))
+            for prefix, module in parts.items():
+                mine = {name[len(prefix):]: tensor for name, tensor in weights.items() if name.startswith(prefix)}
+                if module is None:  # a request without pictures does not build the vision tower
+                    continue
+                expected = {name: tensor.shape for name, tensor in tree_flatten(module.parameters())}
+                if prefix == "model.":
+                    expected.pop("norm.weight", None)
+                sanitize = getattr(module, "sanitize", None)  # the patch convolution's layout, as in the base loader
+                if sanitize is not None:
+                    mine = sanitize(mine)
+                missing = sorted(expected.keys() - mine.keys())
+                unknown += sorted(prefix + name for name in mine.keys() - expected.keys())
+                wrong = sorted(name for name in expected.keys() & mine.keys() if mine[name].shape != expected[name])
+                if missing or wrong:
+                    raise KeyError(f"{path}: {len(missing)} weights of {prefix}* missing, e.g. {missing[:4]}; "
+                                   f"{len(wrong)} of another shape, e.g. {wrong[:4]}")
+                module.update(tree_unflatten(list(mine.items())))
+            if unknown:
+                raise KeyError(f"{path}: {len(unknown)} tensors the text encoder has no place for, e.g. {unknown[:4]}")
+            self.skipped_tensors = 0
+            print(f"[tensorfold] text encoder: {Path(path).name}, {quantized} int8 weights ({rotated} rotated) "
+                  f"decoded to {dtype}", flush=True)
+
+    return Encoder
+
+
+def encode_text(root: Path, prompt: str, images=None, weights=None):
     """Text rows and their tags. ``images`` (one picture or a list) go ahead of the prompt, each as
-    ``<Picture i>: `` and its vision block, which is how the prompt refers to them."""
+    ``<Picture i>: `` and its vision block, which is how the prompt refers to them. ``weights`` is a ComfyUI int8
+    file to take the encoder's weights from, in place of the ones in the model folder."""
 
     if images is not None and not isinstance(images, (list, tuple)):
         images = [images]
@@ -82,6 +184,8 @@ def encode_text(root: Path, prompt: str, images=None):
     import minimax_h3_mlx.text_encoder as module
     from minimax_h3_mlx.text_encoder import MiniMaxH3TextEncoder
 
+    if weights is not None:
+        MiniMaxH3TextEncoder = _from_comfy_int8(MiniMaxH3TextEncoder, weights)
     original = module.mx
     module.mx = _NoEval()  # the loader ends by reading every weight into memory; leave them for _streamed
     try:
@@ -418,8 +522,13 @@ def main():
     parser.add_argument("--ref-image", action="append", default=[], metavar="PATH",
                         help="a reference picture (repeatable, up to 9): <Picture 1>, <Picture 2>, ... in the "
                              "prompt. Needs the Ref2VA transformer; not with --first-frame or --fasth3")
+    parser.add_argument("--text-encoder", default=None, metavar="PATH",
+                        help="a ComfyUI int8 (int8_tensorwise, ConvRot) safetensors of the Qwen3-VL text encoder, "
+                             "decoded to bfloat16 as it loads; the tokenizer stays the model folder's")
     parser.add_argument("--parity", action="store_true")
     args = parser.parse_args()
+    if args.text_encoder and not (args.text_encoder.endswith(".safetensors") and Path(args.text_encoder).is_file()):
+        raise SystemExit(f"--text-encoder takes a .safetensors file, and {args.text_encoder} is not one")
 
     references = None
     if args.ref_image:
@@ -451,7 +560,7 @@ def main():
 
         image = prepare_keyframe_image(Image.open(args.first_frame).convert("RGB"), args.height, args.width,
                                        stretch=True)
-    text, tags = encode_text(root, prompt, references if references is not None else image)
+    text, tags = encode_text(root, prompt, references if references is not None else image, args.text_encoder)
     condition = None
     if references is not None:
         from tensorfold.families.h3 import sampler

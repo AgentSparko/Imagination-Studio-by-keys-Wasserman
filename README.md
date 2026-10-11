@@ -706,6 +706,20 @@ QUALITY=high bash scripts/video.sh "..." out.mp4            # 20 steps, no adapt
 `FRAMES` must be `17n + 5` (56, 73, 90, 124, 192, 243, 362). `FIRST_FRAME` is stretched onto the canvas, so match its
 aspect ratio.
 
+### Another text encoder, your own size and passes
+
+`TEXT_ENCODER=uncensored` renders with linjian257's community build of MiniMax H3's text encoder in place of
+MiniMax's own (`oneshot-setup.sh --uncensored`, 26 GB more; on a DGX Spark `oneshot-setup-spark.sh --uncensored`).
+It is for personal, non-commercial use under its own licence: read its model card first. It works with text, a first
+frame and reference pictures. On the Mac the file is read as it is and its 8-bit weights are restored in memory
+(about 5 s more per clip, 93 s against 88 s for a 5 s 864x480 clip on an M5 Ultra); FastH3 then runs on the MLX
+engine, not the native one. On a Spark it is ComfyUI's loader with the other file (88 s against 89 s).
+
+In the app, *Resolution → Custom* takes a width and a height (multiples of 32, each side 256 to 1536, at most
+1344x768 pixels in all) and *Custom passes* a number of passes from 1 to 50; no time is estimated for either. From
+the scripts these are `WIDTH`, `HEIGHT` and `STEPS` (FastH3, and everything on a Spark) or `POINTS` (MiniMax H3 on
+the Mac: one more than the passes).
+
 ### Reference pictures to video (Ref2VA)
 
 A first frame is the clip's opening picture. A reference picture is not in the clip at all: it fixes how a person or
