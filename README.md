@@ -12,7 +12,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.4** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.5** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -85,7 +85,7 @@ How to configure it:
 |---|---|
 | 2.0 and earlier | 128 GB (M5 for the fast path) |
 | 2.1 | 64 GB on an M5; 96 GB on an M1 to M4 |
-| 2.2 to 2.4 | 64 GB on any Apple silicon |
+| 2.2 to 2.5 | 64 GB on any Apple silicon |
 
 On a **DGX Spark** the setup asks for 100 GB of memory for video (a Spark has 128 GB; about 70 GB was in use during a
 clip). No NVIDIA machine with 64 GB has been tried.
@@ -170,6 +170,20 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 (the files were already on the test machine), any GPU other than the GB10, and two Sparks working on one clip.
 
 ## What changed
+
+> **2.5 (2026-10-11): Wasserman Slate AI Studio, the Wasserman Sharp Spec with its QA gate, and the Keys and
+> Wasserman LoRA Hub.** On both machines, with Sam Wasserman (wassermanproductions.com). **Wasserman Slate AI
+> Studio** is a second way to plan a film in Production: a port of the workflow of his Slate (First AD, Bible,
+> Casting, Art Department, Locations, Lookbook, coverage, six-section shot prompts) wired to the render queue, with
+> notes and **Regenerate** on every take; see [Wasserman Slate AI Studio](#wasserman-slate-ai-studio). **Wasserman
+> Sharp Spec** is one button for his locked recipe (1376x768, FastH3 8 passes, seed 42), followed by his QA gate on
+> each clip: the spoken line by transcript, three frames by a vision model, one retake at the next seed; see
+> [Wasserman Sharp Spec](#wasserman-sharp-spec). **Keys and Wasserman LoRA Hub** is a library of style LoRAs a
+> clip, a board or a film renders with, starting with his 80s Horror LoRA; see
+> [Keys and Wasserman LoRA Hub](#keys-and-wasserman-lora-hub). Also: a Home button and a glow on the active tab, a
+> way to delete Library files (they go to a trash folder), and Tutorial lessons for the hub and for a whole film in
+> Slate. Not tested: the Codex and local-model brains, a LoRA stacked with another or added through the form, and the
+> QA gate's retake on a real failed clip.
 
 > **2.4 (2026-10-11): reference pictures to video, a Tutorial tab, a choice of text encoder, your own size and
 > passes.** On both machines. **Reference pictures** (`--ref2va`, MiniMax H3 Ref2VA): up to nine pictures of who or
@@ -853,9 +867,9 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
 ### GHCR prebuilt carrier
 
 ```bash
-docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.4
+docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.5
 # index digest: sha256:6d27fa35d57cae1f66a5ad4bb002c15086207cb1eab8ecec0544a3367b9466bc (linux/arm64 + linux/amd64)
-docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.4 cp -a /payload/. /out/payload/
+docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.5 cp -a /payload/. /out/payload/
 ```
 
 One image for both builds. For a Mac it holds the TensorFold wheel, `requirements.lock`, the render scripts, the

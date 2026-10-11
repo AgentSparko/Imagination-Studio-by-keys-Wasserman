@@ -42,7 +42,7 @@ H3_MODEL_DIR="${H3_MODEL_DIR:-$HOME/h3-models/MiniMax-H3}"
 QWEN_MODEL_DIR="${QWEN_MODEL_DIR:-$HOME/qwen-models/Qwen-Image-2.1-Turbo}"
 FASTH3_DIR="${FASTH3_DIR:-$HOME/h3-models/FastH3-8-Step-V2}"
 FASTH3_REPO="FastVideo/FastVideo-FastH3-8-Step-V2"
-IMAGE="${IMAGE:-ghcr.io/drowzeys/keys-tensorfold-studio:2.4}"
+IMAGE="${IMAGE:-ghcr.io/drowzeys/keys-tensorfold-studio:2.5}"
 # the carrier under its name up to 2.2, with the same Mac payload
 IMAGE_BEFORE="ghcr.io/drowzeys/keys-mac-tensorfold-studio:2.2"
 TF_REPO="https://github.com/drowzeys/TensorFold.git"
@@ -139,6 +139,8 @@ if [ ! -x "$PREFIX/venv/bin/python" ] || ! "$PREFIX/venv/bin/python" -c "$HAS_EN
     "${TF_SPEC[@]}" "mflux @ git+$MFLUX_REPO@$MFLUX_COMMIT"
 fi
 cp "$HERE/h3_generate.py" "$HERE/qwen_image_generate.py" "$HERE/zig_fasth3.py" "$HERE/fasth3_q8.py" "$PREFIX/"
+# speech-to-text for the QA gate of the Wasserman Sharp Spec (app/qa.py); without it that gate is shown as skipped
+uv pip install -q -p "$PREFIX/venv/bin/python" faster-whisper || echo "  note: faster-whisper was not installed; the QA gate's speech check will be skipped"
 "$PREFIX/venv/bin/python" - <<'EOF' || die "the installed TensorFold lacks the H3 or Qwen-Image family"
 import importlib.metadata as m
 import mlx.core as mx
