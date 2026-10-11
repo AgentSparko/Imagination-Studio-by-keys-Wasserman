@@ -1,4 +1,4 @@
-# Wasserman Slate AI Studio, powered by TensorFold (Mac + DGX Spark)
+# keys+Wasserman Slate AI Studio, powered by TensorFold (Mac + DGX Spark)
 
 **An AI film studio on your own machine: plan a film the way a crew does in the Wasserman Slate AI Studio, and render
 it here. Qwen-Image-2.1-Turbo images and MiniMax H3 / FastH3 video with sound, on TensorFold: Apple-silicon Macs
