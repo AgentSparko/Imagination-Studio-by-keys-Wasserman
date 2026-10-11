@@ -1,4 +1,4 @@
-# TensorFold Studio: install it, click it, make things
+# Wasserman Slate AI Studio, powered by TensorFold: install it, click it, make things
 
 **Thank you first** to the Qwen team (Qwen-Image-2.1), MiniMax (H3), FastVideo / Hao AI Lab (FastH3), Ash Hart
 (TensorFold), mrbizarro, LightX2V, Viggle, speach1sdef178 and Apple's MLX team. Full list in [CREDITS.md](CREDITS.md).
@@ -21,8 +21,8 @@ Everything here was measured on one machine: a Mac Studio M5 Ultra with 256 GB.
 
 ```bash
 brew install python@3.11 uv ffmpeg
-git clone https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark.git
-cd keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark
+git clone https://github.com/drowzeys/keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark.git
+cd keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark
 bash oneshot-setup.sh --app
 ```
 
@@ -42,7 +42,7 @@ MiniMax H3 Community License. The script prints the links before each download.
 
 **Prefer to let an agent do it?** Give Claude Code (or another coding agent) this:
 
-> Clone https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark and follow its AGENTS.md section "Install for a
+> Clone https://github.com/drowzeys/keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark and follow its AGENTS.md section "Install for a
 > person and build the one-click app". Tell me before any large download starts and when the app is ready.
 
 ## 3. The clickable app
@@ -50,15 +50,15 @@ MiniMax H3 Community License. The script prints the links before each download.
 `--app` already built it. To build or rebuild it yourself:
 
 ```bash
-bash scripts/make-app.sh                # ~/Applications/TensorFold Studio.app
+bash scripts/make-app.sh                # ~/Applications/Wasserman Slate AI Studio.app
 DESKTOP=1 bash scripts/make-app.sh      # and a shortcut on the Desktop
 ```
 
-Double-click **TensorFold Studio**. It starts the studio if needed and opens it in your browser; double-click again
+Double-click **Wasserman Slate AI Studio**. It starts the studio if needed and opens it in your browser; double-click again
 any time to come back. Drag it to the Dock to keep it there.
 
 - It is a small launcher around the folder you cloned. If you move that folder, run `make-app.sh` again.
-- Stop it: `"$HOME/Applications/TensorFold Studio.app/Contents/MacOS/TensorFoldStudio" stop`
+- Stop it: `"$HOME/Applications/Wasserman Slate AI Studio.app/Contents/MacOS/TensorFoldStudio" stop`
 - Log: `~/Library/Logs/TensorFoldStudio.log`. Everything you make: `~/TensorFoldStudio`.
 - It listens on this Mac only, and has no login. `HOST=0.0.0.0 bash scripts/make-app.sh` opens it to your network;
   do that only on a network you trust.

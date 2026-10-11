@@ -1,12 +1,12 @@
-# Agent one-shot — TensorFold Studio: Qwen-Image-2.1 + MiniMax H3 (MLX, Apple Silicon)
+# Agent one-shot — Wasserman Slate AI Studio, powered by TensorFold: Qwen-Image-2.1 + MiniMax H3 (MLX, Apple Silicon)
 
-**Repo:** https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark  
+**Repo:** https://github.com/drowzeys/keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark  
 **Carrier image:** `ghcr.io/drowzeys/keys-tensorfold-studio:2.5` (one for both builds, not a runtime; for a Mac the TensorFold wheel + lock + render scripts + the native FastH3 engine, for a DGX Spark the prebuilt CUDA engine)  
 **Engine:** TensorFold 0.6.5 + H3 and Qwen-Image families @ `drowzeys/TensorFold` `a2068c03`, own venv, int8 tensor-unit kernels
 
 ```bash
-git clone https://github.com/drowzeys/keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark.git
-cd keys-TensorFold-Studio-Wasserman-Slate-AI-Studio-Mac-DGXSpark
+git clone https://github.com/drowzeys/keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark.git
+cd keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark
 brew install python@3.11 uv ffmpeg
 bash oneshot-setup.sh               # image model, FastH3 and its text encoder and decoders (175 GB) and a test clip; --image-only for 33 GB; --turbo adds MiniMax H3 Turbo (64 GB more, 128 GB of memory); --ref2va adds reference pictures to video (64 GB more, 128 GB)
 bash scripts/studio.sh "the picture" "what happens in the clip" out.mp4   # text -> image -> video with sound
@@ -34,11 +34,11 @@ Do these in order on the person's Mac, and report each result plainly.
    non-commercial), MiniMax H3 text encoder and decoders 72 GB (MiniMax H3 Community License, territory limits; 134 GB with `--turbo`), FastH3 65 GB (same license).
 4. `bash oneshot-setup.sh --app` (add `--turbo` only if they ask for MiniMax H3 Turbo and have 128 GB; `--app` does step 5 with a Desktop shortcut). It resumes if interrupted. It ends by
    rendering `outputs/test.mp4`; confirm that file exists and plays.
-5. `bash scripts/make-app.sh` builds `~/Applications/TensorFold Studio.app`. If the models are not in the default
+5. `bash scripts/make-app.sh` builds `~/Applications/Wasserman Slate AI Studio.app`. If the models are not in the default
    folders, export `QWEN_MODEL_DIR`, `H3_MODEL_DIR`, `FASTH3_DIR` first: the app records them. Do not set
    `HOST=0.0.0.0` unless the person asks to reach it from other machines; there is no login.
-6. `open "$HOME/Applications/TensorFold Studio.app"`, then check `curl -s http://127.0.0.1:7870/api/state` answers.
-7. Tell the person: double-click TensorFold Studio in Applications; renders land in `~/TensorFoldStudio`; the log is
+6. `open "$HOME/Applications/Wasserman Slate AI Studio.app"`, then check `curl -s http://127.0.0.1:7870/api/state` answers.
+7. Tell the person: double-click Wasserman Slate AI Studio in Applications; renders land in `~/TensorFoldStudio`; the log is
    `~/Library/Logs/TensorFoldStudio.log`; to stop it run the app's executable with `stop`.
 
 The app is a launcher around this clone, unsigned and built locally, so Gatekeeper does not block it. Do not move

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TensorFold Studio</title>
+<title>Wasserman Slate AI Studio · powered by TensorFold</title>
 <style>
 :root { --bg:#06070c; --panel:rgba(19,22,33,.74); --panel2:rgba(30,34,50,.66); --ink:#090a11; --line:rgba(255,255,255,.085); --line2:rgba(255,255,255,.16);
   --text:#eceef7; --dim:#8f96ad; --accent:#67e3ff; --accent2:#8f7dff; --hot:#ff7a45; --ok:#3ddc97; --warn:#f5c15c; --bad:#ff6b85;
@@ -109,6 +109,7 @@ a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:under
 /* the active tab glows like low sun; Home goes back to step 1 of Create */
 .hub { margin:10px 0; } .hub .chips { margin:6px 0; } button.lora.on { background:rgba(255,196,84,.16); border-color:rgba(255,205,110,.8); color:#ffe9b8; box-shadow:0 0 12px rgba(255,186,60,.35); }
 .lorarow { align-items:flex-end; margin-top:6px; }
+header h1 small.by { font-size:11px; font-weight:500; color:var(--dim); letter-spacing:.04em; margin-left:6px; white-space:nowrap; }
 button.sharp { border-color:rgba(255,205,110,.55); color:#ffe9b8; white-space:nowrap; }
 button.sharp.on { background:rgba(255,196,84,.16); box-shadow:inset 0 0 0 1px rgba(255,205,110,.8),0 0 14px rgba(255,186,60,.45); }
 nav button.on { background:rgba(255,196,84,.14); color:#ffe9b8; box-shadow:inset 0 0 0 1px rgba(255,205,110,.8),0 0 16px rgba(255,186,60,.55),0 0 36px rgba(255,150,40,.3); text-shadow:0 0 10px rgba(255,200,90,.7); }
@@ -148,7 +149,7 @@ button.small.on { border-color:rgba(255,205,110,.8); color:#ffe9b8; background:r
 </head>
 <body>
 <header>
-  <span class="dot"></span><h1><b>TensorFold</b> Studio</h1><span id="plat" class="plat"></span>
+  <span class="dot"></span><h1><b>Wasserman Slate</b> AI Studio <small class="by">powered by TensorFold</small></h1><span id="plat" class="plat"></span>
   <button id="gohome" class="homebtn" title="Back to the first screen">⌂ Home</button>
   <nav id="tabs"></nav>
   <small id="ver"></small>
@@ -641,7 +642,7 @@ function viewTutorial() {
   const st = L.steps[T.step], last = T.step === L.steps.length - 1, mine = all.filter(l => l.track === L.track), after = all[all.indexOf(L) + 1];
   const open = (id, step = 0) => { T.id = id; T.step = step; T.coach = false; render(); };
   const done = all.filter(l => seen.has(l.id)).length;
-  return el("section", { class: "card" }, el("h2", {}, "How to use TensorFold Studio"),
+  return el("section", { class: "card" }, el("h2", {}, "How to use Wasserman Slate AI Studio"),
     el("div", { class: "note" }, "Short lessons for each tab. Read a step, press “Show me in the app” to be taken to the control it is about, and follow the bar at the bottom from there. " + done + " of " + all.length + " lessons done. ",
       done ? el("a", { href: "#", onclick: e => { e.preventDefault(); seen.clear(); try { localStorage.removeItem("tutorial-done"); } catch {} render(); } }, "Start over") : null),
     el("label", {}, "Which part of the app"), el("div", { class: "choice", role: "radiogroup" }, Object.entries(TRACKS).map(([name, sub]) => { const set = all.filter(l => l.track === name);
@@ -692,7 +693,7 @@ function render() { $("#tabs").replaceChildren(...TABS.map(t => el("button", { c
 (async () => { const want = decodeURIComponent(location.hash.slice(1)); if (TABS.includes(want)) tab = want;
   // links can preset the Create form: ?goes=image, ?engine=h3&res=720p&up=1&step=4 ...
   for (const [k, v] of new URLSearchParams(location.search)) if (k in C && k !== "mode") C[k] = k === "up" ? v === "1" : (k === "step" || k === "count" ? Number(v) : v);
-  S = await api("/api/state"); await loadLoras(); if (!S.turbo) C.engine = "fasth3"; sync(); $("#gohome").onclick = () => { tab = "Create"; C.step = 0; T.coach = false; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); render(); }; $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "TensorFold Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000); })();
+  S = await api("/api/state"); await loadLoras(); if (!S.turbo) C.engine = "fasth3"; sync(); $("#gohome").onclick = () => { tab = "Create"; C.step = 0; T.coach = false; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); render(); }; $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "Wasserman Slate AI Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000); })();
 </script>
 </body>
 </html>
