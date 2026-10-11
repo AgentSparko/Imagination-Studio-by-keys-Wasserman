@@ -30,13 +30,8 @@
 # installed by --ref2va): 4 passes, then the sound made again by the Ref2VA model without the adapter (REVOICE=20),
 # 1 min 28 s for the same clip. QUALITY=high is the 20 passes with the fast recipe (1 min 58 s). Not with FIRST_FRAME,
 # and not with ENGINE=fasth3.
-# TEXT_ENCODER=uncensored renders with linjian257's community build of the text encoder ($UNCENSORED_TEXT_ENCODER,
-# by default text_encoders/qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors beside
-# $H3_MODEL_DIR; personal, non-commercial use under its own licence). It is a 26 GB ComfyUI int8 file, decoded to
-# bfloat16 as it loads, and works with every start: text, FIRST_FRAME and REF_IMAGES. TEXT_ENCODER may also be the
-# path of such a file; unset or regular is MiniMax's own. With ENGINE=fasth3 it renders on the MLX engine.
-# X2=1 makes WIDTH x HEIGHT the size of the finished clip: the model generates at half of each and the 2x decoder
-# ($X2_VAE) doubles it, so both must be multiples of 64 (default 1344x768). CROP=WxH centre-crops the frames before the clip is written.
+# TEXT_ENCODER may be the path of another MiniMax H3 text encoder file (a ComfyUI int8 safetensors, decoded to
+# bfloat16 as it loads); unset or regular is MiniMax's own. With ENGINE=fasth3 it renders on the MLX engine.
 set -euo pipefail
 # On a DGX Spark (Linux, CUDA) the same interface is served by spark/video.sh.
 [ "$(uname -s)" != Linux ] || exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/spark/video.sh" "$@"
@@ -46,12 +41,10 @@ H3_MODEL_DIR="${H3_MODEL_DIR:-$HOME/h3-models/MiniMax-H3}"
 # velocity cache and attention reuse in between: about twice as fast as plain). QUALITY=full: plain 20 steps.
 case "${QUALITY:-standard}" in high) ADAPTER=none; RECIPE="--step-cache 0.05 --attention-every 2";; full) ADAPTER=none; RECIPE="";; *) RECIPE="";; esac
 FASTH3_DIR="${FASTH3_DIR:-$HOME/h3-models/FastH3-8-Step-V2}"
-# TEXT_ENCODER: regular (MiniMax's own, in the model folder), uncensored (the community file), or a file's path
+# TEXT_ENCODER: regular (MiniMax's own, in the model folder) or a file's path
 case "${TEXT_ENCODER:-regular}" in
   regular) TEXT_ENCODER="";;
-  uncensored) TEXT_ENCODER="${UNCENSORED_TEXT_ENCODER:-$(dirname "$H3_MODEL_DIR")/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors}"
-    [ -f "$TEXT_ENCODER" ] || { echo "no uncensored text encoder at $TEXT_ENCODER (download linjian257's file there, or set UNCENSORED_TEXT_ENCODER)" >&2; exit 2; };;
-  *) [ -f "$TEXT_ENCODER" ] || { echo "TEXT_ENCODER is regular, uncensored or a safetensors file, and there is no file at $TEXT_ENCODER" >&2; exit 2; };;
+  *) [ -f "$TEXT_ENCODER" ] || { echo "TEXT_ENCODER is regular or a safetensors file, and there is no file at $TEXT_ENCODER" >&2; exit 2; };;
 esac
 # MiniMax H3's own transformer (the Turbo adapter and the 20-step qualities run on it) is an optional part of the
 # install: oneshot-setup.sh --turbo. Without it the engine is FastH3, which needs only H3's text encoder and decoders.

@@ -97,4 +97,4 @@ Rules:
 
 **Credits:** keep CREDITS.md in sync. Qwen team (Qwen-Image-2.1), MiniMax (H3), Ash Hart (TensorFold), antirez (h3.c),
 RobZombAI (H3MLX), mrbizarro (minimax-h3-mlx / Phosphene), Filip Strand and mflux contributors, Viggle, speach1sdef178, LightX2V,
-NVIDIA Research, FastVideo, linjian257 (the optional uncensored text encoder), Sam Wasserman (Slate: the film workflow in Production; keep app/static/slate/NOTICE), Apple MLX. Authors only — no credit hyperlinks.
+NVIDIA Research, FastVideo, Sam Wasserman (Slate: the film workflow in Production; keep app/static/slate/NOTICE), Apple MLX. Authors only — no credit hyperlinks.
