@@ -12,6 +12,6 @@
   "range": [0.6, 1.3],
   "base": "MiniMax H3",
   "licence": "The weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement, with its territory limits and Acceptable Use Policy. Read WEIGHTS_LICENSE.md on the LoRA's page before downloading. Keep the credit: 80s Horror LoRA by Sam Wasserman (wassermanproductions.com). Powered by MiniMax H3.",
-  "notes": "The look of a 1970s-80s horror movie: VHS for neon, tape and 80s video, or 16mm film for warm grindhouse grain. Write the light and the place, what happens, the camera and the sound; the trigger word brings the era. Made for 1280x704 or 1344x768, 5 to 8 seconds, 20 steps; the uncensored text encoder can work best."
+  "notes": "The look of a 1970s-80s horror movie: VHS for neon, tape and 80s video, or 16mm film for warm grindhouse grain. Write the light and the place, what happens, the camera and the sound; the trigger word brings the era. Made for 1280x704 or 1344x768, 5 to 8 seconds, 20 steps."
  }
 ]

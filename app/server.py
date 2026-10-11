@@ -95,9 +95,6 @@ SPARK_REF2VA_5S = {"small": 321}
 SPARK_REF2VA_TURBO_5S = {"small": 107}
 REF2VA_ADAPTER = "lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 REFERENCE_LIMIT = 9
-# An optional second text encoder for MiniMax H3 (oneshot-setup.sh --uncensored): linjian257's community build, for
-# personal, non-commercial use under its own licence. TEXT_ENCODER=uncensored in the scripts.
-UNCENSORED_NAME = "qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors"
 # a size typed in by hand: multiples of 32, and no more pixels than the largest size the model is run at here
 CUSTOM_SIDES, CUSTOM_PIXELS, CUSTOM_STEPS = (256, 1536), 1344 * 768, (1, 50)
 LEAD = "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
@@ -276,17 +273,8 @@ def ref2va_ready() -> bool:
     return any((model / "Ref2VA" / "transformer").glob("*.safetensors"))
 
 
-def uncensored_ready() -> bool:
-    if os.environ.get("UNCENSORED_TEXT_ENCODER"):
-        return Path(os.environ["UNCENSORED_TEXT_ENCODER"]).is_file()
-    if SPARK:
-        return (SPARK_REF2VA.parent / "FastH3-Comfy/text_encoders" / UNCENSORED_NAME).is_file()
-    model = Path(os.environ.get("H3_MODEL_DIR", Path.home() / "h3-models/MiniMax-H3"))
-    return (model.parent / "text_encoders" / UNCENSORED_NAME).is_file()
-
-
 def custom(params: dict) -> tuple[dict, bool]:
-    """(environment, whether anything was set) for a size, a number of passes or a text encoder chosen by hand."""
+    """(environment, whether anything was set) for a size or a number of passes chosen by hand."""
 
     env = {}
     if params.get("preset") == "custom":
@@ -308,10 +296,6 @@ def custom(params: dict) -> tuple[dict, bool]:
         if not CUSTOM_STEPS[0] <= steps <= CUSTOM_STEPS[1]:
             raise HTTPException(400, f"passes is between {CUSTOM_STEPS[0]} and {CUSTOM_STEPS[1]}")
         env["STEPS"] = str(steps)
-    if params.get("text_encoder") == "uncensored":
-        if not uncensored_ready():
-            raise HTTPException(400, "the uncensored text encoder is not installed here (oneshot-setup.sh --uncensored)")
-        env["TEXT_ENCODER"] = "uncensored"
     return env, bool(env)
 
 
@@ -673,7 +657,7 @@ def state() -> dict:
             "home": str(HOME), "pack": str(PACK), "version": (PACK / "VERSION").read_text().strip(),
             "zig": zig_ready(), "turbo": turbo_ready() and not SPARK, "x2": not SPARK,
             "ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready(), "reference_limit": REFERENCE_LIMIT,
-            "uncensored": uncensored_ready(), "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
+            "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
             "platform": machine()[0], "platform_label": machine()[1],
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
 

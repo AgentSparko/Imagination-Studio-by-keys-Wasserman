@@ -38,9 +38,6 @@ REF2VA = {"bf16": "minimax_h3_ref2va_pruned_bf16.safetensors",
           "int8": "minimax_h3_ref2va_pruned_int8_convrot.safetensors"}
 REF2VA_TURBO = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 H3_TEXT = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
-# TEXT_ENCODER=uncensored: linjian257's community build of the same encoder (oneshot-setup-spark.sh --uncensored;
-# personal, non-commercial use under its own licence). The two never stay loaded together.
-H3_TEXT_UNCENSORED = "qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors"
 TEXT_TAG = ""
 # ComfyUI's 8-bit video decoder: half the decode time of the fp16 one on a GB10 (14 s against 26 s for 124 frames of
 # 864x480), the same picture to 42 to 44 dB. SPARK_VAE=minimax_h3_video_vae_fp16.safetensors selects the other.
@@ -429,8 +426,8 @@ def main() -> None:
                    help="match: references scaled down to the clip's pixel area (what the adapter was trained with); "
                         "max: up to 2048 pixels on the short edge, several times slower")
     v.add_argument("--first-frame", default="", help="an image the clip starts from")
-    v.add_argument("--text-encoder", choices=("regular", "uncensored"), default=os.environ.get("TEXT_ENCODER") or "regular",
-                   help="uncensored: a community build of MiniMax H3's text encoder (oneshot-setup-spark.sh --uncensored)")
+    v.add_argument("--text-encoder", default=os.environ.get("TEXT_ENCODER") or "regular",
+                   help="regular, or the file name of another MiniMax H3 text encoder in ComfyUI's text_encoders folder")
     v.add_argument("--crop", default="", help="WxH centre crop of the finished clip")
     v.add_argument("--weights", choices=sorted(FASTH3), default=os.environ.get("SPARK_WEIGHTS", "bf16"))
     v.add_argument("--engine", choices=("tensorfold", "comfy"),
@@ -451,12 +448,12 @@ def main() -> None:
     i.add_argument("--negative", default="")
     i.set_defaults(run=image)
     args = parser.parse_args()
-    if getattr(args, "text_encoder", "regular") == "uncensored":
+    if getattr(args, "text_encoder", "regular") != "regular":
         global H3_TEXT, TEXT_TAG
-        H3_TEXT, TEXT_TAG = H3_TEXT_UNCENSORED, "+uncensored"
+        H3_TEXT, TEXT_TAG = args.text_encoder, "+" + args.text_encoder
         ensure_server("video")
         if H3_TEXT not in call("/object_info/CLIPLoader")["CLIPLoader"]["input"]["required"]["clip_name"][0]:
-            sys.exit(f"not installed: {H3_TEXT} (bash oneshot-setup-spark.sh --uncensored)")
+            sys.exit(f"ComfyUI does not list the text encoder {H3_TEXT}")
     args.run(args)
 
 

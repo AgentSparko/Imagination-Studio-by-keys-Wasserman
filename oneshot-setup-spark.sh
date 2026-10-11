@@ -4,7 +4,6 @@
 #   bash oneshot-setup-spark.sh --image-only  # Qwen-Image-2.1 only (26 GB)
 #   bash oneshot-setup-spark.sh --no-render   # skip the test clip
 #   bash oneshot-setup-spark.sh --ref2va      # add MiniMax H3 Ref2VA (reference pictures hold a face), 39 GB more
-#   bash oneshot-setup-spark.sh --uncensored  # add a community uncensored build of the text encoder, 26 GB more
 #   bash oneshot-setup-spark.sh --verify      # check an existing install, download nothing
 # What it installs under $PREFIX (default ~/.local/opt/tensorfold-studio):
 #   venv/       Python 3.12, PyTorch for CUDA 13, ComfyUI's requirements, the web app's
@@ -22,10 +21,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MODELS="${SPARK_MODELS:-$HOME/spark-studio-models}"
 COMFY_COMMIT=a4b5a045e56fc334903db8457b728b64e006119c
-IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; UNCENSORED=0
+IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0
 for arg in "$@"; do
   case "$arg" in
-    --ref2va) REF2VA=1;; --uncensored) UNCENSORED=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;;
+    --ref2va) REF2VA=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;;
     *) echo "unknown option $arg" >&2; exit 2;;
   esac
 done
@@ -124,14 +123,6 @@ if [ "$IMAGE_ONLY" = 0 ]; then
     text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors vae/minimax_h3_video_vae_int8_convrot.safetensors \
     vae/minimax_h3_audio_vae_fp32.safetensors
   ok "FastH3 transformer (bf16), H3 text encoder (8-bit), video decoder (8-bit) and audio decoder"
-fi
-
-if [ "$UNCENSORED" = 1 ] && [ "$IMAGE_ONLY" = 0 ]; then
-  # linjian257's build: personal, non-commercial use under its own licence (see its model card); TEXT_ENCODER=uncensored
-  say "Uncensored text encoder for MiniMax H3, a community build (26 GB) -> $MODELS"
-  fetch linjian257/qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257 FastH3-Comfy/text_encoders \
-    qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors
-  ok "Uncensored text encoder (8-bit): TEXT_ENCODER=uncensored, or the switch in the app"
 fi
 
 if [ "$REF2VA" = 1 ] && [ "$IMAGE_ONLY" = 0 ]; then

@@ -182,7 +182,7 @@ const toast = text => { const n = el("div", { style: "position:fixed;bottom:18px
 let S = null, jobs = [], tab = "Create", project = null;
 const TABS = ["Create", "Production", "Editor", "Library", "Tutorial"];
 const C = { step: 0, mode: "scout", preset: "draft", quality: "standard", seconds: 5, seed: 1, scene: "", action: "", camera: "",
-  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", textEncoder: "regular", loras: [] };
+  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", loras: [] };
 let LORAS = [];  // the LoRA hub's recipes, with whether each is installed here
 const field = (labelText, node) => el("div", {}, el("label", {}, labelText), node);
 const bind = (obj, key, node, after) => { const isBox = node.type === "checkbox"; if (isBox) node.checked = !!obj[key]; else node.value = obj[key] ?? "";
@@ -210,12 +210,11 @@ function sync() {
   C.quality = C.engine === "fasth3" ? "fh" + C.passes : C.h3quality;
   if (!UPSCALED[C.res]) C.up = false;
   C.preset = UPSCALED[C.res] ? (C.up ? UPSCALED[C.res][0] : { "480p": "small", "720p": "p720" }[C.res]) : C.res;
-  if (!(S && S.uncensored)) C.textEncoder = "regular";
 }
 // the output: a preset, or a size typed in by hand
 const output = () => C.preset === "custom" ? { label: "Custom " + C.cw + "x" + C.ch, size: [Number(C.cw), Number(C.ch)] } : S.presets[C.preset];
 // what a job carries beyond the preset: the hand-set size and passes, and the text encoder
-const extras = () => ({ ...(C.preset === "custom" ? { width: Number(C.cw), height: Number(C.ch) } : {}), ...(String(C.steps).trim() ? { steps: Number(C.steps) } : {}), ...(C.textEncoder === "uncensored" ? { text_encoder: "uncensored" } : {}), ...(lorasOf(C).length && !isRef() ? { loras: lorasOf(C) } : {}) });
+const extras = () => ({ ...(C.preset === "custom" ? { width: Number(C.cw), height: Number(C.ch) } : {}), ...(String(C.steps).trim() ? { steps: Number(C.steps) } : {}), ...(lorasOf(C).length && !isRef() ? { loras: lorasOf(C) } : {}) });
 function changed() { sync(); C.prompt = ""; render(); }
 // one decision shown as cards: options are value -> [title, detail]
 const choice = (obj, key, options, after, tight) => el("div", { class: "choice" + (tight ? " tight" : ""), role: "radiogroup" }, Object.entries(options).map(([v, [title, sub]]) =>
@@ -285,8 +284,6 @@ function videoControls(after) {
       el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Height"), bind(C, "ch", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
       el("div", { class: "note" }, "Multiples of 32, each side " + S.custom.sides[0] + " to " + S.custom.sides[1] + ", at most 1344 × 768 pixels in all. No time estimate for a custom size.")) : null,
     isRef() ? null : loraHub(C, () => { C.prompt = ""; }),
-    S.uncensored ? el("label", {}, "Text encoder") : null,
-    S.uncensored ? choice(C, "textEncoder", { regular: ["Regular", "MiniMax H3's own"], uncensored: ["Uncensored", "community build, 8-bit; personal non-commercial use"] }, changed, true) : null,
     el("div", { class: "row" },
       !S.x2 ? null : el("div", {}, el("label", {}, "Upscale"), el("label", { class: "switch" }, two, el("span", {}, "2x upscale", el("small", {}, UPSCALED[C.res] ? "2x decoder → " + UPSCALED[C.res][1] + ", about 10 s more" : "already part of this output")))),
       el("div", { class: "fit", style: "width:250px" }, el("label", {}, "Length"), select(C, "seconds", { ...Object.fromEntries(Object.keys(S.durations).map(k => [k, k + " s · " + S.durations[k] + " frames"])),
@@ -297,7 +294,7 @@ function videoControls(after) {
 function summary(est) {
   const size = output().size, hand = String(C.steps).trim() ? " · " + C.steps + " passes by hand" : "", engine = isRef() ? "MiniMax H3 Ref2VA · " + (C.refPasses === "4" ? "Turbo 4 passes" : "20 passes") : C.engine === "fasth3" ? "FastH3 · " + C.passes + " passes · " + S.engine : "MiniMax H3 · " + H3Q[C.h3quality][0];
   return el("div", { class: "summary" }, el("span", { class: "chip k" }, { t2v: "TEXT → VIDEO", scout: "QWEN IMAGE → VIDEO", i2v: "IMAGE → VIDEO", r2v: "REFERENCES → VIDEO" }[C.mode]),
-    el("span", { class: "chip" }, engine + hand), C.textEncoder === "uncensored" ? el("span", { class: "chip" }, "uncensored text encoder") : null, el("span", { class: "chip" }, size[0] + " × " + size[1]), el("span", { class: "chip" }, isLong() ? S.long[C.seconds] + " · " + Math.ceil(C.seconds / 15) + " × 15 s" : C.seconds + " s · " + S.durations[C.seconds] + " f"), est);
+    el("span", { class: "chip" }, engine + hand), el("span", { class: "chip" }, size[0] + " × " + size[1]), el("span", { class: "chip" }, isLong() ? S.long[C.seconds] + " · " + Math.ceil(C.seconds / 15) + " × 15 s" : C.seconds + " s · " + S.durations[C.seconds] + " f"), est);
 }
 function settingsRow(obj, after, keep = {}) {
   const presets = Object.entries(S.presets).filter(([k]) => !keep.presets || keep.presets(k));
@@ -401,7 +398,7 @@ function viewCreate() {
     const est = el("div", { class: "note" }); showEstimate(C, est);
     const job = C.job && jobs.find(j => j.id === C.job);
     const ready = C.prompt.trim() && (isRef() ? C.refs.length > 0 : noFrame() || C.image);
-    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() ? " · " + C.steps + " passes by hand" : "") + (C.textEncoder === "uncensored" ? " · uncensored text encoder" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + (C.refPasses === "4" ? "Turbo 4 passes, " : "20 passes, ") + C.refs.length + " reference picture" + (C.refs.length === 1 ? "" : "s") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
+    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() ? " · " + C.steps + " passes by hand" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + (C.refPasses === "4" ? "Turbo 4 passes, " : "20 passes, ") + C.refs.length + " reference picture" + (C.refs.length === 1 ? "" : "s") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
       !ready ? el("div", { class: "note", style: "color:var(--warn)" }, C.prompt.trim() ? (isRef() ? "Add a reference picture in step 2." : "Pick or upload a first frame in step 2.") : "Open step 4 once to build the prompt.") : null,
       el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "hot fit", disabled: !ready, onclick: async () => { try {
         const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed, ...extras(), ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4" } : {}) };
@@ -547,7 +544,6 @@ function lessons() {
       { t: "Length", d: ["A single clip is 5, 8, 10 or 15 seconds. Longer choices chain several 15 second clips; the lesson “Videos longer than 15 seconds” covers them.", "Time and memory grow with length, so test at 5 seconds."], go: go(0, "Length") },
       { t: "Seed", d: ["The seed picks the variation. The same prompt, settings and seed give the same clip again; a different seed gives a different take on the same prompt."], tip: "When a clip is nearly right, keep the prompt and try seeds 2, 3 and 4 before rewriting anything.", go: go(0, "Seed") },
       { t: "Custom passes", d: ["Leave this empty and the Passes choice above decides. A number from " + S.custom.steps[0] + " to " + S.custom.steps[1] + " overrides it, for counts the buttons do not offer, such as 6 or 12."], tip: "Like a custom size, this removes the time estimate.", go: go(0, "Custom passes") },
-      ...(S.uncensored ? [{ t: "Text encoder", d: ["The text encoder is the part that reads your prompt. Regular is MiniMax H3's own. Uncensored is a community 8-bit build by linjian257 that does not hold back on prompts the regular one softens.", "It is for personal, non-commercial use only."], tip: "The first clip after switching can take longer while the model reloads.", go: go(0, "Text encoder") }] : []),
       { t: "Read the summary strip", d: ["Under the settings a strip repeats your choices as chips: the mode, the engine and passes, the size and the length, with the time estimate on the right. Check it before you move on."], go: go(0, "Length") } ] },
     { id: "speech", track: "Create", title: "Speech, sound and music", sub: "lines that are spoken as written", steps: [
       { t: "Add a spoken line", d: ["In step 3 press “+ Add a line”. Voice describes how the speaker sounds; Line is the exact words. The words go into the prompt unchanged."], eg: "Voice: " + BAKER.dialogue[0].voice + "\nLine: " + BAKER.dialogue[0].text, go: go(2, "+ Add a line") },

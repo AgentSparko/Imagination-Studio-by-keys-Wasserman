@@ -6,7 +6,6 @@
 #   bash oneshot-setup.sh --app         # the same, plus the double-clickable app: the full one-shot
 #   bash oneshot-setup.sh --turbo       # also MiniMax H3's own transformer and its Turbo adapter (64 GB more, 128 GB of memory)
 #   bash oneshot-setup.sh --ref2va      # also MiniMax H3's Ref2VA transformer: reference pictures to video (64 GB more, 128 GB of memory)
-#   bash oneshot-setup.sh --uncensored  # also a community uncensored build of H3's text encoder (26 GB more): TEXT_ENCODER=uncensored
 #   bash oneshot-setup.sh --image-only  # the image model only (33 GB), render a test image
 #   bash oneshot-setup.sh --no-render   # install and fetch only
 #   bash oneshot-setup.sh --verify      # check an existing install, no downloads, no render
@@ -28,7 +27,7 @@ if [ "$(uname -s)" = Linux ]; then
   SPARK_ARGS=()
   for arg in "$@"; do
     case "$arg" in
-      --image-only|--no-render|--verify|--uncensored) SPARK_ARGS+=("$arg");;
+      --image-only|--no-render|--verify) SPARK_ARGS+=("$arg");;
       --fasth3) ;;
       --turbo|--app|--ref2va) echo "note: $arg is for the Mac build and does nothing on a DGX Spark";;
       *) echo "unknown option $arg" >&2; exit 2;;
@@ -66,14 +65,13 @@ REF_ADAPTER_NAME="lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 X2_REPO="speach1sdef178/MiniMax-H3-X2-Detail-VAE"
 X2_NAME="MiniMax-H3-X2-Detail-v1.safetensors"
 X2_SHA256="2296840f4acedcaa976688e7d7b97f7bf570b136e400385d3f46224011897aac"
-MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; UNCENSORED=0
+MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0
 for arg in "$@"; do
   case "$arg" in
     --image-only) VIDEO=0;;
     --fasth3) ;;  # FastH3 is the default video engine since 2.1; the flag is kept so older commands still run
     --turbo) TURBO=1;;
     --ref2va) REF2VA=1;;
-    --uncensored) UNCENSORED=1;;
     --app) APP=1;;
     --verify|--no-render) MODE="$arg";;
     *) echo "unknown option $arg" >&2; exit 2;;
@@ -199,19 +197,6 @@ if [ "$VIDEO" = 1 ]; then
     h3_ok || die "the MiniMax H3 download is incomplete at $H3_MODEL_DIR"
   fi
   ok "FL2VA at $H3_MODEL_DIR ($(du -sh "$H3_MODEL_DIR/FL2VA" | cut -f1))"
-
-  if [ "$UNCENSORED" = 1 ]; then
-    # linjian257's build of the text encoder: personal, non-commercial use under its own licence (see its model card)
-    UNCENSORED_NAME=qwen3vl_32b_minimax_h3_int8_convrot_uncensored-by-linjian257.safetensors
-    step "Uncensored text encoder for MiniMax H3, a community build (26 GB) -> $(dirname "$H3_MODEL_DIR")/text_encoders"
-    if [ ! -s "$(dirname "$H3_MODEL_DIR")/text_encoders/$UNCENSORED_NAME" ]; then
-      [ "$MODE" = "--verify" ] && die "no uncensored text encoder at $(dirname "$H3_MODEL_DIR")/text_encoders"
-      "$PREFIX/venv/bin/hf" download "linjian257/${UNCENSORED_NAME%.safetensors}" "$UNCENSORED_NAME" \
-        --local-dir "$(dirname "$H3_MODEL_DIR")/text_encoders" >/dev/null
-      [ -s "$(dirname "$H3_MODEL_DIR")/text_encoders/$UNCENSORED_NAME" ] || die "the uncensored text encoder did not download"
-    fi
-    ok "Uncensored text encoder (8-bit): TEXT_ENCODER=uncensored, or the switch in the app"
-  fi
 
   if [ "$REF2VA" = 1 ]; then
     # Ref2VA is the same pipeline with another transformer: its text encoder and decoders are FL2VA's files, linked

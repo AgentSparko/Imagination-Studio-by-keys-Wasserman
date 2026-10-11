@@ -196,19 +196,21 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 > way to delete Library files (they go to a trash folder), and Tutorial lessons for the hub and for a whole film in
 > Slate. Not tested: the Codex and local-model brains, a LoRA stacked with another or added through the form, and the
 > QA gate's retake on a real failed clip.
+>
+> **Since 2.5:** the app is named *Wasserman Slate AI Studio, powered by TensorFold*. The optional community text
+> encoder is no longer offered by the app or the installers (its installer flag is gone); `TEXT_ENCODER` still takes a
+> file of your own from the scripts.
 
-> **2.4 (2026-10-11): reference pictures to video, a Tutorial tab, a choice of text encoder, your own size and
-> passes.** On both machines. **Reference pictures** (`--ref2va`, MiniMax H3 Ref2VA): up to nine pictures of who or
+> **2.4 (2026-10-11): reference pictures to video, a Tutorial tab, your own size and passes.** On both machines. **Reference pictures** (`--ref2va`, MiniMax H3 Ref2VA): up to nine pictures of who or
 > what must look the same, in a scene the prompt describes; see
 > [Reference pictures to video](#reference-pictures-to-video-ref2va). **Tutorial** is a fifth tab in the app: short
 > lessons for Create, Production, Editor and Library, where *Show me in the app* opens the tab and outlines the
-> control a step is about, and a bar at the bottom walks the lesson from there. **Text encoder**: with `--uncensored`
-> the app offers linjian257's community build beside MiniMax's own (personal, non-commercial use). **Custom** takes a
+> control a step is about, and a bar at the bottom walks the lesson from there. **Custom** takes a
 > width, a height and a number of passes. In the app: a running job shows the time left, not the time spent; a clip
 > added to the timeline shows at once; step 5 has a way back to step 1; the two boxes of step 1 are named for what
 > goes in them. When a clip has spoken lines the prompt now asks the speaker to stay silent after the last one (a
 > line shorter than its clip was sometimes followed by invented speech; three words a second is the rule of thumb).
-> Speed is unchanged. Not tested: `--uncensored` and `--ref2va` from an empty disk (the files were already on the
+> Speed is unchanged. Not tested: `--ref2va` from an empty disk (the files were already on the
 > test machines), and whether the new prompt wording stops the invented speech in every case.
 >
 > **2.3 (2026-10-09): a DGX Spark build on TensorFold's own CUDA engine, Qwen-Image-2.1-Turbo for images, one install
@@ -830,12 +832,9 @@ aspect ratio.
 
 ### Another text encoder, your own size and passes
 
-`TEXT_ENCODER=uncensored` renders with linjian257's community build of MiniMax H3's text encoder in place of
-MiniMax's own (`oneshot-setup.sh --uncensored`, 26 GB more; on a DGX Spark `oneshot-setup-spark.sh --uncensored`).
-It is for personal, non-commercial use under its own licence: read its model card first. It works with text, a first
-frame and reference pictures. On the Mac the file is read as it is and its 8-bit weights are restored in memory
-(about 5 s more per clip, 93 s against 88 s for a 5 s 864x480 clip on an M5 Ultra); FastH3 then runs on the MLX
-engine, not the native one. On a Spark it is ComfyUI's loader with the other file (88 s against 89 s).
+From the scripts, `TEXT_ENCODER` may be the path of another MiniMax H3 text encoder file (on a DGX Spark, the name
+of a file in ComfyUI's `text_encoders` folder); unset, it is MiniMax's own. On the Mac FastH3 then runs on the MLX
+engine, not the native one. The app does not offer this.
 
 In the app, *Resolution → Custom* takes a width and a height (multiples of 32, each side 256 to 1536, at most
 1344x768 pixels in all) and *Custom passes* a number of passes from 1 to 50; no time is estimated for either. From
