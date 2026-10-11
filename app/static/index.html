@@ -363,7 +363,7 @@ function viewProduction() {
 }
 
 /* ---------- Editor ---------- */
-async function addToTimeline(path) { await ensureProject(); let duration = 5; try { duration = (await api("/api/probe?path=" + encodeURIComponent(path))).duration || 5; } catch {}
+async function addToTimeline(path) { await ensureProject(); try { project = await api("/api/projects/" + project.id); } catch {} let duration = 5; try { duration = (await api("/api/probe?path=" + encodeURIComponent(path))).duration || 5; } catch {}
   project.timeline.push({ path, in: 0, out: 0, duration }); await saveProject(); toast("Added to the timeline of " + project.name); if (tab === "Editor") render(); }
 function viewEditor() {
   const box = el("section", { class: "card" }, el("h2", {}, "Clip editor"));
@@ -407,17 +407,23 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
   return box; }
 
 /* ---------- Queue ---------- */
-function jobCard(job) { const p = job.progress; const elapsed = job.started ? ((job.finished || Date.now() / 1000) - job.started) : null;
+// elapsed comes from the server: this browser's clock may differ from the machine that renders
+function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != null ? job.elapsed : (job.started ? ((job.finished || Date.now() / 1000) - job.started) : null);
+  // the bar follows the time against the estimate (a job has several stages, each with its own step count)
+  const share = job.estimate && elapsed != null ? Math.min(99, Math.max(3, Math.round(100 * elapsed / job.estimate))) : (p ? Math.round(100 * p.at / p.of) : 3);
   const pre = el("pre", { class: "hide" }, job.log || "");
   return el("div", { class: "job" }, el("div", { class: "seghead" }, el("b", {}, job.title), el("span", { class: "pill " + job.status }, job.status), el("span", { style: "flex:1" }),
       ["queued", "running"].includes(job.status) ? el("button", { class: "small", onclick: async () => { await api("/api/jobs/" + job.id + "/cancel", {}); poll(); } }, "Cancel") : null,
       el("button", { class: "small", onclick: () => pre.classList.toggle("hide") }, "Log")),
-    job.status === "running" ? el("div", {}, el("div", { class: "bar" }, el("i", { style: "width:" + (p ? Math.round(100 * p.at / p.of) : 3) + "%" })),
+    job.status === "running" ? el("div", {}, el("div", { class: "bar" }, el("i", { style: "width:" + share + "%" })),
       el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + mmss(elapsed) + (job.estimate ? " of about " + mmss(job.estimate) : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : ""))) : null,
     job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, pre); }
 let lastSig = "";
 async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
   const box = $("#jobs"); box.replaceChildren(...(jobs.length ? jobs.slice(0, 30).map(jobCard) : [el("div", { class: "note" }, "Nothing queued yet.")]));
+  // a timeline changed from another window or device shows here without a reload
+  if (project && tab === "Editor" && !document.activeElement.matches("input,textarea,select")) { try { const fresh = await api("/api/projects/" + project.id);
+    if (JSON.stringify(fresh.timeline) !== JSON.stringify(project.timeline)) { project = fresh; render(); } } catch {} }
   const sig = jobs.map(j => j.id + j.status).join(); if (sig !== lastSig) { const had = lastSig; lastSig = sig; if (had && !document.activeElement.matches("input,textarea,select")) render(); } }
 
 function render() { $("#tabs").replaceChildren(...["Create", "Production", "Editor", "Library"].map(t => el("button", { class: t === tab ? "on" : "", onclick: () => { tab = t; history.replaceState(null, "", "#" + t); render(); } }, t)));
