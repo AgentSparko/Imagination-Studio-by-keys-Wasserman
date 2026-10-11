@@ -669,6 +669,11 @@ Or all at once, with no picking: `TWOK=1 bash scripts/studio.sh "the picture" "w
 
 ## Measured (2026-10-04, Mac Studio M5 Ultra 256 GB, macOS 27.0.1, one run each)
 
+
+**Notes and Regenerate.** Under every take, in Shots and in Deliver, there is a box for notes or feedback and a
+"↻ Regenerate" button. With notes, the brain revises the shot's prompt to answer them (the old prompt goes to History)
+and a new take is queued; with the box empty, the same prompt is rendered at the next seed. Earlier takes are kept.
+
 ### Text to image to video (`scripts/studio.sh`), 8 second clips unless noted
 
 | Output | Video generated at | Standard: Turbo 5 + base-model sound | Earlier: Turbo 3, adapter sound |
