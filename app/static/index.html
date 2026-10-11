@@ -215,7 +215,7 @@ async function showEstimate(obj, node) { try { const r = await api("/api/estimat
 const STEPS = ["1. Intent / Mode", "2. First frame", "3. Words / Sound", "4. Review prompt", "5. Render"];
 function viewCreate() {
   const body = el("div");
-  const steps = el("div", { class: "steps" }, STEPS.map((name, i) => el("button", { class: i === C.step ? "on" : "", onclick: () => { C.step = i; render(); } }, name)));
+  const steps = el("div", { class: "steps" }, STEPS.map((name, i) => el("button", { class: i === C.step ? "on" : "", onclick: () => { C.step = i; render(); } }, i === 1 && isRef() ? "2. Reference pictures" : name)));
   const next = el("div", { class: "row", style: "margin-top:14px" }, el("button", { class: "fit", disabled: C.step === 0, onclick: () => { C.step--; render(); } }, "Back"),
     el("span"), C.step < 4 ? el("button", { class: "primary fit", onclick: () => { C.step++; render(); } }, "Next") : null);
   sync();
@@ -245,6 +245,7 @@ function viewCreate() {
     put(body, el("h2", {}, "What are you making?"), goes,
       el("label", {}, "The clip starts from"), choice(C, "start", { text: ["Text only", "no first frame"], scout: ["A Qwen scout image", "make several, pick one"], own: ["Your own image", "upload a picture"],
         ...(S.ref2va ? { refs: ["Reference pictures", "keep a face or a thing, in a new scene"] } : {}) }, changed),
+      isRef() ? el("div", { class: "note", style: "margin:8px 0" }, "You add the pictures on the next screen: ", el("a", { href: "#", onclick: e => { e.preventDefault(); C.step = 1; render(); } }, "2. Reference pictures"), ".") : null,
       videoControls(() => { render(); }), summary(est), picture,
       field("What happens in the clip", bind(C, "action", el("textarea", { placeholder: "He lifts the loaf with both hands, sets it down, looks at the camera and smiles." }))),
       field("Camera (optional)", bind(C, "camera", el("input", { placeholder: "The camera slowly pushes in throughout the single continuous shot." }))),
