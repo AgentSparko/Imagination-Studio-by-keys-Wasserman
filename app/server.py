@@ -174,10 +174,13 @@ def compose_references(fields: dict, count: int) -> str:
         language = (line.get("language") or "English").strip()
         spoken.append(f"<Subject 1> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
     if spoken:
-        shot += " " + " ".join(spoken) + " Mouth movements follow the words."
+        # a clip longer than its lines: without this the model may keep the mouth moving and invent words
+        shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
+                 " talking, closes the mouth and stays silent until the end of the clip.")
     else:
         shot += " Nobody speaks."
     sound = (fields.get("soundscape") or "Natural ambient sound for the scene.").strip()
+    sound += " No speech after the spoken lines." if spoken else " No voices, no speech."
     music = (fields.get("music") or "N/A").strip()
     if music.upper() != "N/A":
         sound += f" Music: {music}."
@@ -204,12 +207,13 @@ def compose(fields: dict, first_frame: bool) -> str:
         language = (line.get("language") or "English").strip()
         spoken.append(f"The speaker, in {voice} (S{index}), {verb}: <d>[{language}] {text}</d>")
     if spoken:
-        shot += " " + " ".join(spoken) + " Mouth movements follow the words."
+        shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
+                 " talking, closes the mouth and stays silent until the end of the clip.")
     else:
         shot += " Nobody speaks."
     sound = (fields.get("soundscape") or "Natural ambient sound for the scene.").strip()
-    if not spoken and "no speech" not in sound.lower():
-        sound += " No voices, no speech."
+    if "no speech" not in sound.lower():
+        sound += " No speech after the spoken lines." if spoken else " No voices, no speech."
     music = (fields.get("music") or "N/A").strip()
     body = (f"integrated_multimodal_description: [Shot 1] {shot.strip()}\n\n"
             f"overall_soundscape: {sound}\n\nnon_diegetic_music: {music}")
