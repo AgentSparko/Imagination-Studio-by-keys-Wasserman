@@ -139,7 +139,7 @@ const api = async (path, body, method) => { const r = await fetch(path, body ===
 const file = path => "/files/" + path.split("/").map(encodeURIComponent).join("/");
 const mmss = s => s == null ? "" : s >= 3600 ? Math.floor(s / 3600) + " h " + Math.round(s % 3600 / 60) + " min" : (s >= 60 ? Math.floor(s / 60) + " min " : "") + Math.round(s % 60) + " s";
 const put = (node, ...kids) => node.append(...kids.flat().filter(k => k != null && k !== false));
-const toast = text => { const n = el("div", { style: "position:fixed;bottom:18px;left:18px;background:#2b3050;border:1px solid var(--accent);padding:9px 14px;border-radius:8px;z-index:9" }, text); document.put(body, n); setTimeout(() => n.remove(), 3500); };
+const toast = text => { const n = el("div", { style: "position:fixed;bottom:18px;left:18px;background:#2b3050;border:1px solid var(--accent);padding:9px 14px;border-radius:8px;z-index:9" }, text); document.body.append(n); setTimeout(() => n.remove(), 3500); };
 
 let S = null, jobs = [], tab = "Create", project = null;
 const C = { step: 0, mode: "scout", preset: "draft", quality: "standard", seconds: 5, seed: 1, scene: "", action: "", camera: "",
