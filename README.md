@@ -399,9 +399,36 @@ length. A segment can open on the last frame of the one before; one button rende
 ![Library](samples/ui_library.png)
 
 **Library** lists every render, scout and export; *use* makes an image the first frame of a new clip, *+ timeline*
-sends a clip to the editor.
+sends a clip to the editor, and 🗑 moves a file to `~/TensorFoldStudio/trash`.
 
 ![Tutorial](samples/ui_tutorial.png)
+
+#### Wasserman Slate AI Studio
+
+At the top of **Production** there are two ways to plan a film: the board of segments above, or **Wasserman Slate AI
+Studio**. The second is a port of the workflow of Slate, the prompt studio for AI filmmaking by Sam Wasserman
+(wassermanproductions.com), wired to this Studio's render queue, so a shot goes from its prompt to a clip without
+copying anything anywhere.
+
+| Part | What it does |
+|---|---|
+| **First AD** | Say what you are making. It creates scenes and shots, writes their prompts, casts characters, scouts locations, sets spoken lines and sound, and lists what it did. |
+| **Bible** | Logline, world and tone, defaults, how the film renders (resolution tier, quality), and which brain to use. |
+| **Studios** | Casting, Art Department, Locations, Lookbook: sheets filled from one line by ✦ Fill. A still pinned to a character is its reference picture. |
+| **Shots** | Specs (seconds, aspect, size, angle, lens, movement) and the six-section prompt; ✦ Structure, Tighten, Enrich, Distill, Shot, Angle, Beats, Variants; Director's notes; Slate's setups; picture-lock and mute; history. ✦ Coverage lays out a scene from one of Slate's twelve coverage plans. |
+| **Roll camera** | What the shot opens on (text, the last frame of the shot before, an image, the cast's stills), who is in it and where, spoken lines, soundscape, cue. The shot compiles to MiniMax H3's prompt form with a preflight list; one button queues it. Clips come back as takes: circle the one that works. |
+| **Sound** | Voice sheets (the voice of a spoken line) and music cues (the score line of a shot). |
+| **Deliver** | Render a whole scene in order, a continuity check, the shot list as Markdown or CSV, and the film's takes to the Editor's timeline. |
+
+The brain is Slate's: your own Claude Code or Codex sign-in on the machine that runs the app, or a local
+OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp). Everything without a ✦ works with no brain. Films are
+Slate's own `project.json` under `~/TensorFoldStudio/slate/`: a project made in Slate opens here, and one made here
+downloads from the Bible and opens in Slate (what this port adds sits under `tf` keys). Shots render at 5, 8, 10 or
+15 seconds and the aspect ratios 16:9, 9:16, 1:1, 4:3, 3:4 and 21:9.
+
+Not ported from Slate: sequence chunks, alt takes, punch-ups, the tone dial, pickups on a selected span, reference
+and audio analysis, the stills library, compiles for other generators, and its MCP server. The app has no sign-in of
+its own: anyone who can open it can use the brain, so keep it on a network you trust.
 
 **Tutorial** teaches the other four: eleven short lessons, one step on screen at a time, with an example and a tip
 where they help. *Show me in the app* opens the tab a step is about and outlines the control; a bar at the bottom

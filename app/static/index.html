@@ -45,7 +45,6 @@ button { background:var(--panel2); color:var(--text); border:1px solid var(--lin
 button:hover:not(:disabled) { border-color:var(--line2); background:rgba(255,255,255,.07); } button:active:not(:disabled) { transform:translateY(1px); }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 nav button { border:0; background:transparent; color:var(--dim); padding:6px 14px; border-radius:8px; font-weight:550; }
-nav button.on { background:rgba(255,255,255,.1); color:var(--text); box-shadow:inset 0 0 0 1px var(--line2); }
 button.primary { background:var(--grad); border-color:transparent; color:#070810; font-weight:650; }
 button.hot { background:var(--grad-hot); border-color:transparent; color:#190905; font-weight:700; padding:10px 20px; box-shadow:0 6px 24px -8px rgba(255,95,109,.7); }
 button.primary:hover:not(:disabled), button.hot:hover:not(:disabled) { filter:brightness(1.08); }
@@ -107,10 +106,25 @@ video.main { width:100%; background:#000; border-radius:12px; max-height:52vh; b
 .clip video { width:100%; aspect-ratio:16/9; background:#000; border-radius:6px; } .clip .row > * { min-width:0; } .clip input { padding:3px 6px; font-size:12px; }
 a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
 ::-webkit-scrollbar { width:10px; height:10px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.12); border-radius:10px; border:2px solid transparent; background-clip:padding-box; }
+/* the active tab glows like low sun; Home goes back to step 1 of Create */
+nav button.on { background:rgba(255,196,84,.14); color:#ffe9b8; box-shadow:inset 0 0 0 1px rgba(255,205,110,.8),0 0 16px rgba(255,186,60,.55),0 0 36px rgba(255,150,40,.3); text-shadow:0 0 10px rgba(255,200,90,.7); }
+.homebtn { padding:6px 12px; border-radius:9px; font-weight:600; color:#ffe9b8; border-color:rgba(255,205,110,.35); background:rgba(255,196,84,.06); white-space:nowrap; }
+.homebtn:hover:not(:disabled) { border-color:rgba(255,205,110,.8); background:rgba(255,196,84,.14); box-shadow:0 0 16px rgba(255,186,60,.4); }
+/* Slate studio: a list on the left, the work on the right */
+.cols { display:grid; grid-template-columns:250px minmax(0,1fr); gap:20px; margin-top:6px; align-items:start; }
+.list button { display:flex; gap:9px; align-items:flex-start; width:100%; text-align:left; margin-bottom:6px; padding:9px 11px; background:rgba(255,255,255,.028); }
+.list button.on { border-color:var(--accent); background:rgba(103,227,255,.07); } .list button span { display:block; color:var(--dim); font-size:11.5px; line-height:1.35; }
+.list button.sub { margin-left:14px; width:calc(100% - 14px); padding:7px 10px; } .list button.small { display:inline-block; width:auto; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; } .chips > button { flex:0 0 auto; min-width:0; }
+button.small.on { border-color:rgba(255,205,110,.8); color:#ffe9b8; background:rgba(255,196,84,.14); }
+.sheet { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:0 12px; } .sheet .wide { grid-column:1 / -1; }
+.fold { border:1px solid var(--line); border-radius:12px; padding:9px 13px; margin-top:10px; background:rgba(255,255,255,.018); } .fold summary { cursor:pointer; color:var(--dim); font-weight:600; font-size:12.5px; } .fold[open] summary { margin-bottom:8px; color:var(--text); }
+.chat { display:flex; flex-direction:column; gap:8px; margin:12px 0; max-height:52vh; overflow:auto; } .chat > div { border:1px solid var(--line); border-radius:12px; padding:9px 12px; max-width:86%; background:var(--panel2); }
+.chat .user { align-self:flex-end; border-color:rgba(103,227,255,.35); } .chat b { display:block; font:600 10.5px var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--dim); margin-bottom:3px; }
+.receipt { margin-top:7px; padding-top:7px; border-top:1px solid var(--line); font:11.5px/1.6 var(--mono); color:var(--ok); }
+@media (max-width:1000px) { .cols { grid-template-columns:1fr; } }
 /* tutorial: lessons on the left, one step at a time on the right; the coach bar follows the user into the other tabs */
 .tut { display:grid; grid-template-columns:250px minmax(0,1fr); gap:20px; margin-top:16px; align-items:start; }
-.tut .list button { display:flex; gap:9px; align-items:flex-start; width:100%; text-align:left; margin-bottom:6px; padding:9px 11px; background:rgba(255,255,255,.028); }
-.tut .list button.on { border-color:var(--accent); background:rgba(103,227,255,.07); } .tut .list button span { display:block; color:var(--dim); font-size:11.5px; line-height:1.35; }
 .tick { flex:none; width:18px; height:18px; border-radius:50%; border:1px solid var(--line2); font:700 11px/16px var(--mono); text-align:center; color:#070810; margin-top:2px; } .tick.ok { background:var(--ok); border-color:transparent; }
 .dots { display:flex; gap:6px; margin:2px 0 16px; flex-wrap:wrap; } .dots button { min-width:34px; padding:4px 0; border-radius:8px; font:600 12px var(--mono); color:var(--dim); background:rgba(255,255,255,.04); }
 .dots button.past { color:var(--accent); border-color:rgba(103,227,255,.35); } .dots button.on { background:var(--grad); color:#070810; border-color:transparent; }
@@ -131,6 +145,7 @@ a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:under
 <body>
 <header>
   <span class="dot"></span><h1><b>TensorFold</b> Studio</h1><span id="plat" class="plat"></span>
+  <button id="gohome" class="homebtn" title="Back to the first screen">⌂ Home</button>
   <nav id="tabs"></nav>
   <small id="ver"></small>
 </header>
@@ -142,6 +157,7 @@ a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:under
     <div id="jobs" style="margin-top:10px"></div>
   </aside>
 </main>
+<script src="slate.js"></script>
 <script>
 "use strict";
 if (location.search.includes("shot")) document.write('<img src="/api/wait?ms=4000" style="display:none">');
@@ -359,8 +375,12 @@ async function generateSeg(index) { const seg = project.segments[index]; if (!se
   if (seg.start === "previous") { const prev = project.segments[index - 1]; if (!prev) throw new Error("the first segment has nothing to continue from"); const pj = segJob(prev);
     params.first_frame_from = prev.output || (pj && pj.params.output); if (!params.first_frame_from) throw new Error("generate segment " + index + " first, or queue them together"); }
   const j = await api("/api/jobs", { kind: "video", title: "Segment " + (index + 1) + ": " + (seg.title || ""), params }); seg.job = j.id; seg.output = params.output; }
+// two ways to plan a film: this board of segments, or the port of Sam Wasserman's Slate (slate.js)
+const productionSwitch = () => el("div", { class: "choice", role: "radiogroup", style: "margin-bottom:16px" }, [["board", "Production board", "segments one after another: the simple way"], ["slate", "Wasserman Slate AI Studio", "bible, casting, coverage and a First AD, straight to the render queue"]].map(([k, title, sub]) =>
+  el("button", { type: "button", role: "radio", "aria-checked": String(SL.mode === k), class: SL.mode === k ? "on" : "", onclick: () => { SL.mode = k; try { localStorage.setItem("production-mode", k); } catch {} render(); } }, el("b", {}, title), el("span", {}, sub))));
 function viewProduction() {
-  const box = el("section", { class: "card" }, el("h2", {}, "Production"));
+  if (SL.mode === "slate") return viewSlate(productionSwitch());
+  const box = el("section", { class: "card" }, productionSwitch(), el("h2", {}, "Production"));
   ensureProject().then(async () => {
     const list = await api("/api/projects"); const total = project.segments.reduce((a, s) => a + Number(s.seconds || 0), 0);
     const pick = el("select", { onchange: async () => { project = await api("/api/projects/" + pick.value); render(); } }, list.map(p => el("option", { value: p.id, selected: p.id === project.id }, p.name + " · " + p.segments + " segments")));
@@ -434,9 +454,12 @@ function viewEditor() {
 
 /* ---------- Library ---------- */
 function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {}, "Library"));
-  api("/api/library").then(list => put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it."), el("div", { class: "grid", style: "margin-top:10px" }, list.map(m =>
+  api("/api/library").then(list => put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it. 🗑 moves a file to the trash folder."), el("div", { class: "grid", style: "margin-top:10px" }, list.map(m =>
     el("div", { class: "tile" }, media(m.path), el("div", { class: "cap" }, el("span", { style: "cursor:pointer", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.slice(-26)),
-      m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use")))))));
+      m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use"),
+      // out of the library: the server moves the file to the studio's trash folder
+      el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: async () => { if (!confirm("Delete " + m.path.split("/").pop() + "?\nIt is moved to the trash folder inside " + S.home + ", not erased.")) return;
+        try { await api("/api/library?path=" + encodeURIComponent(m.path), undefined, "DELETE"); toast("Moved to the trash folder"); render(); } catch (e) { toast(e.message); } } }, "🗑")))))));
   return box; }
 
 /* ---------- Tutorial ---------- */
@@ -444,7 +467,7 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
 const T = { id: "first", step: 0, coach: false };
 const seen = (() => { try { return new Set(JSON.parse(localStorage.getItem("tutorial-done") || "[]")); } catch { return new Set(); } })();
 const finish = id => { seen.add(id); try { localStorage.setItem("tutorial-done", JSON.stringify([...seen])); } catch {} };
-const TRACKS = { Create: "one clip or image, start to finish", Production: "a film made of segments", Editor: "trim, order and export", Library: "everything you have made" };
+const TRACKS = { Create: "one clip or image, start to finish", Production: "a film in segments, or in Slate", Editor: "trim, order and export", Library: "everything you have made" };
 const BAKER = { goes: "video", start: "text", scene: "A middle-aged baker in a cream shirt and green apron stands behind a wooden counter in a small bakery at dawn, warm window light from the left.",
   action: "He lifts a loaf with both hands, sets it down on the counter, looks at the camera and smiles.", camera: "The camera slowly pushes in throughout the single continuous shot.",
   dialogue: [{ voice: "a warm, calm male voice", language: "English", text: "Good morning. The first loaf of the day is always the best one.", sung: false }], soundscape: "Quiet bakery room tone and a low oven hum. A light tap as the loaf is set down.", music: "N/A" };
@@ -502,6 +525,13 @@ function lessons() {
       { t: "Write each segment", d: ["The boxes mean the same as in Create: the scene, what happens, a voice with one spoken line, and the soundscape. Keep the description of people identical across segments so they stay recognizable."], go: on("Production", "+ Add a segment") },
       { t: "Render", d: ["“Render” on a segment queues just that one. “Generate every segment not yet rendered” queues the rest in order, including any that failed. “Render again” replaces a segment you do not like; change its seed first for a different take."], go: on("Production", "Generate every segment") },
       { t: "Send to the editor", d: ["“Send rendered segments to the editor” puts every rendered segment on the project's timeline, in order, and opens the Editor."], tip: "This replaces the timeline that project had. Trims you made there are lost, so send first and trim after.", go: on("Production", "Send rendered segments") } ] },
+    { id: "slate", track: "Production", title: "Wasserman Slate AI Studio", sub: "plan a film like a crew, render it here", steps: [
+      { t: "What it is", d: ["Slate is Sam Wasserman's prompt studio for AI filmmaking. Here its workflow is built into Production and wired to the render queue: you plan the film the way a crew does, and every shot renders without copying a prompt anywhere.", "At the top of Production pick “Wasserman Slate AI Studio”. Create a film, or open a project.json made in Slate itself."], go: { tab: "Production", slate: true, spot: "Wasserman Slate AI Studio" } },
+      { t: "Let the First AD set it up", d: ["A new film opens on the First AD. Say what you are making in plain words. When it is clear, it creates the scenes and shots, writes their prompts, casts the characters and scouts the locations, and lists what it did."], eg: "A 30 second noir teaser: a detective, a rainy alley, one line of dialogue. Three shots.", tip: "The First AD and every ✦ button use the brain: your own Claude Code or Codex sign-in, or a local model. Pick it in the Bible and press “Test the brain”." },
+      { t: "Bible and Studios", d: ["The Bible holds the logline, the world and tone, and how the film renders (resolution, quality). Studios holds the sheets: Casting, Art Department, Locations, Lookbook. Describe something in one line and ✦ Fill writes the sheet.", "In Casting, pin a still to a character (upload one, or have the image model make candidates from the sheet). That still is how the face stays the same from shot to shot."] },
+      { t: "Shots", d: ["Each shot has specs (seconds, size, angle, lens, movement) and a prompt in six sections: Subject, Composition, Lighting, Camera, Style, Mood. ✦ Structure, Tighten, Enrich and the rest rewrite it; a Director's note changes it in plain words; the old version goes to History.", "✦ Coverage turns one scene description into a full set of shots from a coverage plan."] },
+      { t: "Roll camera", d: ["Under the prompt, choose what the shot opens on: text only, the last frame of the shot before, an image, or the cast's stills. Tick who is in the shot, add spoken lines, a soundscape and a cue.", "The shot is compiled to MiniMax H3's own prompt form, with a preflight list of anything that will not fit. “🎬 Render this shot” queues it; the clip comes back as a take. Circle the take that works."], tip: "Shots here are 5, 8, 10 or 15 seconds. Another length is rendered at the nearest one, and the preflight says so." },
+      { t: "Deliver", d: ["Deliver shows a scene as a strip. “Render every shot without a take” queues the scene in order; a shot that opens on the shot before starts from its last frame. “Send the film's takes to the Editor” puts the circled takes on the timeline, in order.", "The shot list downloads as Markdown or CSV, and the Bible downloads the project.json, which opens in Slate."] } ] },
     { id: "editor", track: "Editor", title: "Cut and export", sub: "timeline, trims and the final file", steps: [
       { t: "Put clips on the timeline", d: ["The media bin at the bottom shows your videos; hover one to play it. “+ timeline” adds it to the end of the timeline. Clips also arrive from Create (“Add to the editor timeline”), the Library and Production."], tip: "The timeline belongs to the project selected in the Production tab.", go: on("Editor", "Media bin") },
       { t: "Order the clips", d: ["On each timeline clip, ← and → move it and ✕ removes it from the timeline. The file itself stays in the Library. Click a clip to show it in the preview."], go: on("Editor", "Timeline") },
@@ -511,17 +541,18 @@ function lessons() {
     { id: "library", track: "Library", title: "Find and reuse your files", sub: "clips, images and their paths", steps: [
       { t: "What is in the Library", d: ["Every clip, scout, image and export the app has made, as files under " + S.home + ". They stay there when the app restarts."], go: on("Library", "Library") },
       { t: "Copy a path", d: ["Click the name under a file to copy its path. Paste it into a Production segment that opens on “an image from the library”."], go: on("Library", "Library") },
-      { t: "Reuse a file", d: ["On a video, “+ timeline” adds it to the editor timeline. On an image, “use” takes it to Create as the first frame of a new clip."], go: on("Library", "Library") } ] } ]; }
+      { t: "Reuse a file", d: ["On a video, “+ timeline” adds it to the editor timeline. On an image, “use” takes it to Create as the first frame of a new clip."], go: on("Library", "Library") },
+      { t: "Delete a file", d: ["🗑 on a tile takes the file out of the Library after you confirm. It is moved to the “trash” folder inside " + S.home + ", so a mistake can be undone by moving it back; empty that folder yourself to free the disk space."], tip: "A file that a queued or running job needs cannot be deleted until the job is done.", go: on("Library", "Library") } ] } ]; }
 // outline the control a step talks about; Production and Editor draw themselves a moment after the tab opens, so look again
-function spot(text, tries = 14) { if (!text) return; const want = text.toLowerCase();
+function spot(text, tries = 14, again = false) { if (!text) return; const want = text.toLowerCase(); if (!again) T.spot = [text, Date.now() + 7000];
   const hit = [...document.querySelectorAll("#view label, #view h2, #view h3, #view button, aside h2")].find(n => n.textContent.trim().toLowerCase().startsWith(want));
-  if (!hit) { if (tries) setTimeout(() => spot(text, tries - 1), 200); return; }
+  if (!hit) { if (tries) setTimeout(() => spot(text, tries - 1, again), 200); return; }
   const kin = hit.parentElement, lone = hit.tagName !== "LABEL" || hit.classList.contains("switch");
   const marks = hit.closest("aside") ? [hit.closest("aside")] : lone ? [hit] : kin.children.length === 2 ? [kin] : [hit, hit.nextElementSibling].filter(Boolean);
   document.querySelectorAll(".spot").forEach(n => n.classList.remove("spot")); marks.forEach(n => n.classList.add("spot"));
-  marks[0].scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => marks.forEach(n => n.classList.remove("spot")), 7000); }
+  if (!again) { marks[0].scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => { if (Date.now() >= T.spot[1] - 100) document.querySelectorAll(".spot").forEach(n => n.classList.remove("spot")); }, 7000); } }
 function tutorialGo(go) { if (go.set && Object.entries(go.set).some(([k, v]) => C[k] !== v)) { Object.assign(C, go.set); sync(); C.prompt = ""; }
-  if (go.step != null) C.step = go.step; tab = go.tab; T.coach = true; history.replaceState(null, "", "#" + tab); render(); spot(go.spot); }
+  if (go.step != null) C.step = go.step; if (go.tab === "Production") SL.mode = go.slate ? "slate" : "board"; tab = go.tab; T.coach = true; history.replaceState(null, "", "#" + tab); render(); spot(go.spot); }
 function tutorialMove(by) { const L = lessons().find(l => l.id === T.id), n = T.step + by; if (n < 0) return;
   if (n >= L.steps.length) { finish(L.id); T.coach = false; tab = "Tutorial"; render(); return; }
   T.step = n; if (L.steps[n].go) tutorialGo(L.steps[n].go); else { tab = "Tutorial"; render(); } }
@@ -576,11 +607,13 @@ async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
   const sig = jobs.map(j => j.id + j.status).join(); if (sig !== lastSig) { const had = lastSig; lastSig = sig; if (had && !document.activeElement.matches("input,textarea,select")) render(); } }
 
 function render() { $("#tabs").replaceChildren(...TABS.map(t => el("button", { class: t === tab ? "on" : "", onclick: () => { tab = t; history.replaceState(null, "", "#" + t); render(); } }, t)));
-  $("#view").replaceChildren({ Create: viewCreate, Production: viewProduction, Editor: viewEditor, Library: viewLibrary, Tutorial: viewTutorial }[tab]()); coach(); }
+  $("#view").replaceChildren({ Create: viewCreate, Production: viewProduction, Editor: viewEditor, Library: viewLibrary, Tutorial: viewTutorial }[tab]()); coach();
+  // a redraw (a job changed, a view finished loading) must not drop the outline a tutorial step just put on a control
+  if (T.spot && Date.now() < T.spot[1]) spot(T.spot[0], 3, true); }
 (async () => { const want = decodeURIComponent(location.hash.slice(1)); if (TABS.includes(want)) tab = want;
   // links can preset the Create form: ?goes=image, ?engine=h3&res=720p&up=1&step=4 ...
   for (const [k, v] of new URLSearchParams(location.search)) if (k in C && k !== "mode") C[k] = k === "up" ? v === "1" : (k === "step" || k === "count" ? Number(v) : v);
-  S = await api("/api/state"); if (!S.turbo) C.engine = "fasth3"; sync(); $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "TensorFold Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000); })();
+  S = await api("/api/state"); if (!S.turbo) C.engine = "fasth3"; sync(); $("#gohome").onclick = () => { tab = "Create"; C.step = 0; T.coach = false; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); render(); }; $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "TensorFold Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000); })();
 </script>
 </body>
 </html>

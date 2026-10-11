@@ -172,7 +172,7 @@ def compose_references(fields: dict, count: int) -> str:
         voice = (line.get("voice") or "a natural voice").strip()
         verb = "sings" if line.get("sung") else "speaks"
         language = (line.get("language") or "English").strip()
-        spoken.append(f"<Subject 1> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
+        spoken.append(f"<Subject {int(line.get('subject') or 1)}> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
     if spoken:
         # a clip longer than its lines: without this the model may keep the mouth moving and invent words
         shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
@@ -205,7 +205,7 @@ def compose(fields: dict, first_frame: bool) -> str:
         voice = (line.get("voice") or "a natural voice").strip()
         verb = "sings" if line.get("sung") else "says"
         language = (line.get("language") or "English").strip()
-        spoken.append(f"The speaker, in {voice} (S{index}), {verb}: <d>[{language}] {text}</d>")
+        spoken.append(f"{(line.get('speaker') or '').strip() or 'The speaker'}, in {voice} (S{index}), {verb}: <d>[{language}] {text}</d>")
     if spoken:
         shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
                  " talking, closes the mouth and stays silent until the end of the clip.")
@@ -734,13 +734,30 @@ def library() -> list[dict]:
 
     found = []
     for folder, kinds in (("renders", (".mp4",)), ("exports", (".mp4",)), ("scouts", (".png",)),
-                          ("uploads", (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov")), ("projects", (".mp4",))):
+                          ("uploads", (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov")), ("projects", (".mp4",)), ("slate", (".mp4",))):
         for path in (HOME / folder).rglob("*"):
             if path.suffix.lower() in kinds and path.is_file():
                 found.append({"path": relative(path), "kind": "video" if path.suffix.lower() in (".mp4", ".mov")
                               else "image", "folder": folder, "modified": path.stat().st_mtime,
                               "size": path.stat().st_size})
     return sorted(found, key=lambda item: -item["modified"])[:400]
+
+
+@app.delete("/api/library")
+def discard(path: str) -> dict:
+    """Take a clip or still out of the library: it is moved to the studio's trash folder, not erased."""
+
+    target = inside(path)
+    if not target.is_file() or relative(target).split("/")[0] not in ("renders", "exports", "scouts", "uploads", "projects", "slate") \
+            or target.suffix.lower() not in (".mp4", ".mov", ".png", ".jpg", ".jpeg", ".webp"):
+        raise HTTPException(400, "not a library file")
+    with lock:
+        if any(job["status"] in ("queued", "running") and relative(target) in json.dumps(job["params"]) for job in jobs.values()):
+            raise HTTPException(400, "a queued or running job uses this file")
+    kept = HOME / "trash" / (time.strftime("%Y%m%d-%H%M%S-") + relative(target).replace("/", "__"))
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(target), str(kept))
+    return {"trash": relative(kept)}
 
 
 @app.get("/api/probe")
@@ -822,6 +839,10 @@ async def errors(_, error: HTTPException):
     return JSONResponse({"error": error.detail}, status_code=error.status_code)
 
 
+import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)
+
+app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, REFERENCE_LIMIT,
+                                lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}))
 app.mount("/", StaticFiles(directory=HERE / "static", html=True), name="static")
 
 if __name__ == "__main__":
