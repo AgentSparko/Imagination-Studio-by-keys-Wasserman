@@ -46,7 +46,12 @@ PRESETS = {
     "native": ("Native 1344x768 (no 2x decoder)", (1344, 768), {"WIDTH": "1344", "HEIGHT": "768"}),
     "p720": ("720p 1280x720 (native)", (1280, 720), {"WIDTH": "1280", "HEIGHT": "736", "CROP": "1280x720"}),
     "p960": ("960p 1728x960 (generated at 480p, 2x decoder)", (1728, 960), {"X2": "1", "WIDTH": "1728", "HEIGHT": "960"}),
+    "sharp": ("Wasserman Sharp Spec 1376x768 (native, one pass, no upscale)", (1376, 768), {"WIDTH": "1376", "HEIGHT": "768"}),
 }
+# Sam Wasserman's locked recipe for a sharp clip: this size with FastH3 at 8 passes (sparse attention 0.8), seed 42 and
+# a retake at the next seed, 8 or 10 seconds, one generation pass with no upscale and no crop.
+SHARP = {"preset": "sharp", "quality": "fh8", "seed": 42, "seconds": [8, 10]}
+QA_TAKES = 2  # his QA gate (qa.py) follows each such clip: one that fails is rendered again at the next seed
 QUALITIES = {
     "standard": ("Standard: Turbo 5 passes + base-model sound", {}),
     "high": ("High: 20 steps, no adapter, fast recipe (about 1.5x slower)", {"QUALITY": "high"}),
@@ -57,7 +62,7 @@ QUALITIES = {
     "fh20": ("FastH3: 20 passes, for prompts with several actions", {"ENGINE": "fasth3", "STEPS": "20"}),
 }
 SCOUT_SIZES = {"draft": (1344, 768), "2k": (1024, 576), "qhd": (1280, 736), "small": (864, 480),
-               "native": (1344, 768), "p720": (1280, 736), "p960": (864, 480)}
+               "native": (1344, 768), "p720": (1280, 736), "p960": (864, 480), "sharp": (1376, 768)}
 # measured on a Mac Studio M5 Ultra, 8 second clips, standard quality, image step included (README)
 MEASURED_8S = {"draft": 108, "2k": 299, "qhd": 635, "small": 174, "native": 709}
 # FastH3 on the native engine (TensorFold 1.0's Zig + Metal runtime), 5 second text-to-video clips, same machine.
@@ -109,7 +114,7 @@ if SPARK:
 # follow from the pass time.
 SPARK_ENGINE_LIB = Path(os.environ.get("PREFIX", Path.home() / ".local/opt/tensorfold-studio")) / "tf-h3" / "libtf_h3.so"
 SPARK_FASTH3_5S = {"fh4": {"small": 45, "p720": 111, "native": 113},
-                   "fh8": {"small": 73, "p720": 183, "native": 195},
+                   "fh8": {"small": 73, "p720": 183, "native": 195, "sharp": 202},  # sharp: Sam Wasserman's 330 to 380 s at 8 s
                    "fh20": {"small": 158, "p720": 399, "native": 441}}
 # On ComfyUI's own blocks in bf16 (no engine built): 864x480 at 8 passes 118 s (a pass 10.5 s) and 1344x768 289 s
 # (a pass 29.4 s with its sparse attention); 720p is scaled from 1344x768 by its rows.
@@ -172,7 +177,7 @@ def compose_references(fields: dict, count: int) -> str:
         voice = (line.get("voice") or "a natural voice").strip()
         verb = "sings" if line.get("sung") else "speaks"
         language = (line.get("language") or "English").strip()
-        spoken.append(f"<Subject 1> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
+        spoken.append(f"<Subject {int(line.get('subject') or 1)}> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
     if spoken:
         # a clip longer than its lines: without this the model may keep the mouth moving and invent words
         shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
@@ -205,7 +210,7 @@ def compose(fields: dict, first_frame: bool) -> str:
         voice = (line.get("voice") or "a natural voice").strip()
         verb = "sings" if line.get("sung") else "says"
         language = (line.get("language") or "English").strip()
-        spoken.append(f"The speaker, in {voice} (S{index}), {verb}: <d>[{language}] {text}</d>")
+        spoken.append(f"{(line.get('speaker') or '').strip() or 'The speaker'}, in {voice} (S{index}), {verb}: <d>[{language}] {text}</d>")
     if spoken:
         shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
                  " talking, closes the mouth and stays silent until the end of the clip.")
@@ -410,6 +415,12 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
     fast_h3 = SPARK or env.get("ENGINE") == "fasth3"
     prompt = params["prompt"]
     image = params.get("image")
+    styles = lora_resolve(params.get("loras"))  # the LoRA hub (loras.py): files to merge, and their trigger words
+    if styles:
+        if kind == "video" and references(params):
+            raise HTTPException(400, "a LoRA from the hub is for MiniMax H3 and FastH3 clips, not for reference to video")
+        env["LORA"] = "\n".join(f"{one['path']}:{one['strength']:g}" for one in styles) + "\n"
+        prompt = lora_lead(prompt, styles)
     if kind == "video":  # text to video, or from an image the user already has
         pictures = references(params)
         if pictures:
@@ -516,6 +527,31 @@ def run(job: dict, command: list[str], env: dict, label: str = "") -> bool:
     return True
 
 
+def gated(job: dict, clip: Path) -> bool:
+    """Sam Wasserman's QA gate on a clip made to his Sharp Spec; False when the job was cancelled meanwhile."""
+
+    params, takes = job["params"], []
+    for take in range(1, QA_TAKES + 1):
+        if take > 1:
+            shutil.copy(clip, HOME / "qa" / f"{job['id']}-take{take - 1}.mp4")  # the failed take is kept
+            params["seed"] = int(params.get("seed", 0)) + 1
+            command, env, _ = build("video", params, job["id"])
+            if not run(job, command, env, f"take {take} · "):
+                return False
+        job["progress"] = {"stage": "QA gate, take", "at": take, "of": QA_TAKES}
+        picture = HOME / "qa" / f"{job['id']}-take{take}.jpg"
+        try:
+            report = qa.check(clip, params["prompt"], picture, params.get("brain"))
+        except Exception as error:  # noqa: BLE001 - the clip is made; a gate that cannot run does not lose it
+            job["qa"] = {"passed": None, "takes": takes, "error": str(error)[-300:]}
+            break
+        takes.append({**report, "take": take, "seed": int(params.get("seed", 0)), "sheet": relative(picture)})
+        job["qa"] = {"passed": report["passed"], "takes": takes}
+        if report["passed"] or job["status"] == "cancelled":
+            break
+    return job["status"] != "cancelled"
+
+
 def long_take(job: dict) -> bool:
     """A video longer than one clip: render it piece by piece, each opening on the last frame of the one before, and join."""
 
@@ -606,6 +642,9 @@ def work() -> None:
                 job["outputs"] = [relative(Path(p)) for p in outputs if Path(p).is_file()]
                 if not job["outputs"]:
                     raise RuntimeError("the script finished without writing its output")
+                if job["kind"] == "video" and params.get("preset") == "sharp" and params.get("qa", True):
+                    if not gated(job, Path(outputs[0])):
+                        continue
             job["status"] = "done"
         except Exception as error:  # noqa: BLE001 - a failed job must not stop the queue
             if job["status"] != "cancelled":
@@ -619,7 +658,7 @@ threading.Thread(target=work, daemon=True).start()
 
 def public(job: dict) -> dict:
     out = {k: job.get(k) for k in ("id", "kind", "status", "title", "outputs", "progress", "error", "created",
-                                    "started", "finished", "estimate", "engine")}
+                                    "started", "finished", "estimate", "engine", "qa")}
     # by this machine's clock: the page may be open on another one
     out["elapsed"] = (job.get("finished") or time.time()) - job["started"] if job.get("started") else None
     out["log"] = job["log"][-3000:]
@@ -634,7 +673,7 @@ def state() -> dict:
             "home": str(HOME), "pack": str(PACK), "version": (PACK / "VERSION").read_text().strip(),
             "zig": zig_ready(), "turbo": turbo_ready() and not SPARK, "x2": not SPARK,
             "ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready(), "reference_limit": REFERENCE_LIMIT,
-            "uncensored": uncensored_ready(), "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
+            "uncensored": uncensored_ready(), "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
             "platform": machine()[0], "platform_label": machine()[1],
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
 
@@ -648,8 +687,8 @@ def compose_prompt(body: dict) -> dict:
 
 @app.post("/api/estimate")
 def estimate_time(body: dict) -> dict:
-    if body.get("preset") == "custom" or body.get("steps") not in (None, ""):
-        return {"seconds": None}
+    if body.get("preset") == "custom" or body.get("steps") not in (None, "") or body.get("loras"):
+        return {"seconds": None}  # a LoRA changes which engine renders the clip: no time is measured for it
     return {"seconds": estimate(body.get("preset", "draft"), body.get("quality", "standard"),
                                 int(body.get("seconds", 5)), bool(body.get("text_only")), bool(body.get("referenced")),
                                 bool(body.get("ref_turbo")))}
@@ -679,7 +718,7 @@ def submit(body: dict) -> dict:
         build(kind, params, job_id)  # reject bad settings now, not when the job's turn comes
     job = {"id": job_id, "kind": kind, "status": "queued", "title": body.get("title") or kind, "params": params,
            "outputs": [], "progress": None, "error": None, "log": "", "created": time.time(), "started": None,
-           "finished": None, "estimate": None if params.get("preset") == "custom" or params.get("steps") not in (None, "") else estimate(params.get("preset", ""), params.get("quality", "standard"),
+           "finished": None, "estimate": None if params.get("preset") == "custom" or params.get("steps") not in (None, "") or params.get("loras") else estimate(params.get("preset", ""), params.get("quality", "standard"),
                                                   int(params.get("total_seconds") or params.get("seconds", 5)),
                                                   kind == "video" and not params.get("image")
                                                   and not params.get("first_frame_from"), referenced,
@@ -720,7 +759,7 @@ def cancel(job_id: str) -> dict:
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)) -> dict:
     suffix = Path(file.filename or "image.png").suffix.lower()
-    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov"):
+    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov", ".safetensors"):  # .safetensors: a LoRA for the hub
         raise HTTPException(400, "images (png, jpg, webp) and videos (mp4, mov) only")
     target = HOME / "uploads" / f"{uuid.uuid4().hex[:10]}{suffix}"
     with open(target, "wb") as handle:
@@ -734,13 +773,30 @@ def library() -> list[dict]:
 
     found = []
     for folder, kinds in (("renders", (".mp4",)), ("exports", (".mp4",)), ("scouts", (".png",)),
-                          ("uploads", (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov")), ("projects", (".mp4",))):
+                          ("uploads", (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov")), ("projects", (".mp4",)), ("slate", (".mp4",))):
         for path in (HOME / folder).rglob("*"):
             if path.suffix.lower() in kinds and path.is_file():
                 found.append({"path": relative(path), "kind": "video" if path.suffix.lower() in (".mp4", ".mov")
                               else "image", "folder": folder, "modified": path.stat().st_mtime,
                               "size": path.stat().st_size})
     return sorted(found, key=lambda item: -item["modified"])[:400]
+
+
+@app.delete("/api/library")
+def discard(path: str) -> dict:
+    """Take a clip or still out of the library: it is moved to the studio's trash folder, not erased."""
+
+    target = inside(path)
+    if not target.is_file() or relative(target).split("/")[0] not in ("renders", "exports", "scouts", "uploads", "projects", "slate") \
+            or target.suffix.lower() not in (".mp4", ".mov", ".png", ".jpg", ".jpeg", ".webp"):
+        raise HTTPException(400, "not a library file")
+    with lock:
+        if any(job["status"] in ("queued", "running") and relative(target) in json.dumps(job["params"]) for job in jobs.values()):
+            raise HTTPException(400, "a queued or running job uses this file")
+    kept = HOME / "trash" / (time.strftime("%Y%m%d-%H%M%S-") + relative(target).replace("/", "__"))
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(target), str(kept))
+    return {"trash": relative(kept)}
 
 
 @app.get("/api/probe")
@@ -822,6 +878,14 @@ async def errors(_, error: HTTPException):
     return JSONResponse({"error": error.detail}, status_code=error.status_code)
 
 
+import loras  # noqa: E402  (Keys and Wasserman LoRA Hub, beside this file)
+lora_router, lora_resolve, lora_lead = loras.attach(HOME, PACK, SPARK)
+app.include_router(lora_router)
+import qa  # noqa: E402  (Sam Wasserman's QA gate, beside this file)
+import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)
+
+app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, REFERENCE_LIMIT,
+                                lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}))
 app.mount("/", StaticFiles(directory=HERE / "static", html=True), name="static")
 
 if __name__ == "__main__":

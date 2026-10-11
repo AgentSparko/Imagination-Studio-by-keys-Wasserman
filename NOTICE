@@ -18,3 +18,12 @@ Engine source: TensorFold (Apache-2.0, Ash Hart and contributors) with
   scheme of h3.c (MIT, Salvatore Sanfilippo);
 - a Qwen-Image family adapted from mflux (MIT, Filip Strand and contributors), whose qwen21 model follows Qwen and
   Hugging Face's QwenImage21 pipeline (Apache-2.0).
+
+This product includes a port of the workflow of Slate, the prompt studio for AI filmmaking, and unchanged copies of its data files under app/static/slate/.
+Slate is Copyright 2026 Sam Wasserman, licensed under the Apache License 2.0; its NOTICE is kept at
+app/static/slate/NOTICE. Credit: Sam Wasserman (wassermanproductions.com).
+
+The LoRA hub's first preset is the recipe for the Wasserman 80s Horror LoRA, Copyright 2026 Sam Wasserman. Its
+weights are not part of this pack: they are downloaded from his release when a user installs them, as a Model
+Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement. Credit: 80s Horror LoRA by Sam Wasserman
+(wassermanproductions.com). Powered by MiniMax H3.

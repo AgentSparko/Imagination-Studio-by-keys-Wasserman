@@ -79,6 +79,8 @@ if [ "$(git -C "$PREFIX/ComfyUI" rev-parse HEAD 2>/dev/null)" != "$COMFY_COMMIT"
 fi
 if [ "$VERIFY" = 0 ]; then
   pipi -r "$PREFIX/ComfyUI/requirements.txt" huggingface_hub fastapi uvicorn python-multipart pillow
+  # speech-to-text for the QA gate of the Wasserman Sharp Spec (app/qa.py); without it that gate is shown as skipped
+  pipi faster-whisper || echo "  note: faster-whisper was not installed; the QA gate's speech check will be skipped"
   rm -rf "$PREFIX/ComfyUI/custom_nodes/fasth3_sparse"
   cat > "$PREFIX/ComfyUI/extra_model_paths.yaml" <<YAML
 studio:

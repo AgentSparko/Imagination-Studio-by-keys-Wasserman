@@ -42,6 +42,11 @@ fi
 [ -z "${CROP:-}" ] || ARGS+=(--crop "$CROP")
 [ -z "${SPARK_SPARSITY:-}" ] || ARGS+=(--sparsity "$SPARK_SPARSITY")
 [ -z "${SPARK_ENGINE:-}" ] || ARGS+=(--engine "$SPARK_ENGINE")
+# style LoRAs from the hub, one PATH:STRENGTH per line (FastH3 clips; ComfyUI merges them into the bf16 weights)
+if [ -n "${LORA:-}" ]; then
+  [ ${#REFS[@]} = 0 ] || { echo "a LoRA from the hub is for FastH3 clips, not for reference to video" >&2; exit 2; }
+  while IFS= read -r ONE; do [ -z "$ONE" ] || ARGS+=(--lora "$ONE"); done <<<"$LORA"
+fi
 if [ -n "${PROMPT_FILE:-}" ]; then ARGS+=(--prompt-file "$PROMPT_FILE"); else ARGS+=(--prompt "$PROMPT"); fi
 START=$(date +%s)
 PREFIX="$PREFIX" "$PREFIX/venv/bin/python" "$HERE/spark_generate.py" "${ARGS[@]}"

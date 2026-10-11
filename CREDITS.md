@@ -4,6 +4,27 @@
 families, wrote the int8 tensor-unit kernels with their designs as the guide, pinned it and measured it on a Mac
 Studio M5 Ultra. Cite the authors first.
 
+## The film workflow in Production: Sam Wasserman's Slate
+
+**Sam Wasserman (wassermanproductions.com)** created **Slate**, the prompt studio for AI filmmaking: projects, scenes
+and shots, the six-section shot prompt, the Bible, Casting, the Art Department, Locations and the Lookbook, coverage
+plans, setups, the brain's transforms, Director's Notes and the First AD. The *Wasserman Slate AI Studio* inside the
+Production tab is a port of that workflow. The project file is Slate's own `project.json`; the brain prompts and the
+First AD's action contract are Slate's; `app/static/slate/` holds Slate's coverage plans, setups and model profiles
+unchanged, with its NOTICE. What this pack adds is the render half Slate leaves to a generator: a compile to MiniMax
+H3's prompt form, the queue, and takes with their clips. Slate does much more than this port: sequence chunks, alt
+takes, punch-ups, the tone dial, reference and audio analysis, the stills library, per-model compiles for a dozen
+generators, and its MCP server. (Apache-2.0.)
+
+The **Wasserman Sharp Spec** button and the QA gate behind it are his too: the locked recipe (1376x768, FastH3 at 8
+passes, seed 42, one pass with no upscale) and the two gates, a transcript of the spoken line and a three-frame
+contact sheet checked by a vision model, with one retake at the next seed. `app/qa.py` is this pack's writing of them.
+
+The first preset of the *Keys and Wasserman LoRA Hub* is his **80s Horror LoRA** (Wasserman 80s Horror LoRA, a style
+LoRA for MiniMax H3). The pack holds only its recipe; the weights are downloaded from his release when a user installs
+them, as a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement. 80s Horror LoRA by Sam
+Wasserman (wassermanproductions.com). Powered by MiniMax H3.
+
 ## The image model: the Qwen team
 
 The **Qwen team at Alibaba** released **Qwen-Image-2.1**: the 7B single-stream transformer with its causal text

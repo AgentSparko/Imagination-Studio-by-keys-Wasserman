@@ -1,7 +1,7 @@
 # Agent one-shot — TensorFold Studio: Qwen-Image-2.1 + MiniMax H3 (MLX, Apple Silicon)
 
 **Repo:** https://github.com/drowzeys/keys-TensorFold-Studio-Mac-DGXSpark-64GB-VRam-Min  
-**Carrier image:** `ghcr.io/drowzeys/keys-tensorfold-studio:2.4` (one for both builds, not a runtime; for a Mac the TensorFold wheel + lock + render scripts + the native FastH3 engine, for a DGX Spark the prebuilt CUDA engine)  
+**Carrier image:** `ghcr.io/drowzeys/keys-tensorfold-studio:2.5` (one for both builds, not a runtime; for a Mac the TensorFold wheel + lock + render scripts + the native FastH3 engine, for a DGX Spark the prebuilt CUDA engine)  
 **Engine:** TensorFold 0.6.5 + H3 and Qwen-Image families @ `drowzeys/TensorFold` `a2068c03`, own venv, int8 tensor-unit kernels
 
 ```bash
@@ -97,4 +97,4 @@ Rules:
 
 **Credits:** keep CREDITS.md in sync. Qwen team (Qwen-Image-2.1), MiniMax (H3), Ash Hart (TensorFold), antirez (h3.c),
 RobZombAI (H3MLX), mrbizarro (minimax-h3-mlx / Phosphene), Filip Strand and mflux contributors, Viggle, speach1sdef178, LightX2V,
-NVIDIA Research, FastVideo, linjian257 (the optional uncensored text encoder), Apple MLX. Authors only — no credit hyperlinks.
+NVIDIA Research, FastVideo, linjian257 (the optional uncensored text encoder), Sam Wasserman (Slate: the film workflow in Production; keep app/static/slate/NOTICE), Apple MLX. Authors only — no credit hyperlinks.

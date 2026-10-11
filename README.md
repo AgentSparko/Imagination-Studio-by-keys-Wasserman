@@ -12,7 +12,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.4** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.5** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -85,7 +85,7 @@ How to configure it:
 |---|---|
 | 2.0 and earlier | 128 GB (M5 for the fast path) |
 | 2.1 | 64 GB on an M5; 96 GB on an M1 to M4 |
-| 2.2 to 2.4 | 64 GB on any Apple silicon |
+| 2.2 to 2.5 | 64 GB on any Apple silicon |
 
 On a **DGX Spark** the setup asks for 100 GB of memory for video (a Spark has 128 GB; about 70 GB was in use during a
 clip). No NVIDIA machine with 64 GB has been tried.
@@ -170,6 +170,20 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 (the files were already on the test machine), any GPU other than the GB10, and two Sparks working on one clip.
 
 ## What changed
+
+> **2.5 (2026-10-11): Wasserman Slate AI Studio, the Wasserman Sharp Spec with its QA gate, and the Keys and
+> Wasserman LoRA Hub.** On both machines, with Sam Wasserman (wassermanproductions.com). **Wasserman Slate AI
+> Studio** is a second way to plan a film in Production: a port of the workflow of his Slate (First AD, Bible,
+> Casting, Art Department, Locations, Lookbook, coverage, six-section shot prompts) wired to the render queue, with
+> notes and **Regenerate** on every take; see [Wasserman Slate AI Studio](#wasserman-slate-ai-studio). **Wasserman
+> Sharp Spec** is one button for his locked recipe (1376x768, FastH3 8 passes, seed 42), followed by his QA gate on
+> each clip: the spoken line by transcript, three frames by a vision model, one retake at the next seed; see
+> [Wasserman Sharp Spec](#wasserman-sharp-spec). **Keys and Wasserman LoRA Hub** is a library of style LoRAs a
+> clip, a board or a film renders with, starting with his 80s Horror LoRA; see
+> [Keys and Wasserman LoRA Hub](#keys-and-wasserman-lora-hub). Also: a Home button and a glow on the active tab, a
+> way to delete Library files (they go to a trash folder), and Tutorial lessons for the hub and for a whole film in
+> Slate. Not tested: the Codex and local-model brains, a LoRA stacked with another or added through the form, and the
+> QA gate's retake on a real failed clip.
 
 > **2.4 (2026-10-11): reference pictures to video, a Tutorial tab, a choice of text encoder, your own size and
 > passes.** On both machines. **Reference pictures** (`--ref2va`, MiniMax H3 Ref2VA): up to nine pictures of who or
@@ -399,9 +413,80 @@ length. A segment can open on the last frame of the one before; one button rende
 ![Library](samples/ui_library.png)
 
 **Library** lists every render, scout and export; *use* makes an image the first frame of a new clip, *+ timeline*
-sends a clip to the editor.
+sends a clip to the editor, and 🗑 moves a file to `~/TensorFoldStudio/trash`.
 
 ![Tutorial](samples/ui_tutorial.png)
+
+#### Wasserman Sharp Spec
+
+A **Wasserman Sharp Spec** button sits in Create (step 1), on the Production board and in the Slate film settings. One
+click sets Sam Wasserman's locked recipe, so every clip is made the same way: 1376x768 generated in one pass with no
+upscale and no crop, FastH3 at 8 passes (sparse attention 0.8), seed 42, and 8 or 10 seconds (192 or 243 frames at
+24 fps). The file is H.264 High yuv420p with 32 kHz stereo AAC, as for every clip here. A retake is the next seed. The
+button shows a tick while every setting still matches; changing one of them turns it off.
+
+Each clip made to the spec then goes through his **QA gate** (`app/qa.py`), about a quarter of a minute:
+
+- **Speech.** The clip's sound is transcribed (faster-whisper if it is installed, else the `whisper` command) and has
+  to hold the line the prompt asked for. A prompt with no spoken line passes.
+- **Identity.** Three frames (1 s, the middle, 1 s before the end) go side by side on one contact sheet, and a vision
+  model checks that face, hair and wardrobe are the same in all three with no smeared faces. The model is the film's
+  brain, or Claude Code, Codex or a local vision model, under your own sign-in: the sheet is sent to that model.
+- **Retake.** A clip that fails either gate is rendered once more at the next seed; the failed take and every contact
+  sheet are kept in `~/TensorFoldStudio/qa/`. The job card shows what each gate found, and the sharpness figure of
+  the three frames as a diagnosis.
+
+A gate whose tool is missing on the machine is shown as skipped and does not fail the clip.
+
+#### Keys and Wasserman LoRA Hub
+
+A library of style LoRAs for MiniMax H3 that a clip can be rendered with. It is in the video settings of Create
+(step 1), on the Production board and in the Slate film settings.
+
+- **Pick.** Each LoRA in the hub is a button. Click one to render with it; click again to drop it. Up to four can be
+  stacked. Each picked LoRA has a strength and, when its recipe has them, a look to choose (VHS or 16mm film for the
+  first preset). Its trigger word and look phrase are put at the start of the shot for you.
+- **Install.** A LoRA that is not on the machine yet shows a download mark. The first click asks, shows the file's
+  licence, and downloads it from its author's own page into `~/TensorFoldStudio/loras/`. No weights ship with this
+  pack.
+- **Add.** "+ Add LoRA" takes a recipe: a name, the download address of the `.safetensors` file or an uploaded file,
+  the trigger word, the strength, and optional looks. It becomes a button in the hub on that machine. Presets that
+  ship with the pack are in `app/lora-presets.json`.
+- **First preset: Wasserman-80's Horror LORA** by Sam Wasserman (wassermanproductions.com), the look of a 1970s-80s
+  horror movie. Its weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement,
+  with that licence's territory limits; read WEIGHTS_LICENSE.md on the LoRA's page before downloading.
+
+How it renders: on a Mac the file is rewritten once (`scripts/convert-lora.py`) and merged at load by the MLX engine,
+for MiniMax H3 at any quality and for FastH3 (which then runs on the MLX engine, not the native one). On a DGX Spark
+ComfyUI merges it into FastH3's full-precision weights and its own blocks render the clip, not the TensorFold engine.
+Both are slower than the usual path and have no time estimate. A LoRA is not applied to reference-to-video clips.
+
+#### Wasserman Slate AI Studio
+
+At the top of **Production** there are two ways to plan a film: the board of segments above, or **Wasserman Slate AI
+Studio**. The second is a port of the workflow of Slate, the prompt studio for AI filmmaking by Sam Wasserman
+(wassermanproductions.com), wired to this Studio's render queue, so a shot goes from its prompt to a clip without
+copying anything anywhere.
+
+| Part | What it does |
+|---|---|
+| **First AD** | Say what you are making. It creates scenes and shots, writes their prompts, casts characters, scouts locations, sets spoken lines and sound, and lists what it did. |
+| **Bible** | Logline, world and tone, defaults, how the film renders (resolution tier, quality), and which brain to use. |
+| **Studios** | Casting, Art Department, Locations, Lookbook: sheets filled from one line by ✦ Fill. A still pinned to a character is its reference picture. |
+| **Shots** | Specs (seconds, aspect, size, angle, lens, movement) and the six-section prompt; ✦ Structure, Tighten, Enrich, Distill, Shot, Angle, Beats, Variants; Director's notes; Slate's setups; picture-lock and mute; history. ✦ Coverage lays out a scene from one of Slate's twelve coverage plans. |
+| **Roll camera** | What the shot opens on (text, the last frame of the shot before, an image, the cast's stills), who is in it and where, spoken lines, soundscape, cue. The shot compiles to MiniMax H3's prompt form with a preflight list; one button queues it. Clips come back as takes: circle the one that works. |
+| **Sound** | Voice sheets (the voice of a spoken line) and music cues (the score line of a shot). |
+| **Deliver** | Render a whole scene in order, a continuity check, the shot list as Markdown or CSV, and the film's takes to the Editor's timeline. |
+
+The brain is Slate's: your own Claude Code or Codex sign-in on the machine that runs the app, or a local
+OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp). Everything without a ✦ works with no brain. Films are
+Slate's own `project.json` under `~/TensorFoldStudio/slate/`: a project made in Slate opens here, and one made here
+downloads from the Bible and opens in Slate (what this port adds sits under `tf` keys). Shots render at 5, 8, 10 or
+15 seconds and the aspect ratios 16:9, 9:16, 1:1, 4:3, 3:4 and 21:9.
+
+Not ported from Slate: sequence chunks, alt takes, punch-ups, the tone dial, pickups on a selected span, reference
+and audio analysis, the stills library, compiles for other generators, and its MCP server. The app has no sign-in of
+its own: anyone who can open it can use the brain, so keep it on a network you trust.
 
 **Tutorial** teaches the other four: eleven short lessons, one step on screen at a time, with an example and a tip
 where they help. *Show me in the app* opens the tab a step is about and outlines the control; a bar at the bottom
@@ -598,6 +683,11 @@ Or all at once, with no picking: `TWOK=1 bash scripts/studio.sh "the picture" "w
 
 ## Measured (2026-10-04, Mac Studio M5 Ultra 256 GB, macOS 27.0.1, one run each)
 
+
+**Notes and Regenerate.** Under every take, in Shots and in Deliver, there is a box for notes or feedback and a
+"↻ Regenerate" button. With notes, the brain revises the shot's prompt to answer them (the old prompt goes to History)
+and a new take is queued; with the box empty, the same prompt is rendered at the next seed. Earlier takes are kept.
+
 ### Text to image to video (`scripts/studio.sh`), 8 second clips unless noted
 
 | Output | Video generated at | Standard: Turbo 5 + base-model sound | Earlier: Turbo 3, adapter sound |
@@ -777,9 +867,9 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
 ### GHCR prebuilt carrier
 
 ```bash
-docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.4
+docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.5
 # index digest: sha256:6d27fa35d57cae1f66a5ad4bb002c15086207cb1eab8ecec0544a3367b9466bc (linux/arm64 + linux/amd64)
-docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.4 cp -a /payload/. /out/payload/
+docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.5 cp -a /payload/. /out/payload/
 ```
 
 One image for both builds. For a Mac it holds the TensorFold wheel, `requirements.lock`, the render scripts, the

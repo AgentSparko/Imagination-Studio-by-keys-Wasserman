@@ -1,0 +1,17 @@
+[
+ {
+  "id": "wasserman-80s-horror",
+  "name": "Wasserman-80's Horror LORA",
+  "author": "Sam Wasserman (wassermanproductions.com)",
+  "url": "https://github.com/wassermanproductions/wasserman-80s-horror-lora/releases/download/v1.0.0/80s_horror_wk.safetensors",
+  "page": "github.com/wassermanproductions/wasserman-80s-horror-lora",
+  "sha256": "9e8e820be3e1ad04ce904c0b3c774d08297bfde4341f5cce6fb47cb00451a8ac",
+  "trigger": "80s_horror_wk",
+  "styles": {"VHS": "shot on VHS.", "16mm film": "shot on 16mm film."},
+  "strength": 1.0,
+  "range": [0.6, 1.3],
+  "base": "MiniMax H3",
+  "licence": "The weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement, with its territory limits and Acceptable Use Policy. Read WEIGHTS_LICENSE.md on the LoRA's page before downloading. Keep the credit: 80s Horror LoRA by Sam Wasserman (wassermanproductions.com). Powered by MiniMax H3.",
+  "notes": "The look of a 1970s-80s horror movie: VHS for neon, tape and 80s video, or 16mm film for warm grindhouse grain. Write the light and the place, what happens, the camera and the sound; the trigger word brings the era. Made for 1280x704 or 1344x768, 5 to 8 seconds, 20 steps; the uncensored text encoder can work best."
+ }
+]

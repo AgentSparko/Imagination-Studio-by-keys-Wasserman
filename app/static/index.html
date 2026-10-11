@@ -45,7 +45,6 @@ button { background:var(--panel2); color:var(--text); border:1px solid var(--lin
 button:hover:not(:disabled) { border-color:var(--line2); background:rgba(255,255,255,.07); } button:active:not(:disabled) { transform:translateY(1px); }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 nav button { border:0; background:transparent; color:var(--dim); padding:6px 14px; border-radius:8px; font-weight:550; }
-nav button.on { background:rgba(255,255,255,.1); color:var(--text); box-shadow:inset 0 0 0 1px var(--line2); }
 button.primary { background:var(--grad); border-color:transparent; color:#070810; font-weight:650; }
 button.hot { background:var(--grad-hot); border-color:transparent; color:#190905; font-weight:700; padding:10px 20px; box-shadow:0 6px 24px -8px rgba(255,95,109,.7); }
 button.primary:hover:not(:disabled), button.hot:hover:not(:disabled) { filter:brightness(1.08); }
@@ -107,10 +106,29 @@ video.main { width:100%; background:#000; border-radius:12px; max-height:52vh; b
 .clip video { width:100%; aspect-ratio:16/9; background:#000; border-radius:6px; } .clip .row > * { min-width:0; } .clip input { padding:3px 6px; font-size:12px; }
 a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
 ::-webkit-scrollbar { width:10px; height:10px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.12); border-radius:10px; border:2px solid transparent; background-clip:padding-box; }
+/* the active tab glows like low sun; Home goes back to step 1 of Create */
+.hub { margin:10px 0; } .hub .chips { margin:6px 0; } button.lora.on { background:rgba(255,196,84,.16); border-color:rgba(255,205,110,.8); color:#ffe9b8; box-shadow:0 0 12px rgba(255,186,60,.35); }
+.lorarow { align-items:flex-end; margin-top:6px; }
+button.sharp { border-color:rgba(255,205,110,.55); color:#ffe9b8; white-space:nowrap; }
+button.sharp.on { background:rgba(255,196,84,.16); box-shadow:inset 0 0 0 1px rgba(255,205,110,.8),0 0 14px rgba(255,186,60,.45); }
+nav button.on { background:rgba(255,196,84,.14); color:#ffe9b8; box-shadow:inset 0 0 0 1px rgba(255,205,110,.8),0 0 16px rgba(255,186,60,.55),0 0 36px rgba(255,150,40,.3); text-shadow:0 0 10px rgba(255,200,90,.7); }
+.homebtn { padding:6px 12px; border-radius:9px; font-weight:600; color:#ffe9b8; border-color:rgba(255,205,110,.35); background:rgba(255,196,84,.06); white-space:nowrap; }
+.homebtn:hover:not(:disabled) { border-color:rgba(255,205,110,.8); background:rgba(255,196,84,.14); box-shadow:0 0 16px rgba(255,186,60,.4); }
+/* Slate studio: a list on the left, the work on the right */
+.cols { display:grid; grid-template-columns:250px minmax(0,1fr); gap:20px; margin-top:6px; align-items:start; }
+.list button { display:flex; gap:9px; align-items:flex-start; width:100%; text-align:left; margin-bottom:6px; padding:9px 11px; background:rgba(255,255,255,.028); }
+.list button.on { border-color:var(--accent); background:rgba(103,227,255,.07); } .list button span { display:block; color:var(--dim); font-size:11.5px; line-height:1.35; }
+.list button.sub { margin-left:14px; width:calc(100% - 14px); padding:7px 10px; } .list button.small { display:inline-block; width:auto; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; } .chips > button { flex:0 0 auto; min-width:0; }
+button.small.on { border-color:rgba(255,205,110,.8); color:#ffe9b8; background:rgba(255,196,84,.14); }
+.sheet { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:0 12px; } .sheet .wide { grid-column:1 / -1; }
+.fold { border:1px solid var(--line); border-radius:12px; padding:9px 13px; margin-top:10px; background:rgba(255,255,255,.018); } .fold summary { cursor:pointer; color:var(--dim); font-weight:600; font-size:12.5px; } .fold[open] summary { margin-bottom:8px; color:var(--text); }
+.chat { display:flex; flex-direction:column; gap:8px; margin:12px 0; max-height:52vh; overflow:auto; } .chat > div { border:1px solid var(--line); border-radius:12px; padding:9px 12px; max-width:86%; background:var(--panel2); }
+.chat .user { align-self:flex-end; border-color:rgba(103,227,255,.35); } .chat b { display:block; font:600 10.5px var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--dim); margin-bottom:3px; }
+.receipt { margin-top:7px; padding-top:7px; border-top:1px solid var(--line); font:11.5px/1.6 var(--mono); color:var(--ok); }
+@media (max-width:1000px) { .cols { grid-template-columns:1fr; } }
 /* tutorial: lessons on the left, one step at a time on the right; the coach bar follows the user into the other tabs */
 .tut { display:grid; grid-template-columns:250px minmax(0,1fr); gap:20px; margin-top:16px; align-items:start; }
-.tut .list button { display:flex; gap:9px; align-items:flex-start; width:100%; text-align:left; margin-bottom:6px; padding:9px 11px; background:rgba(255,255,255,.028); }
-.tut .list button.on { border-color:var(--accent); background:rgba(103,227,255,.07); } .tut .list button span { display:block; color:var(--dim); font-size:11.5px; line-height:1.35; }
 .tick { flex:none; width:18px; height:18px; border-radius:50%; border:1px solid var(--line2); font:700 11px/16px var(--mono); text-align:center; color:#070810; margin-top:2px; } .tick.ok { background:var(--ok); border-color:transparent; }
 .dots { display:flex; gap:6px; margin:2px 0 16px; flex-wrap:wrap; } .dots button { min-width:34px; padding:4px 0; border-radius:8px; font:600 12px var(--mono); color:var(--dim); background:rgba(255,255,255,.04); }
 .dots button.past { color:var(--accent); border-color:rgba(103,227,255,.35); } .dots button.on { background:var(--grad); color:#070810; border-color:transparent; }
@@ -131,6 +149,7 @@ a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:under
 <body>
 <header>
   <span class="dot"></span><h1><b>TensorFold</b> Studio</h1><span id="plat" class="plat"></span>
+  <button id="gohome" class="homebtn" title="Back to the first screen">⌂ Home</button>
   <nav id="tabs"></nav>
   <small id="ver"></small>
 </header>
@@ -142,6 +161,7 @@ a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:under
     <div id="jobs" style="margin-top:10px"></div>
   </aside>
 </main>
+<script src="slate.js"></script>
 <script>
 "use strict";
 if (location.search.includes("shot")) document.write('<img src="/api/wait?ms=4000" style="display:none">');
@@ -161,7 +181,8 @@ const toast = text => { const n = el("div", { style: "position:fixed;bottom:18px
 let S = null, jobs = [], tab = "Create", project = null;
 const TABS = ["Create", "Production", "Editor", "Library", "Tutorial"];
 const C = { step: 0, mode: "scout", preset: "draft", quality: "standard", seconds: 5, seed: 1, scene: "", action: "", camera: "",
-  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", textEncoder: "regular" };
+  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", textEncoder: "regular", loras: [] };
+let LORAS = [];  // the LoRA hub's recipes, with whether each is installed here
 const field = (labelText, node) => el("div", {}, el("label", {}, labelText), node);
 const bind = (obj, key, node, after) => { const isBox = node.type === "checkbox"; if (isBox) node.checked = !!obj[key]; else node.value = obj[key] ?? "";
   node.addEventListener("input", () => { obj[key] = isBox ? node.checked : (node.type === "number" ? Number(node.value) : node.value); if (after) after(); }); return node; };
@@ -184,6 +205,7 @@ function sync() {
   C.mode = C.goes === "image" ? "image" : { text: "t2v", scout: "scout", own: "i2v", refs: "r2v" }[C.start];
   if (isRef() && isLong()) C.seconds = 15;
   if (!(S && S.ref2va_turbo)) C.refPasses = "20";
+  if (C.res === "sharp" && !(S && S.sharp)) C.res = "480p";
   C.quality = C.engine === "fasth3" ? "fh" + C.passes : C.h3quality;
   if (!UPSCALED[C.res]) C.up = false;
   C.preset = UPSCALED[C.res] ? (C.up ? UPSCALED[C.res][0] : { "480p": "small", "720p": "p720" }[C.res]) : C.res;
@@ -192,17 +214,64 @@ function sync() {
 // the output: a preset, or a size typed in by hand
 const output = () => C.preset === "custom" ? { label: "Custom " + C.cw + "x" + C.ch, size: [Number(C.cw), Number(C.ch)] } : S.presets[C.preset];
 // what a job carries beyond the preset: the hand-set size and passes, and the text encoder
-const extras = () => ({ ...(C.preset === "custom" ? { width: Number(C.cw), height: Number(C.ch) } : {}), ...(String(C.steps).trim() ? { steps: Number(C.steps) } : {}), ...(C.textEncoder === "uncensored" ? { text_encoder: "uncensored" } : {}) });
+const extras = () => ({ ...(C.preset === "custom" ? { width: Number(C.cw), height: Number(C.ch) } : {}), ...(String(C.steps).trim() ? { steps: Number(C.steps) } : {}), ...(C.textEncoder === "uncensored" ? { text_encoder: "uncensored" } : {}), ...(lorasOf(C).length && !isRef() ? { loras: lorasOf(C) } : {}) });
 function changed() { sync(); C.prompt = ""; render(); }
 // one decision shown as cards: options are value -> [title, detail]
 const choice = (obj, key, options, after, tight) => el("div", { class: "choice" + (tight ? " tight" : ""), role: "radiogroup" }, Object.entries(options).map(([v, [title, sub]]) =>
   el("button", { type: "button", role: "radio", "aria-checked": String(obj[key]) === v ? "true" : "false", class: String(obj[key]) === v ? "on" : "", onclick: () => { obj[key] = v; if (after) after(); } }, el("b", {}, title), sub ? el("span", {}, sub) : null)));
 const PASSES = { 4: ["4 passes", "fastest, a little softer"], 8: ["8 passes", "what FastH3 was trained for"], 20: ["20 passes", "for prompts with several actions"] };
 const H3Q = { standard: ["Turbo 5 + base sound", "the standard"], fast: ["Turbo 3", "quickest, adapter sound"], high: ["20 steps, fast recipe", "higher quality"], full: ["20 steps, plain", "slowest"] };
-const RES = { "480p": ["480p", "864 × 480"], "720p": ["720p", "1280 × 720"], draft: ["Draft", "1344 × 768 via 2x"], "2k": ["2K", "2048 × 1152 via 2x"], native: ["Native", "1344 × 768"], custom: ["Custom", "your own size"] };
+const RES = { "480p": ["480p", "864 × 480"], "720p": ["720p", "1280 × 720"], draft: ["Draft", "1344 × 768 via 2x"], "2k": ["2K", "2048 × 1152 via 2x"], native: ["Native", "1344 × 768"], sharp: ["Wasserman Sharp", "1376 × 768"], custom: ["Custom", "your own size"] };
+// Sam Wasserman's locked recipe (S.sharp): one click sets every setting it fixes, so each clip is made the same way
+const sharpButton = (on, apply) => el("button", { type: "button", class: "fit sharp" + (on ? " on" : ""), title: "Sam Wasserman's locked recipe: 1376 × 768, FastH3 at 8 passes, seed 42, 8 or 10 seconds, one pass with no upscale", onclick: apply },
+  (on ? "✓ " : "") + "Wasserman Sharp Spec");
+const sharpOn = () => !!S.sharp && !isRef() && C.engine === "fasth3" && C.passes === "8" && C.res === "sharp" && !String(C.steps).trim() && S.sharp.seconds.includes(Number(C.seconds));
+function sharpCreate() { if (isRef()) C.start = "text";
+  Object.assign(C, { engine: "fasth3", passes: "8", res: "sharp", up: false, steps: "", seed: S.sharp.seed, seconds: S.sharp.seconds.includes(Number(C.seconds)) ? C.seconds : S.sharp.seconds[0] }); changed(); }
+/* ---------- Keys and Wasserman LoRA Hub ---------- */
+// what a job carries: the picked LoRAs that are installed on this machine
+const lorasOf = obj => (obj.loras || []).filter(p => LORAS.some(r => r.id === p.id && r.installed));
+async function loadLoras() { try { LORAS = await api("/api/loras"); } catch { LORAS = []; } }
+const HUB = { open: false, form: { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" }, timer: null };
+function hubWatch(redraw) { if (HUB.timer || !LORAS.some(r => r.installing && r.installing.stage !== "failed")) return;
+  HUB.timer = setInterval(async () => { await loadLoras(); if (!LORAS.some(r => r.installing && r.installing.stage !== "failed")) { clearInterval(HUB.timer); HUB.timer = null; } redraw(); }, 1500); }
+// obj.loras is the list a clip, a board or a film renders with; save runs after every change
+function loraHub(obj, save = () => {}, redraw = render) { if (!obj.loras) obj.loras = [];
+  const done = () => { save(); redraw(); }, picked = id => obj.loras.find(p => p.id === id);
+  const chip = r => { const on = picked(r.id), st = r.installing;
+    const label = st && st.stage !== "failed" ? r.name + " · " + st.stage + (st.of ? " " + Math.round(100 * st.done / st.of) + "%" : "…") : (on ? "✓ " : r.installed ? "" : "⤓ ") + r.name;
+    return el("button", { type: "button", class: "small lora" + (on ? " on" : ""), title: (r.author ? "By " + r.author + ". " : "") + (r.notes || "") + (r.installed ? "" : " Click to download it to this machine."), onclick: async () => {
+      if (st && st.stage !== "failed") return;
+      if (!r.installed) { if (!confirm("Download “" + r.name + "”" + (r.author ? " by " + r.author : "") + " to this machine?\n\n" + (r.licence || "The file is the author's, under its own licence: read it on the LoRA's page first.") + (r.page ? "\n\n" + r.page : ""))) return;
+        try { await api("/api/loras/" + r.id + "/install", {}); await loadLoras(); if (!on) obj.loras.push({ id: r.id, strength: r.strength || 1, style: Object.keys(r.styles || {})[0] || "" }); hubWatch(redraw); done(); } catch (e) { toast(e.message); } return; }
+      if (on) obj.loras = obj.loras.filter(p => p.id !== r.id); else obj.loras.push({ id: r.id, strength: r.strength || 1, style: Object.keys(r.styles || {})[0] || "" }); done(); } }, label); };
+  const row = p => { const r = LORAS.find(x => x.id === p.id); if (!r) return null; const range = r.range || [0.1, 2];
+    return el("div", { class: "row lorarow" }, el("div", { class: "fit", style: "min-width:210px" }, el("b", {}, r.name), el("div", { class: "note" }, (r.author ? "by " + r.author : "") + (r.trigger ? " · trigger " + r.trigger + ", added to the prompt for you" : "") + (r.installed ? "" : " · not installed yet: it is left out of the render"))),
+      Object.keys(r.styles || {}).length ? el("div", { class: "fit", style: "width:150px" }, el("label", {}, "Look"), select(p, "style", Object.fromEntries(Object.keys(r.styles).map(k => [k, k])), save)) : null,
+      el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Strength"), bind(p, "strength", el("input", { type: "number", step: 0.1, min: 0.1, max: 2, title: "Made for " + (r.strength || 1) + "; " + range[0] + " is subtle, " + range[1] + " is strong" }), save)),
+      r.builtin ? null : el("button", { class: "fit small", title: "Take this LoRA out of the hub (its file goes to the trash folder)", onclick: async () => { if (!confirm("Remove “" + r.name + "” from the hub?")) return; try { await api("/api/loras/" + r.id, undefined, "DELETE"); obj.loras = obj.loras.filter(x => x.id !== r.id); await loadLoras(); done(); } catch (e) { toast(e.message); } } }, "🗑")); };
+  const f = HUB.form, up = el("input", { type: "file", accept: ".safetensors", onchange: async () => { if (!up.files[0]) return; const data = new FormData(); data.append("file", up.files[0]); try { const r = await (await fetch("/api/upload", { method: "POST", body: data })).json(); f.file = r.path; toast("Uploaded " + up.files[0].name); } catch (e) { toast(e.message); } } });
+  const form = !HUB.open ? null : el("div", { class: "group" }, el("div", { class: "note" }, "A recipe for a MiniMax H3 LoRA: where its file comes from and how it is used. It becomes a button in the hub on this machine."),
+    el("div", { class: "row" }, field("Name", bind(f, "name", el("input", { placeholder: "My 16mm western LoRA" }))), field("By", bind(f, "author", el("input", { placeholder: "its author" })))),
+    el("div", { class: "row" }, field("Download address of the .safetensors file", bind(f, "url", el("input", { placeholder: "https://…/lora.safetensors" }))), field("or upload the file", up)),
+    el("div", { class: "row" }, field("Trigger word", bind(f, "trigger", el("input", { placeholder: "added at the start of the shot" }))), el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Strength"), bind(f, "strength", el("input", { type: "number", step: 0.1, min: 0.1, max: 2 }))),
+      field("Looks (optional): name = phrase; name = phrase", bind(f, "styles", el("input", { placeholder: "VHS = shot on VHS.; 16mm = shot on 16mm film." })))),
+    field("Notes", bind(f, "notes", el("input", { placeholder: "what it does, the sizes and steps it was made for" }))),
+    el("div", { class: "row" }, el("button", { class: "fit primary", onclick: async () => { try { const styles = Object.fromEntries(f.styles.split(";").map(x => x.split("=").map(y => y.trim())).filter(x => x.length === 2 && x[0] && x[1]));
+        const r = await api("/api/loras", { ...f, styles }); if (!r.installed && r.url) await api("/api/loras/" + r.id + "/install", {}); await loadLoras(); obj.loras.push({ id: r.id, strength: r.strength || 1, style: Object.keys(r.styles || {})[0] || "" });
+        HUB.form = { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" }; HUB.open = false; hubWatch(redraw); done(); } catch (e) { toast(e.message); } } }, "Add to the hub"),
+      el("button", { class: "fit", onclick: () => { HUB.open = false; redraw(); } }, "Cancel")));
+  const failed = LORAS.filter(r => r.installing && r.installing.stage === "failed");
+  return el("div", { class: "hub" }, el("label", {}, "Keys and Wasserman LoRA Hub"),
+    el("div", { class: "chips" }, LORAS.map(chip), el("button", { type: "button", class: "small", onclick: () => { HUB.open = !HUB.open; redraw(); } }, "+ Add LoRA")),
+    failed.map(r => el("div", { class: "note", style: "color:var(--bad)" }, r.name + ": " + r.installing.error)),
+    obj.loras.map(row), form,
+    obj.loras.length ? el("div", { class: "note" }, S.platform === "spark" ? "With a LoRA the clip renders on ComfyUI's own blocks with the full-precision weights, not the TensorFold engine: slower, and no time estimate." : "With a LoRA, FastH3 renders on the MLX engine, not the native one: slower, and no time estimate. MiniMax H3 at 20 steps is what most LoRAs were made for.") : null); }
 function videoControls(after) {
   const two = bind(C, "up", el("input", { type: "checkbox", disabled: !UPSCALED[C.res] }), changed);
   return el("div", { class: "group" },
+    S.sharp ? el("div", { class: "row" }, sharpButton(sharpOn(), sharpCreate), el("div", { class: "note" }, sharpOn() ? "On: 1376 × 768, FastH3 8 passes, one pass, no upscale. Seed " + C.seed + (Number(C.seed) === S.sharp.seed ? "" : " (the spec starts at " + S.sharp.seed + "; the next seed is a retake)") + ". His QA gate checks each clip: the spoken line by transcript, then three frames by a vision model (Claude Code, Codex or a local model, under your own sign-in). A clip that fails is made once more at the next seed."
+      : "Sam Wasserman's locked recipe in one click: 1376 × 768, FastH3 8 passes, seed 42, 8 or 10 seconds, then his QA gate on each clip.")) : null,
     // MiniMax H3 Turbo is an optional part of the install; without it FastH3 is the engine
     isRef() ? el("label", {}, "Reference to video · MiniMax H3 Ref2VA") : null,
     isRef() ? (S.ref2va_turbo ? choice(C, "refPasses", { 20: ["20 passes", "the model as released, its own sound"], 4: ["Turbo 4 passes", "LightX2V adapter, then base-model sound: about 2.5x faster"] }, changed, true)
@@ -210,10 +279,11 @@ function videoControls(after) {
     isRef() ? null :
     S.turbo ? el("label", {}, "Video engine") : null, isRef() ? null : S.turbo ? choice(C, "engine", { fasth3: ["FastH3", S.zig ? "FastVideo's distilled H3 on the native Zig engine: fastest" : "FastVideo's distilled H3 on the sparse tile kernel: fastest"], h3: ["MiniMax H3", "Turbo adapter with base-model sound, or the full 20 steps"] }, changed) : null,
     isRef() ? null : el("label", {}, C.engine === "fasth3" ? "Passes" : "Quality"), isRef() ? null : C.engine === "fasth3" ? choice(C, "passes", PASSES, changed, true) : choice(C, "h3quality", H3Q, changed, true),
-    el("label", {}, "Resolution"), choice(C, "res", Object.fromEntries(Object.entries(RES).filter(([k]) => S.x2 || !["draft", "2k"].includes(k))), changed, true),
+    el("label", {}, "Resolution"), choice(C, "res", Object.fromEntries(Object.entries(RES).filter(([k]) => (S.x2 || !["draft", "2k"].includes(k)) && (k !== "sharp" || S.sharp))), changed, true),
     C.res === "custom" ? el("div", { class: "row" }, el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Width"), bind(C, "cw", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
       el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Height"), bind(C, "ch", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
       el("div", { class: "note" }, "Multiples of 32, each side " + S.custom.sides[0] + " to " + S.custom.sides[1] + ", at most 1344 × 768 pixels in all. No time estimate for a custom size.")) : null,
+    isRef() ? null : loraHub(C, () => { C.prompt = ""; }),
     S.uncensored ? el("label", {}, "Text encoder") : null,
     S.uncensored ? choice(C, "textEncoder", { regular: ["Regular", "MiniMax H3's own"], uncensored: ["Uncensored", "community build, 8-bit; personal non-commercial use"] }, changed, true) : null,
     el("div", { class: "row" },
@@ -237,7 +307,7 @@ function settingsRow(obj, after, keep = {}) {
     field("Quality", select(obj, "quality", qualities, after)),
     el("div", { class: "fit", style: "width:110px" }, el("label", {}, "Seed"), bind(obj, "seed", el("input", { type: "number", min: 0 }))));
 }
-async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, seconds: Number(obj.seconds), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_turbo: obj === C && isRef() && C.refPasses === "4", ...(obj === C ? { steps: String(C.steps).trim() } : {}) });
+async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, seconds: Number(obj.seconds), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_turbo: obj === C && isRef() && C.refPasses === "4", ...(obj === C ? { steps: String(C.steps).trim() } : {}), loras: obj === C && isRef() ? [] : lorasOf(obj) });
   node.textContent = r.seconds ? "≈ " + mmss(r.seconds) + (S.platform === "spark" ? " on a DGX Spark, models loaded" : " on an M5 Ultra") : ""; } catch { node.textContent = ""; } }
 
 /* ---------- Create ---------- */
@@ -354,20 +424,27 @@ const segJob = seg => seg.job && jobs.find(j => j.id === seg.job);
 async function composeSeg(seg, index) { const first = seg.start !== "text"; const r = await api("/api/compose", { fields: { scene: seg.scene, action: seg.action, camera: seg.camera, soundscape: seg.soundscape, music: "N/A",
   dialogue: seg.line ? [{ voice: seg.voice, text: seg.line, language: "English" }] : [] }, first_frame: first }); seg.prompt = r.prompt; }
 async function generateSeg(index) { const seg = project.segments[index]; if (!seg.prompt) await composeSeg(seg, index);
-  const params = { prompt: seg.prompt, preset: project.preset, quality: project.quality, seconds: Number(seg.seconds), seed: Number(seg.seed || 1), output: "projects/" + project.id + "/seg" + (index + 1) + "_" + Date.now() + ".mp4" };
+  const params = { prompt: seg.prompt, preset: project.preset, quality: project.quality, seconds: Number(seg.seconds), seed: Number(seg.seed || 1), ...(lorasOf(project).length ? { loras: lorasOf(project) } : {}), output: "projects/" + project.id + "/seg" + (index + 1) + "_" + Date.now() + ".mp4" };
   if (seg.start === "image" && seg.image) params.image = seg.image;
   if (seg.start === "previous") { const prev = project.segments[index - 1]; if (!prev) throw new Error("the first segment has nothing to continue from"); const pj = segJob(prev);
     params.first_frame_from = prev.output || (pj && pj.params.output); if (!params.first_frame_from) throw new Error("generate segment " + index + " first, or queue them together"); }
   const j = await api("/api/jobs", { kind: "video", title: "Segment " + (index + 1) + ": " + (seg.title || ""), params }); seg.job = j.id; seg.output = params.output; }
+// two ways to plan a film: this board of segments, or the port of Sam Wasserman's Slate (slate.js)
+const productionSwitch = () => el("div", { class: "choice", role: "radiogroup", style: "margin-bottom:16px" }, [["board", "Production board", "segments one after another: the simple way"], ["slate", "Wasserman Slate AI Studio", "bible, casting, coverage and a First AD, straight to the render queue"]].map(([k, title, sub]) =>
+  el("button", { type: "button", role: "radio", "aria-checked": String(SL.mode === k), class: SL.mode === k ? "on" : "", onclick: () => { SL.mode = k; try { localStorage.setItem("production-mode", k); } catch {} render(); } }, el("b", {}, title), el("span", {}, sub))));
 function viewProduction() {
-  const box = el("section", { class: "card" }, el("h2", {}, "Production"));
+  if (SL.mode === "slate") return viewSlate(productionSwitch());
+  const box = el("section", { class: "card" }, productionSwitch(), el("h2", {}, "Production"));
   ensureProject().then(async () => {
     const list = await api("/api/projects"); const total = project.segments.reduce((a, s) => a + Number(s.seconds || 0), 0);
     const pick = el("select", { onchange: async () => { project = await api("/api/projects/" + pick.value); render(); } }, list.map(p => el("option", { value: p.id, selected: p.id === project.id }, p.name + " · " + p.segments + " segments")));
     put(box, el("div", { class: "row" }, field("Project", pick), field("Name", bind(project, "name", el("input"), saveProject)),
         el("button", { class: "fit", onclick: async () => { project = await api("/api/projects", { name: "Project " + (list.length + 1) }); render(); } }, "New project")),
       el("div", { class: "row" }, field("Output for every segment", select(project, "preset", Object.fromEntries(Object.entries(S.presets).map(([k, v]) => [k, v.label])), saveProject)),
-        field("Quality", select(project, "quality", S.qualities, saveProject))),
+        field("Quality", select(project, "quality", S.qualities, saveProject)),
+        S.sharp ? sharpButton(project.preset === "sharp" && project.quality === S.sharp.quality, () => { project.preset = "sharp"; project.quality = S.sharp.quality;
+          for (const g of project.segments) { g.seed = S.sharp.seed; if (!S.sharp.seconds.includes(Number(g.seconds))) g.seconds = S.sharp.seconds[0]; } saveProject(); render(); }) : null),
+      loraHub(project, saveProject),
       el("h3", {}, "Segment overview · " + total + " s total"),
       el("div", { class: "strip" }, project.segments.map((s, i) => el("div", { style: "flex:" + (s.seconds || 5) }, (i + 1) + " · " + (s.title || "") + " · " + s.seconds + " s"))),
       el("div", { class: "row" }, el("button", { class: "fit", onclick: () => { project.segments.push({ title: "", scene: project.segments.at(-1)?.scene || "", action: "", camera: "", voice: "", line: "", soundscape: "", seconds: 5, seed: 1,
@@ -434,9 +511,12 @@ function viewEditor() {
 
 /* ---------- Library ---------- */
 function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {}, "Library"));
-  api("/api/library").then(list => put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it."), el("div", { class: "grid", style: "margin-top:10px" }, list.map(m =>
+  api("/api/library").then(list => put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it. 🗑 moves a file to the trash folder."), el("div", { class: "grid", style: "margin-top:10px" }, list.map(m =>
     el("div", { class: "tile" }, media(m.path), el("div", { class: "cap" }, el("span", { style: "cursor:pointer", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.slice(-26)),
-      m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use")))))));
+      m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use"),
+      // out of the library: the server moves the file to the studio's trash folder
+      el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: async () => { if (!confirm("Delete " + m.path.split("/").pop() + "?\nIt is moved to the trash folder inside " + S.home + ", not erased.")) return;
+        try { await api("/api/library?path=" + encodeURIComponent(m.path), undefined, "DELETE"); toast("Moved to the trash folder"); render(); } catch (e) { toast(e.message); } } }, "🗑")))))));
   return box; }
 
 /* ---------- Tutorial ---------- */
@@ -444,7 +524,7 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
 const T = { id: "first", step: 0, coach: false };
 const seen = (() => { try { return new Set(JSON.parse(localStorage.getItem("tutorial-done") || "[]")); } catch { return new Set(); } })();
 const finish = id => { seen.add(id); try { localStorage.setItem("tutorial-done", JSON.stringify([...seen])); } catch {} };
-const TRACKS = { Create: "one clip or image, start to finish", Production: "a film made of segments", Editor: "trim, order and export", Library: "everything you have made" };
+const TRACKS = { Create: "one clip or image, start to finish", Production: "a film in segments, or in Slate", Editor: "trim, order and export", Library: "everything you have made" };
 const BAKER = { goes: "video", start: "text", scene: "A middle-aged baker in a cream shirt and green apron stands behind a wooden counter in a small bakery at dawn, warm window light from the left.",
   action: "He lifts a loaf with both hands, sets it down on the counter, looks at the camera and smiles.", camera: "The camera slowly pushes in throughout the single continuous shot.",
   dialogue: [{ voice: "a warm, calm male voice", language: "English", text: "Good morning. The first loaf of the day is always the best one.", sung: false }], soundscape: "Quiet bakery room tone and a low oven hum. A light tap as the loaf is set down.", music: "N/A" };
@@ -502,6 +582,30 @@ function lessons() {
       { t: "Write each segment", d: ["The boxes mean the same as in Create: the scene, what happens, a voice with one spoken line, and the soundscape. Keep the description of people identical across segments so they stay recognizable."], go: on("Production", "+ Add a segment") },
       { t: "Render", d: ["“Render” on a segment queues just that one. “Generate every segment not yet rendered” queues the rest in order, including any that failed. “Render again” replaces a segment you do not like; change its seed first for a different take."], go: on("Production", "Generate every segment") },
       { t: "Send to the editor", d: ["“Send rendered segments to the editor” puts every rendered segment on the project's timeline, in order, and opens the Editor."], tip: "This replaces the timeline that project had. Trims you made there are lost, so send first and trim after.", go: on("Production", "Send rendered segments") } ] },
+    { id: "slate", track: "Production", title: "Wasserman Slate AI Studio", sub: "plan a film like a crew, render it here", steps: [
+      { t: "What it is", d: ["Slate is Sam Wasserman's prompt studio for AI filmmaking. Here its workflow is built into Production and wired to the render queue: you plan the film the way a crew does, and every shot renders without copying a prompt anywhere.", "At the top of Production pick “Wasserman Slate AI Studio”. Create a film, or open a project.json made in Slate itself."], go: { tab: "Production", slate: true, spot: "Wasserman Slate AI Studio" } },
+      { t: "Let the First AD set it up", d: ["A new film opens on the First AD. Say what you are making in plain words. When it is clear, it creates the scenes and shots, writes their prompts, casts the characters and scouts the locations, and lists what it did."], eg: "A 30 second noir teaser: a detective, a rainy alley, one line of dialogue. Three shots.", tip: "The First AD and every ✦ button use the brain: your own Claude Code or Codex sign-in, or a local model. Pick it in the Bible and press “Test the brain”." },
+      { t: "Bible and Studios", d: ["The Bible holds the logline, the world and tone, and how the film renders (resolution, quality). Studios holds the sheets: Casting, Art Department, Locations, Lookbook. Describe something in one line and ✦ Fill writes the sheet.", "In Casting, pin a still to a character (upload one, or have the image model make candidates from the sheet). That still is how the face stays the same from shot to shot."] },
+      { t: "Shots", d: ["Each shot has specs (seconds, size, angle, lens, movement) and a prompt in six sections: Subject, Composition, Lighting, Camera, Style, Mood. ✦ Structure, Tighten, Enrich and the rest rewrite it; a Director's note changes it in plain words; the old version goes to History.", "✦ Coverage turns one scene description into a full set of shots from a coverage plan."] },
+      { t: "Roll camera", d: ["Under the prompt, choose what the shot opens on: text only, the last frame of the shot before, an image, or the cast's stills. Tick who is in the shot, add spoken lines, a soundscape and a cue.", "The shot is compiled to MiniMax H3's own prompt form, with a preflight list of anything that will not fit. “🎬 Render this shot” queues it; the clip comes back as a take. Circle the take that works."], tip: "Shots here are 5, 8, 10 or 15 seconds. Another length is rendered at the nearest one, and the preflight says so." },
+      { t: "Deliver", d: ["Deliver shows a scene as a strip. “Render every shot without a take” queues the scene in order; a shot that opens on the shot before starts from its last frame. “Send the film's takes to the Editor” puts the circled takes on the timeline, in order.", "The shot list downloads as Markdown or CSV, and the Bible downloads the project.json, which opens in Slate."] } ] },
+    { id: "slatefilm", track: "Production", title: "A whole film in Slate, start to finished video", sub: "one sitting: idea, shots, renders, the final file", steps: [
+      { t: "Start the film", d: ["This lesson takes one idea all the way to a finished video file without leaving the app. Open Production, pick “Wasserman Slate AI Studio”, type a name for the film and press “Create”.", "Everything you make is saved as you go in the film's own folder, in Slate's project format."], go: { tab: "Production", slate: true, spot: "Wasserman Slate AI Studio" } },
+      { t: "Check the brain once", d: ["Open the Bible and press “Test the brain”. The brain is what writes prompts: your own Claude Code or Codex sign-in, or a local model. If the test answers, every ✦ button and the First AD will work."], tip: "No brain on this machine? You can still write each shot by hand in Shots and render it; only the ✦ buttons need the brain." },
+      { t: "Tell the First AD the whole film", d: ["Go to ✦ First AD and describe the film in plain words: the length, the scenes, who is in it, what is said. It builds the scenes and shots, writes each prompt, casts the characters, scouts the locations and adds the spoken lines. The list under its answer shows what it did."], eg: "A 40 second horror short in two scenes. Scene 1, a roller rink at night: a girl skates alone, the disco ball stops. Scene 2, the car park: she runs to her car and says “Start. Please start.” Five shots in all, 8 seconds each.", tip: "Ask for changes the same way: “make shot 3 a close-up” or “add a shot of the empty rink at the end”." },
+      { t: "Set how the film renders", d: ["In the Bible, under “How this film renders”, pick the resolution and quality for every shot. “Wasserman Sharp Spec” sets Sam Wasserman's locked recipe and runs his QA gate on each clip. The Keys and Wasserman LoRA Hub below it gives the whole film one look, for example the 80s horror LoRA."], tip: "Try the film at the 480p tier first. When the shots are right, switch the tier and render the keepers again." },
+      { t: "Keep the faces the same", d: ["In Studios, open Casting. For each character press “Make reference pictures from the sheet” or upload a still, and keep the one you like. In a shot, choose “Cast stills” as what it opens on and tick who is in it: the face then comes from the still."], tip: "Cast stills render on the reference model, which is slower and takes no LoRA. For a shot with no close faces, “Text only” or “The shot before” is quicker." },
+      { t: "Read one shot before rendering all", d: ["Open Shots and click a shot. Under the six-section prompt is “Roll camera”: what the shot opens on, who is in it, the spoken lines and the soundscape. The box under that is the exact prompt the video model gets, with a preflight list of anything that will not fit.", "Press “🎬 Render this shot” on one shot first and watch it. Fix the prompt with a Director's note if it is not right."] },
+      { t: "Render the film", d: ["Open Deliver. “Render every shot without a take” queues each scene in order. A shot set to open on the shot before starts from that shot's last frame, so the cut is continuous. The queue on the right shows each clip as it is made."], tip: "You can close the page. The queue keeps rendering, and the takes are on the shots when you come back." },
+      { t: "Give notes and regenerate", d: ["Each render comes back on its shot as a take, in Shots and in Deliver. Under every clip is a box for notes: what to keep and what to fix. “↻ Regenerate” queues a new take of that shot.", "With notes, the brain first revises the shot's prompt to answer them, and the old prompt goes to History. With the box empty, it is the same prompt at the next seed. The takes you already have are kept; circle the one to use."], eg: "Her face changes at the end. Slower push-in. She should say the line more firmly.", tip: "Say one or two things per regenerate. A long list of changes gives the model too much to move at once." },
+      { t: "Send to the Editor and export", d: ["In Deliver press “Send the film's takes to the Editor”. The circled takes land on the timeline in story order. In the Editor, trim with In and Out, press “▶ Play the sequence” to watch the film, pick the size and press “Export”. “Download the export” is your finished video."], tip: "Sending replaces the timeline of the current project, so send first and trim after.", go: on("Editor", "Export") } ] },
+    { id: "lora", track: "Create", title: "Keys and Wasserman LoRA Hub", sub: "give a clip a trained look, add your own LoRAs", steps: [
+      { t: "What a LoRA does", d: ["A LoRA is a small file that teaches the video model one look or subject: a film stock, an era, a style. The hub is the library of them. Pick one and the clip is rendered with it.", "The hub is in the video settings of Create, on the Production board and in a Slate film's Bible."], go: go(0, "Keys and Wasserman LoRA Hub") },
+      { t: "Install and pick one", d: ["Each LoRA is a button. One with a ⤓ mark is not on this machine yet: the first click shows its licence and downloads the file from its author's page. After that, a click picks it (✓) and another click drops it.", "The first preset is the Wasserman-80's Horror LORA by Sam Wasserman: the look of a 1970s-80s horror movie."], tip: "Weights are never part of this app. Each LoRA's file comes from its author under its own licence; read it before you download.", go: go(0, "Keys and Wasserman LoRA Hub") },
+      { t: "Look and strength", d: ["A picked LoRA shows a row. “Look” chooses between its looks when it has several (VHS or 16mm film for the 80s horror LoRA). “Strength” is how hard it pushes: start at the value it was made for, go lower for a hint, higher for more.", "The trigger word and the look phrase are added to the start of your prompt for you. Do not type them yourself."], eg: "80s horror: strength 1.0 is the standard, 0.6 is subtle, 1.3 is strong.", go: go(0, "Keys and Wasserman LoRA Hub") },
+      { t: "Write the prompt for it", d: ["Write the scene as usual: the light and the place, what happens and the turn, one camera move, the sound. Leave out words for the look itself, such as “film grain” or “retro”: the LoRA brings those."], eg: "Cold fluorescent mall light, a dead shopping mall after hours. A mannequin in a prom dress steps off its pedestal and walks stiffly toward the camera.", go: go(0, "Describe the scene") },
+      { t: "What changes in the render", d: ["A clip with a LoRA takes a slower path and shows no time estimate. On a Mac, FastH3 moves from the native engine to the MLX engine; MiniMax H3 at 20 steps is what most LoRAs were made for. On a DGX Spark the render server restarts first, to keep memory safe.", "LoRAs are not applied to reference-to-video clips. You can stack up to four."], tip: "Compare with and without: render once with the LoRA, drop it, and render again with the same seed." },
+      { t: "Add your own", d: ["“+ Add LoRA” opens a recipe form: a name, the download address of the .safetensors file or an uploaded file, the trigger word, the strength, and optional looks written as name = phrase. “Add to the hub” makes it a button on this machine, next to the presets."], tip: "The file has to be a LoRA for MiniMax H3. One made for another model is refused when you add it.", go: go(0, "+ Add LoRA") } ] },
     { id: "editor", track: "Editor", title: "Cut and export", sub: "timeline, trims and the final file", steps: [
       { t: "Put clips on the timeline", d: ["The media bin at the bottom shows your videos; hover one to play it. “+ timeline” adds it to the end of the timeline. Clips also arrive from Create (“Add to the editor timeline”), the Library and Production."], tip: "The timeline belongs to the project selected in the Production tab.", go: on("Editor", "Media bin") },
       { t: "Order the clips", d: ["On each timeline clip, ← and → move it and ✕ removes it from the timeline. The file itself stays in the Library. Click a clip to show it in the preview."], go: on("Editor", "Timeline") },
@@ -511,17 +615,18 @@ function lessons() {
     { id: "library", track: "Library", title: "Find and reuse your files", sub: "clips, images and their paths", steps: [
       { t: "What is in the Library", d: ["Every clip, scout, image and export the app has made, as files under " + S.home + ". They stay there when the app restarts."], go: on("Library", "Library") },
       { t: "Copy a path", d: ["Click the name under a file to copy its path. Paste it into a Production segment that opens on “an image from the library”."], go: on("Library", "Library") },
-      { t: "Reuse a file", d: ["On a video, “+ timeline” adds it to the editor timeline. On an image, “use” takes it to Create as the first frame of a new clip."], go: on("Library", "Library") } ] } ]; }
+      { t: "Reuse a file", d: ["On a video, “+ timeline” adds it to the editor timeline. On an image, “use” takes it to Create as the first frame of a new clip."], go: on("Library", "Library") },
+      { t: "Delete a file", d: ["🗑 on a tile takes the file out of the Library after you confirm. It is moved to the “trash” folder inside " + S.home + ", so a mistake can be undone by moving it back; empty that folder yourself to free the disk space."], tip: "A file that a queued or running job needs cannot be deleted until the job is done.", go: on("Library", "Library") } ] } ]; }
 // outline the control a step talks about; Production and Editor draw themselves a moment after the tab opens, so look again
-function spot(text, tries = 14) { if (!text) return; const want = text.toLowerCase();
+function spot(text, tries = 14, again = false) { if (!text) return; const want = text.toLowerCase(); if (!again) T.spot = [text, Date.now() + 7000];
   const hit = [...document.querySelectorAll("#view label, #view h2, #view h3, #view button, aside h2")].find(n => n.textContent.trim().toLowerCase().startsWith(want));
-  if (!hit) { if (tries) setTimeout(() => spot(text, tries - 1), 200); return; }
+  if (!hit) { if (tries) setTimeout(() => spot(text, tries - 1, again), 200); return; }
   const kin = hit.parentElement, lone = hit.tagName !== "LABEL" || hit.classList.contains("switch");
   const marks = hit.closest("aside") ? [hit.closest("aside")] : lone ? [hit] : kin.children.length === 2 ? [kin] : [hit, hit.nextElementSibling].filter(Boolean);
   document.querySelectorAll(".spot").forEach(n => n.classList.remove("spot")); marks.forEach(n => n.classList.add("spot"));
-  marks[0].scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => marks.forEach(n => n.classList.remove("spot")), 7000); }
+  if (!again) { marks[0].scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => { if (Date.now() >= T.spot[1] - 100) document.querySelectorAll(".spot").forEach(n => n.classList.remove("spot")); }, 7000); } }
 function tutorialGo(go) { if (go.set && Object.entries(go.set).some(([k, v]) => C[k] !== v)) { Object.assign(C, go.set); sync(); C.prompt = ""; }
-  if (go.step != null) C.step = go.step; tab = go.tab; T.coach = true; history.replaceState(null, "", "#" + tab); render(); spot(go.spot); }
+  if (go.step != null) C.step = go.step; if (go.tab === "Production") SL.mode = go.slate ? "slate" : "board"; tab = go.tab; T.coach = true; history.replaceState(null, "", "#" + tab); render(); spot(go.spot); }
 function tutorialMove(by) { const L = lessons().find(l => l.id === T.id), n = T.step + by; if (n < 0) return;
   if (n >= L.steps.length) { finish(L.id); T.coach = false; tab = "Tutorial"; render(); return; }
   T.step = n; if (L.steps[n].go) tutorialGo(L.steps[n].go); else { tab = "Tutorial"; render(); } }
@@ -557,6 +662,11 @@ function viewTutorial() {
 
 /* ---------- Queue ---------- */
 // elapsed comes from the server: this browser's clock may differ from the machine that renders
+// Sam Wasserman's QA gate on a Sharp Spec clip: one line per take, with its contact sheet
+function qaLines(job) { const q = job.qa; if (!q) return null; const mark = r => ({ pass: "✓", fail: "✗", skipped: "–" }[r] || "?");
+  return el("div", { class: "note" }, el("b", { style: "color:" + (q.passed ? "var(--ok)" : q.passed === false ? "var(--bad)" : "inherit") }, "Wasserman QA gate: " + (q.passed && q.takes.at(-1).audio.result === "skipped" && q.takes.at(-1).identity.result === "skipped" ? "not checked, both gates are missing their tool on this machine" : q.passed ? "passed" + (q.takes.at(-1).audio.result === "skipped" || q.takes.at(-1).identity.result === "skipped" ? " the one gate that could run" : "") : q.passed === false ? "failed on both takes, the last take is kept" : "could not run")), q.error ? " · " + q.error : "",
+    q.takes.map(t => el("div", {}, "Take " + t.take + " · seed " + t.seed + " · speech " + mark(t.audio.result) + " " + (t.audio.heard ? "“" + t.audio.heard + "” · " : "") + t.audio.note + " · identity " + mark(t.identity.result) + " " + t.identity.note + (t.sharpness.length ? " · sharpness " + t.sharpness.join(" / ") : "") + " · ",
+      el("a", { href: file(t.sheet), target: "_blank" }, "contact sheet")))); }
 function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != null ? job.elapsed : (job.started ? ((job.finished || Date.now() / 1000) - job.started) : null);
   // the bar follows the time against the estimate (a job has several stages, each with its own step count)
   const share = job.estimate && elapsed != null ? Math.min(99, Math.max(3, Math.round(100 * elapsed / job.estimate))) : (p ? Math.round(100 * p.at / p.of) : 3);
@@ -566,7 +676,7 @@ function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != n
       el("button", { class: "small", onclick: () => pre.classList.toggle("hide") }, "Log")),
     job.status === "running" ? el("div", {}, el("div", { class: "bar" }, el("i", { style: "width:" + share + "%" })),
       el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + (job.estimate && elapsed != null ? (job.estimate - elapsed > 5 ? "about " + mmss(job.estimate - elapsed) + " left" : "almost done") : "no time estimate for this setting") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : ""))) : null,
-    job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, pre); }
+    job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, qaLines(job), pre); }
 let lastSig = "";
 async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
   const box = $("#jobs"); box.replaceChildren(...(jobs.length ? jobs.slice(0, 30).map(jobCard) : [el("div", { class: "note" }, "Nothing queued yet.")]));
@@ -576,11 +686,13 @@ async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
   const sig = jobs.map(j => j.id + j.status).join(); if (sig !== lastSig) { const had = lastSig; lastSig = sig; if (had && !document.activeElement.matches("input,textarea,select")) render(); } }
 
 function render() { $("#tabs").replaceChildren(...TABS.map(t => el("button", { class: t === tab ? "on" : "", onclick: () => { tab = t; history.replaceState(null, "", "#" + t); render(); } }, t)));
-  $("#view").replaceChildren({ Create: viewCreate, Production: viewProduction, Editor: viewEditor, Library: viewLibrary, Tutorial: viewTutorial }[tab]()); coach(); }
+  $("#view").replaceChildren({ Create: viewCreate, Production: viewProduction, Editor: viewEditor, Library: viewLibrary, Tutorial: viewTutorial }[tab]()); coach();
+  // a redraw (a job changed, a view finished loading) must not drop the outline a tutorial step just put on a control
+  if (T.spot && Date.now() < T.spot[1]) spot(T.spot[0], 3, true); }
 (async () => { const want = decodeURIComponent(location.hash.slice(1)); if (TABS.includes(want)) tab = want;
   // links can preset the Create form: ?goes=image, ?engine=h3&res=720p&up=1&step=4 ...
   for (const [k, v] of new URLSearchParams(location.search)) if (k in C && k !== "mode") C[k] = k === "up" ? v === "1" : (k === "step" || k === "count" ? Number(v) : v);
-  S = await api("/api/state"); if (!S.turbo) C.engine = "fasth3"; sync(); $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "TensorFold Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000); })();
+  S = await api("/api/state"); await loadLoras(); if (!S.turbo) C.engine = "fasth3"; sync(); $("#gohome").onclick = () => { tab = "Create"; C.step = 0; T.coach = false; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); render(); }; $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "TensorFold Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000); })();
 </script>
 </body>
 </html>
