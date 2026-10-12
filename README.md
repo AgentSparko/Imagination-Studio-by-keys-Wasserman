@@ -368,7 +368,7 @@ and roughly how long it takes.
 | Choice | What it does |
 |---|---|
 | **The prompt goes to** | *Video with sound*, or *Image only*: Qwen-Image-2.1 makes the pictures and stops there. |
-| **The clip starts from** | *Text only*; *a Qwen scout image* (step 2 makes several, you pick one); *your own image* (step 2 uploads it); or, with `--ref2va` installed, *reference pictures* (step 2 takes up to nine: who or what must look the same, in a scene the prompt describes). |
+| **The clip starts from** | *Text only*; *a Qwen scout image* (step 2 makes several, you pick one); *your own image* (step 2 uploads it); or, with `--ref2va` installed, *reference pictures* (step 2 takes up to nine: who or what must look the same, in a scene the prompt describes; on a Mac whose engine packs them, also up to three reference videos and three audio clips: see [Reference videos and reference audio](#reference-videos-and-reference-audio-ref2va-mac-only-for-now)). |
 | **Video engine** (shown only with `--turbo` installed) | *FastH3*: fastest; text to video runs on the native Zig engine, and the bar under the cards says which engine a clip will use. *MiniMax H3*: the Turbo adapter with the sound made again by the base model, or the full 20 steps. |
 | **Passes** (FastH3) | 4 (fastest, a little softer), 8 (what it was trained for), 20 (for prompts with several actions; slowest). |
 | **Quality** (MiniMax H3, with `--turbo`) | Turbo 5 + base sound (the standard), Turbo 3, 20 steps with the fast recipe, or plain 20 steps. |
@@ -840,7 +840,9 @@ it does not provide, check or recommend the file you choose. That file, its lice
 your own choice and responsibility.
 
 In the app, *Resolution → Custom* takes a width and a height (multiples of 32, each side 256 to 1536, at most
-1344x768 pixels in all) and *Custom passes* a number of passes from 1 to 50; no time is estimated for either. From
+1344x768 pixels in all). A number of passes of your own, from 1 to 50, is the *Custom* card at the end of each
+passes choice (FastH3's *Passes*, the reference choice, and a *Passes* row under MiniMax H3's *Quality*, whose cards
+are recipes rather than counts); a number box opens under the cards. No time is estimated for either. From
 the scripts these are `WIDTH`, `HEIGHT` and `STEPS` (FastH3, and everything on a Spark) or `POINTS` (MiniMax H3 on
 the Mac: one more than the passes).
 
@@ -865,6 +867,11 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
   without it: 1 min 28 s, 103 GiB peak while the adapter is merged. `QUALITY=high` runs the 20 passes with the fast
   recipe: 1 min 58 s. Two pictures (a person and a bicycle) took 4 min 5 s at 20 passes and 1 min 29 s with the adapter.
 - Not with `FIRST_FRAME`, and not with FastH3, which has no reference-trained weights.
+- **Your own number of passes:** `STEPS=12` (or `POINTS=13`, one more, which wins when both are set), and the
+  *Custom* card of the passes choice in the app. It applies to every kind of reference, and with `REF_TURBO=1` too: the adapter then runs the
+  number asked for instead of the 4 it was trained for, and the render says so. A reference render starts by naming
+  the passes it will run, and the app's job card shows them. Before this, `STEPS` was read for FastH3 only and a
+  reference render from the scripts ignored it; the app already converted its field.
 - In the app: **The clip starts from → Reference pictures**. Step 4 writes the prompt in the model's own reference
   form (`subject_definitions`, `summary`, `retention_analysis`, `detailed_description`); edit it freely.
 - **On a DGX Spark** the same `REF_IMAGES` and `REF_TURBO=1` work after `bash oneshot-setup-spark.sh --ref2va` (39 GB:
@@ -875,8 +882,88 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
   was tested there, not several.
 - Checked on one fictional portrait: the same face, hair and glasses in the clip, against a different person from the
   same prompt and seed without the reference, and the same identity as h3.c's `--ref-image` gives. The token layout
-  matches h3.c's to the last float32 bit. Not checked: reference videos and reference audio (not implemented), sound
-  by ear, lengths over 5 s.
+  matches h3.c's to the last float32 bit. Not checked: sound by ear, lengths over 5 s. Reference videos and
+  reference audio are the next section.
+- **What the text encoder sees of a picture (corrected after 2.5).** A first frame or a reference picture also goes
+  to the text encoder's vision tower. Up to 2.5 it was normalised there with the mean and deviation of the earlier
+  Qwen-VL models, which minimax-h3-mlx builds its image processor with; MiniMax H3's own processor
+  (`processor/preprocessor_config.json` in the checkpoint) uses 0.5 and 0.5, pixels to -1..1. The renderer now reads
+  that file (0.5 and 0.5 when it is absent). For one 864x480 picture the values handed to the tower were up to 1.12
+  away from MiniMax's processor before (0.39 on average, range -1.79..2.09) and are equal to it now, and to h3.c's
+  `x * 2 - 1`. The video VAE's view of the picture, which carries most of the likeness, was never affected. Same
+  prompt and seed, before and after, one first-frame clip (Turbo, 5 passes) and one reference-picture clip (20
+  passes), 5 s at 864x480: a different take each time, as any change to the conditioning gives, with the same
+  person, colours and sharpness; we could not see a gain or a loss. `EXTRA="--vision-stats mlx"` renders with the
+  old values. This covers MiniMax H3 and FastH3 on the Mac, both engines; the DGX Spark build encodes text in
+  ComfyUI, which already used 0.5 and 0.5. The sample clips and timings in this README from first frames and
+  reference pictures were made with the old values: the timings stand, the clips would come out as other takes.
+
+### Reference videos and reference audio (Ref2VA, Mac only for now)
+
+The same Ref2VA transformer takes two more kinds of reference, as MiniMax's model card describes: videos, which
+carry a subject and how it moves, and audio clips, which carry a voice or music. **Not in a release yet:** the passes
+need TensorFold's H3 family to pack these references and to hold reference audio rows, which is on the engine branch
+`ref-video-audio` and not in the engine build 2.5 installs; with the installed engine the renderer stops with a
+message saying so. Reference pictures alone are unaffected.
+
+```bash
+REF_VIDEOS="baker.mp4" bash scripts/video.sh \
+  "<Subject 1> is the man in the green apron in <Video 1>. ... the bakery is replaced by a market stall ..." out.mp4
+REF_IMAGES="singer.png" REF_VIDEOS="baker.mp4" bash scripts/video.sh \
+  "<Subject 1> is the woman shown in <Picture 1>. <Video 1> is the motion reference. ..." out.mp4
+REF_IMAGES="singer.png" REF_AUDIOS="voice.wav" bash scripts/video.sh \
+  "<Subject 1> is the woman shown in <Picture 1>. <Audio 1> is the voice timbre reference for her voice. ..." out.mp4
+REF_VIDEOS="baker.mp4" REF_VIDEO_SOUND=1 bash scripts/video.sh "..." out.mp4   # the video's own sound is <Audio 1>
+```
+
+- **Limits (MiniMax's):** up to 9 pictures, 3 videos and 3 audio clips, 12 files in all; each video and each audio
+  clip 2 to 15 seconds, and 15 seconds in all per kind; audio never alone (it needs a picture or a video beside it).
+  The scripts and the app refuse a request outside these and say which file or count is wrong.
+- **Names in the prompt:** `<Picture N>`, `<Video N>`, `<Audio N>`, each numbered in the order given. The model is
+  always handed pictures first, then videos, then audio clips. With `REF_VIDEO_SOUND=1` every video's own soundtrack
+  is a reference as well and those sounds are numbered first: with one video, its sound is `<Audio 1>` and the first
+  `REF_AUDIOS` clip is `<Audio 2>`. Without it a video's sound is ignored. The render prints the name of every file.
+- **What is read:** a video at 24 fps up to the clip's own length, cut down to `17 n + 5` frames, at its own aspect
+  ratio and brought down to the clip's pixel area (`REF_VIDEO_SIZE=full` keeps the model's 768-pixel canvas; not
+  tested). Audio at 32 kHz stereo, cut to the clip's length. `ffmpeg` and `ffprobe` do the reading.
+- **Cost:** every reference latent rides through every pass. Measured on an M5 Ultra, 5 s at 864x480, 20 passes:
+  one 5 s reference video 12 min 32 s (34.9 s a pass over 33.2K rows), a picture and a 5 s video 13 min 36 s, a
+  picture and a 5 s audio clip 4 min 10 s (11.3 s a pass over 17.0K rows), against 4 min 6 s with that picture alone;
+  64 GiB peak in each. `REF_TURBO=1` with a picture and an audio clip: 1 min 35 s, 103 GiB peak. A shorter reference
+  video costs less; none was timed.
+- **In the app:** *The clip starts from → References*; step 2 takes pictures, videos and audio, shows each one's name,
+  and step 4 writes the prompt in the model's own form (`<Video 1> is the reference video for ...`,
+  `<Audio 1> is the voice timbre reference for ...`). No time is estimated when a video or an audio clip is used.
+- **On a DGX Spark** `REF_VIDEOS` and `REF_AUDIOS` are refused with "Mac only for now", in the scripts and in the
+  app. ComfyUI's `MiniMaxH3ReferenceToVideo` node does take them; this pack's workflow does not feed them yet, and
+  nothing of it was run on a Spark.
+- **How it was checked.** The token layout (row order, positions, which rows are held) is equal to the last float32
+  bit to MiniMax's own `build_ref2va_packed_sequence` and to h3.c's `h3_layout_build`, on six mixed requests. The
+  prompt's token sequence equals MiniMax's `build_ref2va_presentation`; the frame sampling for the text encoder,
+  the frames kept for the video VAE and the frame size rule equal MiniMax's functions. Reference rows decode back to
+  what went in (video 38.7 dB PSNR, audio loudness envelope correlation 0.999). Two differences from MiniMax's
+  pipeline remain, both shared with the picture path: the video latent is the middle of the encoder's distribution,
+  not a draw from it, and a reference is not enlarged to the 768-pixel canvas.
+- **What the renders showed** (fictional people from earlier renders of this pack; 5 s, 864x480, 20 passes, one seed):
+  - *A reference video* (a baker lifting a loaf in a bakery), with a prompt that moves him to a market stall: the
+    same man, clothes and motion, second for second, in front of a market. The same prompt and seed without the
+    video gave another man holding the loaf up throughout.
+  - *A picture and a video* (a woman's still, the baker clip as motion reference): the woman, in the baker's
+    bakery, doing his motion second for second. Her mouth also moves as his does, though the prompt said nobody
+    speaks.
+  - *A video with its own sound* (`REF_VIDEO_SOUND=1`): the clip's sound follows the reference closely (pitch 120 Hz
+    against 122, spectrogram correlation 0.86 moment by moment, against 0.43 for the run without the sound).
+  - *A picture and an audio clip of the same kind of voice* (a woman's still, 6 s of a woman singing, the prompt
+    asks her to sing): median pitch 281 Hz, the reference's own 281, against 314 without the clip; closer in
+    timbre statistics as well (4.9 against 6.7).
+  - *A picture and a voice that does not fit it* (the woman's still, a man's spoken line as `<Audio 1>`): **no
+    carry-over we could measure.** She speaks at 184 Hz with the clip and 182 without; the man's voice is at 122.
+- **Not checked:** sound by ear (the figures above are measurements: pitch by autocorrelation, MFCC statistics,
+  spectrogram correlation), more than one reference video or audio clip in a request, two seeds, lengths over
+  5 s, references longer than the clip, `REF_VIDEO_SIZE=full`, `QUALITY=high` with a video, the app's screens by eye
+  in a browser (its checks and the prompt it writes were exercised through its API, two clips were rendered
+  through its queue, and the Create page's choosers and reference step were driven in a scripted DOM, not looked
+  at).
 
 ### GHCR prebuilt carrier
 

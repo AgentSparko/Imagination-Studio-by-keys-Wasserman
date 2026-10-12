@@ -78,7 +78,15 @@ Rules:
   is not a frame: never combine it with `FIRST_FRAME`, and never send it to FastH3. Default is 20 plain passes;
   `REF_TURBO=1` is the 4-step Ref2VA adapter (`POINTS=5`) with `REVOICE=20`, `QUALITY=high` the fast recipe. The FL2VA Turbo adapter is not for this
   transformer. `Ref2VA/` holds only the transformer; its text encoder, tokenizer, processor and decoders are links
-  to `FL2VA/`: do not download them twice. Reference videos and reference audio are not implemented.
+  to `FL2VA/`: do not download them twice.
+- Reference videos (`REF_VIDEOS`, up to 3) and reference audio (`REF_AUDIOS`, up to 3) are the same model's other
+  references, on the Mac only: each clip 2 to 15 s, 15 s in all per kind, 12 references of all kinds, audio never
+  alone. Named `<Video N>` and `<Audio N>` in the prompt; with `REF_VIDEO_SOUND=1` each video's own sound is a
+  reference numbered ahead of the `REF_AUDIOS` clips. They need a TensorFold whose H3 family has
+  `packing.reference_layout` (engine branch `ref-video-audio`); the renderer says so when it is missing. A 5 s
+  reference video about triples the time of a 5 s clip. Do not promise that a voice carries over: a matching voice
+  moved the pitch to the reference's, a man's voice on a woman's picture changed nothing measurable. On a DGX Spark
+  they are refused ("Mac only for now").
 - On a DGX Spark reference to video is `oneshot-setup-spark.sh --ref2va` and the same `REF_IMAGES` / `REF_TURBO=1`
   (`spark_generate.py video --ref`): ComfyUI's `MiniMaxH3ReferenceToVideo` on its own blocks, never
   `TensorFoldH3Blocks`. The adapter is merged at run time, so it needs the bf16 transformer: on an 8-bit

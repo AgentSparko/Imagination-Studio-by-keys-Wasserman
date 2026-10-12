@@ -95,6 +95,11 @@ SPARK_REF2VA_5S = {"small": 321}
 SPARK_REF2VA_TURBO_5S = {"small": 107}
 REF2VA_ADAPTER = "lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 REFERENCE_LIMIT = 9
+# MiniMax's limits for the other two kinds of reference (Mac only for now): 3 videos and 3 audio clips, each 2 to 15
+# seconds and 15 seconds in all per kind, and 12 files of all kinds in one request
+REFERENCE_VIDEO_LIMIT, REFERENCE_AUDIO_LIMIT, REFERENCE_TOTAL = 3, 3, 12
+REFERENCE_CLIP_SECONDS, REFERENCE_KIND_SECONDS = (2.0, 15.0), 15.0
+VIDEO_SUFFIXES, AUDIO_SUFFIXES = (".mp4", ".mov"), (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
 # a size typed in by hand: multiples of 32, and no more pixels than the largest size the model is run at here
 CUSTOM_SIDES, CUSTOM_PIXELS, CUSTOM_STEPS = (256, 1536), 1344 * 768, (1, 50)
 LEAD = "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
@@ -156,16 +161,64 @@ def relative(path: Path) -> str:
 
 
 def compose_references(fields: dict, count: int) -> str:
-    """The Ref2VA model's own prompt form: who each picture is, what is kept of it, then the shot."""
+    """The Ref2VA model's own prompt form: who each picture is, what is kept of it, then the shot.
 
-    count = max(1, min(int(count), REFERENCE_LIMIT))
+    ``fields`` may also describe reference videos (``video_subjects``: one entry per video, who or what it shows,
+    empty for a video that only gives the motion) and audio clips (``audio_notes``: one per clip, what it is).
+    With ``video_sound`` each video's own soundtrack is a reference too, and the model numbers those sounds first:
+    ``<Audio 1>`` is then the sound of ``<Video 1>`` and the audio clips follow.
+
+    A caller with its own template for a reference video (a control layer such as a depth or segmentation pass
+    rather than footage, say) can replace what is written about it: ``video_roles`` (one per video) is the
+    sentence after ``<Video k> is``, ``video_keeps`` (one per video) the sentence after ``<Video k>: reference -``,
+    ``definitions`` are further lines for the subject definitions (a legend of the control colours, or what a
+    picture is in relation to a video), and ``avoid`` is closing text for the shot (what the clip must not look
+    like). None of them is set by the app's own screens.
+    """
+
+    videos = [(text or "").strip() for text in (fields.get("video_subjects") or [])][:REFERENCE_VIDEO_LIMIT]
+    audios = [(text or "").strip() for text in (fields.get("audio_notes") or [])][:REFERENCE_AUDIO_LIMIT]
+    count = max(0 if videos else 1, min(int(count), REFERENCE_LIMIT))
     names = [(text or "").strip() for text in (fields.get("subjects") or [])][:count]
     names += [""] * (count - len(names))
     subjects = [f"<Subject {i}> is {name or 'the main subject'} shown in <Picture {i}>." for i, name in enumerate(names, start=1)]
     kept = [f"<Subject {i}> (appears in [Shot 1]): fully_preserved - the identity, face, hair, clothing and colours "
             f"shown in <Picture {i}> are kept." for i in range(1, count + 1)]
+    people, sounds, follow = count, 0, []
+    roles = [(text or "").strip() for text in (fields.get("video_roles") or [])]
+    keeps = [(text or "").strip() for text in (fields.get("video_keeps") or [])]
+    for k, shown in enumerate(videos, start=1):
+        role, keep = (roles[k - 1] if k <= len(roles) else ""), (keeps[k - 1] if k <= len(keeps) else "")
+        if role:  # the caller's own account of this video
+            subjects.append(f"<Video {k}> is {role.rstrip('.')}.")
+            kept.append(f"<Video {k}>: reference - " + (keep or f"the structure and movement of <Video {k}> are followed."))
+            follow.append(f"The layout, movement and camera path follow <Video {k}>.")
+        elif shown or not people:  # a video that shows someone: a subject of its own, as the model card writes it
+            people += 1
+            subjects.append(f"<Subject {people}> is {shown or 'the main subject'} in <Video {k}>.")
+            subjects.append(f"<Video {k}> is the reference video for the appearance and the motion of <Subject {people}>.")
+            kept.append(f"<Subject {people}> (appears in [Shot 1]): fully_preserved - the identity, face, hair, "
+                        f"clothing and colours shown in <Video {k}> are kept.")
+            kept.append(f"<Video {k}>: reference - the motion and timing of <Subject {people}> in <Video {k}> are followed.")
+            follow.append(f"<Subject {people}> moves as in <Video {k}>.")
+        else:
+            subjects.append(f"<Video {k}> is the motion reference for the target video.")
+            kept.append(f"<Video {k}>: reference - the motion, timing and camera movement of <Video {k}> are followed.")
+            follow.append(f"The motion and camera movement follow <Video {k}>.")
+        if fields.get("video_sound"):
+            sounds += 1
+            subjects.append(f"<Audio {sounds}> is the synchronized audio track of <Video {k}>.")
+            kept.append(f"<Audio {sounds}>: reference - the target audio references the sound of <Audio {sounds}>.")
+    subjects += [line.strip() for line in (fields.get("definitions") or []) if line and line.strip()]
+    voices = []
+    for note in audios:
+        sounds += 1
+        subjects.append(f"<Audio {sounds}> is {note or 'the voice timbre reference for the voice of <Subject 1>'}.")
+        kept.append(f"<Audio {sounds}>: reference - the target audio references the voice timbre and the sound of <Audio {sounds}>.")
+        voices.append(f"<Audio {sounds}>")
     scene = (fields.get("scene") or "").strip()
-    shot = " ".join(part.strip() for part in (scene, fields.get("camera", ""), fields.get("action", "")) if part and part.strip())
+    shot = " ".join(part.strip() for part in (scene, fields.get("camera", ""), fields.get("action", ""), *follow)
+                    if part and part.strip())
     spoken = []
     for index, line in enumerate(fields.get("dialogue") or [], start=1):
         text = (line.get("text") or "").strip()
@@ -176,19 +229,28 @@ def compose_references(fields: dict, count: int) -> str:
         language = (line.get("language") or "English").strip()
         spoken.append(f"<Subject {int(line.get('subject') or 1)}> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
     if spoken:
+        if voices:
+            shot += " The voice timbre references " + " and ".join(voices) + "."
         # a clip longer than its lines: without this the model may keep the mouth moving and invent words
         shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
                  " talking, closes the mouth and stays silent until the end of the clip.")
     else:
         shot += " Nobody speaks."
+    if (fields.get("avoid") or "").strip():
+        shot += " " + fields["avoid"].strip()
     sound = (fields.get("soundscape") or "Natural ambient sound for the scene.").strip()
     sound += " No speech after the spoken lines." if spoken else " No voices, no speech."
+    if voices and not spoken:
+        sound += " The sound references " + " and ".join(voices) + "."
     music = (fields.get("music") or "N/A").strip()
     if music.upper() != "N/A":
         sound += f" Music: {music}."
-    who = ", ".join(f"<Subject {i}>" for i in range(1, count + 1))
+    who = ", ".join(f"<Subject {i}>" for i in range(1, people + 1))
+    kinds = " + ".join(kind for kind, used in (("subject reference", count), ("video reference", videos),
+                                               ("audio reference", sounds)) if used)
     return ("subject_definitions:\n" + "\n".join(subjects)
-            + f"\n\nsummary:\n[subject reference] A new video with {who}, keeping how each looks in its picture. "
+            + f"\n\nsummary:\n[{kinds}] A new video with {who}, keeping how each looks in its "
+            + ("reference. " if videos else "picture. ")
             + (scene or "A new scene.")
             + "\n\nretention_analysis:\n" + "\n".join(kept)
             + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()} {sound}")
@@ -337,28 +399,80 @@ def ref2va_turbo_ready() -> bool:
     return ref2va_ready() and (ZIG_ENGINE.parent / "adapters" / REF2VA_ADAPTER).is_file()
 
 
-def references(params: dict) -> list[str]:
-    """The job's reference pictures as paths under the studio folder, or [] when it has none."""
+def media_seconds(path: str) -> tuple[float | None, bool | None]:
+    """(length in seconds, whether it has sound) of a media file, or (None, None) without ffprobe: the renderer
+    measures again and refuses what is out of range."""
 
-    found = [str(inside(path)) for path in (params.get("references") or []) if path]
-    if not found:
-        return []
-    if len(found) > REFERENCE_LIMIT:
-        raise HTTPException(400, f"at most {REFERENCE_LIMIT} reference pictures")
+    tool = shutil.which("ffprobe") or shutil.which("ffprobe", path="/opt/homebrew/bin:/usr/local/bin")
+    if tool is None:
+        return None, None
+    done = subprocess.run([tool, "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json",
+                           path], capture_output=True, text=True)
+    try:
+        data = json.loads(done.stdout)
+        return float(data["format"]["duration"]), any(one.get("codec_type") == "audio" for one in data["streams"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+
+
+def references(params: dict) -> dict:
+    """The job's references as paths under the studio folder: {} when it has none, else ``pictures``, ``videos``
+    and ``audios`` (each a list) and ``video_sound`` (the videos' own soundtracks are references too)."""
+
+    found = {kind: [str(inside(path)) for path in (params.get(key) or []) if path]
+             for kind, key in (("pictures", "references"), ("videos", "reference_videos"), ("audios", "reference_audios"))}
+    pictures, videos, audios = found["pictures"], found["videos"], found["audios"]
+    if not (pictures or videos or audios):
+        return {}
+    if (videos or audios) and SPARK:
+        raise HTTPException(400, "reference videos and reference audio are Mac only for now: on a DGX Spark use reference pictures")
+    for kind, limit, files in (("reference pictures", REFERENCE_LIMIT, pictures), ("reference videos", REFERENCE_VIDEO_LIMIT, videos),
+                               ("reference audio clips", REFERENCE_AUDIO_LIMIT, audios)):
+        if len(files) > limit:
+            raise HTTPException(400, f"at most {limit} {kind}")
+    if len(pictures) + len(videos) + len(audios) > REFERENCE_TOTAL:
+        raise HTTPException(400, f"at most {REFERENCE_TOTAL} references in all")
+    if audios and not (pictures or videos):
+        raise HTTPException(400, "reference audio needs a reference picture or video beside it: the model does not take sound alone")
     if params.get("image") or params.get("first_frame_from"):
-        raise HTTPException(400, "reference pictures do not combine with a first frame")
+        raise HTTPException(400, "references do not combine with a first frame")
     if not ref2va_ready():
         raise HTTPException(400, "MiniMax H3 Ref2VA is not installed here (oneshot-setup.sh --ref2va adds it)")
     if params.get("ref_turbo") and not ref2va_turbo_ready():
         raise HTTPException(400, "the Ref2VA Turbo adapter is not installed here (oneshot-setup.sh --ref2va adds it)")
-    missing = [path for path in found if not Path(path).is_file()]
+    missing = [path for path in pictures + videos + audios if not Path(path).is_file()]
     if missing:
-        raise HTTPException(400, f"no reference picture at {relative(Path(missing[0]))}")
-    return found
+        raise HTTPException(400, f"no reference file at {relative(Path(missing[0]))}")
+    wrong = [path for path in videos if Path(path).suffix.lower() not in VIDEO_SUFFIXES]
+    if wrong:
+        raise HTTPException(400, f"a reference video is an mp4 or mov file, and {relative(Path(wrong[0]))} is not")
+    wrong = [path for path in audios if Path(path).suffix.lower() not in AUDIO_SUFFIXES + VIDEO_SUFFIXES]
+    if wrong:
+        raise HTTPException(400, f"a reference audio clip is a sound file, and {relative(Path(wrong[0]))} is not")
+    video_sound = bool(videos and params.get("reference_video_sound"))
+    low, high = REFERENCE_CLIP_SECONDS
+    for kind, files in (("video", videos), ("audio clip", audios)):
+        total = 0.0
+        for path in files:
+            seconds, sound = media_seconds(path)
+            if seconds is None:
+                continue
+            if not low - 0.05 <= seconds <= high + 0.05:
+                raise HTTPException(400, f"a reference {kind} is {low:g} to {high:g} seconds long, and "
+                                         f"{relative(Path(path))} is {seconds:.1f} s")
+            if not sound and (kind == "audio clip" or video_sound):
+                raise HTTPException(400, f"{relative(Path(path))} has no sound" + (": untick the videos' own sound"
+                                                                                  if kind == "video" else ""))
+            total += seconds
+        if total > REFERENCE_KIND_SECONDS + 0.05:
+            raise HTTPException(400, f"the reference {kind}s are at most {REFERENCE_KIND_SECONDS:g} seconds in all, got {total:.1f} s")
+    return {**found, "video_sound": video_sound}
 
 
 def estimate(preset: str, quality: str, seconds: int, text_only: bool = False, referenced: bool = False,
-             ref_turbo: bool = False) -> int | None:
+             ref_turbo: bool = False, ref_media: bool = False) -> int | None:
+    if referenced and ref_media:
+        return None  # a reference video or audio clip adds its own rows to every pass: the time depends on its length
     if referenced:
         # the same MLX engine as the 20-step qualities, whose time grows with the length to the power 1.6
         if SPARK:
@@ -441,7 +555,12 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
         if pictures:
             # Ref2VA takes neither the Turbo adapter nor FastH3: the quality setting does not apply
             env = {k: v for k, v in env.items() if k not in QUALITIES[quality][1]}
-            env["REF_IMAGES"] = "\n".join(pictures) + "\n"  # one per line, so a path may hold spaces
+            # one per line, so a path may hold spaces
+            for name, kind in (("REF_IMAGES", "pictures"), ("REF_VIDEOS", "videos"), ("REF_AUDIOS", "audios")):
+                if pictures[kind]:
+                    env[name] = "\n".join(pictures[kind]) + "\n"
+            if pictures["video_sound"]:
+                env["REF_VIDEO_SOUND"] = "1"
             if params.get("ref_turbo"):
                 env["REF_TURBO"] = "1"
         env.update(passes(chosen, SPARK or (fast_h3 and not pictures)))  # Ref2VA runs on MiniMax H3
@@ -673,7 +792,7 @@ threading.Thread(target=work, daemon=True).start()
 
 def public(job: dict) -> dict:
     out = {k: job.get(k) for k in ("id", "kind", "status", "title", "outputs", "progress", "error", "created",
-                                    "started", "finished", "estimate", "engine", "qa")}
+                                    "started", "finished", "estimate", "engine", "qa", "passes")}
     # by this machine's clock: the page may be open on another one
     out["elapsed"] = (job.get("finished") or time.time()) - job["started"] if job.get("started") else None
     out["log"] = job["log"][-3000:]
@@ -688,6 +807,9 @@ def state() -> dict:
             "home": str(HOME), "pack": str(PACK), "version": (PACK / "VERSION").read_text().strip(),
             "zig": zig_ready(), "turbo": turbo_ready() and not SPARK, "x2": not SPARK,
             "ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready(), "reference_limit": REFERENCE_LIMIT,
+            # reference videos and audio: the Mac build only for now
+            "ref_media": ref2va_ready() and not SPARK, "reference_video_limit": REFERENCE_VIDEO_LIMIT,
+            "reference_audio_limit": REFERENCE_AUDIO_LIMIT, "reference_total": REFERENCE_TOTAL,
             "text_encoders": sorted(text_encoders()), "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
             "platform": machine()[0], "platform_label": machine()[1],
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
@@ -695,8 +817,8 @@ def state() -> dict:
 
 @app.post("/api/compose")
 def compose_prompt(body: dict) -> dict:
-    if body.get("references"):
-        return {"prompt": compose_references(body.get("fields", {}), int(body["references"]))}
+    if body.get("references") or body.get("referenced"):
+        return {"prompt": compose_references(body.get("fields", {}), int(body.get("references") or 0))}
     return {"prompt": compose(body.get("fields", {}), bool(body.get("first_frame")))}
 
 
@@ -706,7 +828,7 @@ def estimate_time(body: dict) -> dict:
         return {"seconds": None}  # a LoRA changes which engine renders the clip: no time is measured for it
     return {"seconds": estimate(body.get("preset", "draft"), body.get("quality", "standard"),
                                 int(body.get("seconds", 5)), bool(body.get("text_only")), bool(body.get("referenced")),
-                                bool(body.get("ref_turbo")))}
+                                bool(body.get("ref_turbo")), bool(body.get("ref_media")))}
 
 
 @app.post("/api/jobs")
@@ -725,7 +847,10 @@ def submit(body: dict) -> dict:
         raise HTTPException(400, "a prompt is needed")
     if kind != "video" and params.get("references"):
         raise HTTPException(400, "reference pictures are for single clips")
-    referenced = kind == "video" and bool(references(params))
+    if kind != "video" and (params.get("reference_videos") or params.get("reference_audios")):
+        raise HTTPException(400, "reference videos and audio are for single clips")
+    found = references(params) if kind == "video" else {}
+    referenced, ref_media = bool(found), bool(found and (found["videos"] or found["audios"]))
     if kind in ("video", "studio", "long") and not referenced and not str(params.get("quality", "standard")).startswith("fh") and not turbo_ready():
         raise HTTPException(400, "MiniMax H3 Turbo is not installed here (oneshot-setup.sh --turbo adds it): use FastH3, quality fh4, fh8 or fh20")
     job_id = time.strftime("%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
@@ -737,8 +862,10 @@ def submit(body: dict) -> dict:
                                                   int(params.get("total_seconds") or params.get("seconds", 5)),
                                                   kind == "video" and not params.get("image")
                                                   and not params.get("first_frame_from"), referenced,
-                                                  bool(params.get("ref_turbo")))
+                                                  bool(params.get("ref_turbo")), ref_media)
            if kind in ("video", "studio", "long") else None}
+    if referenced:  # the passes a reference clip runs: the number set by hand, or the model's 20, or the adapter's 4
+        job["passes"] = int(params["steps"]) if params.get("steps") not in (None, "") else 4 if params.get("ref_turbo") else 20
     with lock:
         jobs[job_id] = job
         order.append(job_id)
@@ -774,8 +901,9 @@ def cancel(job_id: str) -> dict:
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)) -> dict:
     suffix = Path(file.filename or "image.png").suffix.lower()
-    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov", ".safetensors"):  # .safetensors: a LoRA for the hub
-        raise HTTPException(400, "images (png, jpg, webp) and videos (mp4, mov) only")
+    # .safetensors: a LoRA for the hub; sound files: reference audio
+    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".safetensors") + VIDEO_SUFFIXES + AUDIO_SUFFIXES:
+        raise HTTPException(400, "images (png, jpg, webp), videos (mp4, mov) and sound (wav, mp3, m4a, aac, flac, ogg) only")
     target = HOME / "uploads" / f"{uuid.uuid4().hex[:10]}{suffix}"
     with open(target, "wb") as handle:
         shutil.copyfileobj(file.file, handle)

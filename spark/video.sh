@@ -7,6 +7,7 @@
 # REF_IMAGES (one to nine pictures, separated by spaces; one per line when a path has spaces) renders with MiniMax H3
 # Ref2VA (`oneshot-setup-spark.sh --ref2va`), which holds a face or a subject through the clip: 20 steps by default,
 # REF_TURBO=1 for LightX2V's 4-pass Ref2VA adapter (107 s against 321 s for 5 s at 864x480). REF_SIZE=match|max.
+# REF_VIDEOS and REF_AUDIOS (reference videos and audio) are Mac only for now and are refused here.
 # Environment: PREFIX, WIDTH, HEIGHT (multiples of 32, default 864x480), FRAMES (17n+5), SEED, STEPS (4, 8 or 20
 # passes), FIRST_FRAME, PROMPT_FILE, CROP=WxH, SPARK_WEIGHTS (bf16, the default, or int8: no faster on a Spark, 22 GB
 # less memory), SPARK_SPARSITY (0 is dense attention; unset picks by size), SPARK_ENGINE (tensorfold: the transformer's
@@ -22,6 +23,9 @@ PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 PROMPT="${1:-}"; OUT="${2:-outputs/h3.mp4}"
 ARGS=(video -o "$OUT" --width "${WIDTH:-864}" --height "${HEIGHT:-480}" --frames "${FRAMES:-124}"
       --seed "${SEED:-0}")
+# reference videos and reference audio run on the Mac build only: ComfyUI's Ref2VA node takes them, but this
+# script's workflow does not feed them yet and nothing of it was tested on a Spark
+[ -z "${REF_VIDEOS:-}${REF_AUDIOS:-}" ] || { echo "REF_VIDEOS and REF_AUDIOS are Mac only for now: on a DGX Spark reference to video takes pictures (REF_IMAGES)" >&2; exit 2; }
 REFS=()
 if [ -n "${REF_IMAGES:-}" ]; then
   case "$REF_IMAGES" in *$'\n'*) while IFS= read -r r; do [ -z "$r" ] || REFS+=("$r"); done <<<"$REF_IMAGES";;
