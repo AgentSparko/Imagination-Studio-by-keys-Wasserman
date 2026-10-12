@@ -833,7 +833,11 @@ aspect ratio.
 From the scripts, `TEXT_ENCODER` may be the path of another MiniMax H3 text encoder file (on a DGX Spark, the name
 of a file in ComfyUI's `text_encoders` folder); unset, it is MiniMax's own. On the Mac FastH3 then runs on the MLX
 engine, not the native one.
-The app offers any such file it finds in the `text_encoders` folder beside the model, by its file name.
+In the app, *Text encoder* is *Regular* (MiniMax H3's own), any file found in the `text_encoders` folder beside the
+model (by its file name), or *Your own*: the path of a MiniMax H3 text encoder file on your machine (on a DGX Spark,
+the name of a file in ComfyUI's `text_encoders` folder). The Studio ships MiniMax H3's own text encoder and no other;
+it does not provide, check or recommend the file you choose. That file, its license and what you make with it are
+your own choice and responsibility.
 
 In the app, *Resolution → Custom* takes a width and a height (multiples of 32, each side 256 to 1536, at most
 1344x768 pixels in all) and *Custom passes* a number of passes from 1 to 50; no time is estimated for either. From

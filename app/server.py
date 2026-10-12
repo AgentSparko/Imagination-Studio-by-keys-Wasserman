@@ -275,6 +275,18 @@ def text_encoders() -> dict[str, str]:
     return {f.name: str(f) for f in sorted(folder.glob("*.safetensors"))}
 
 
+
+def own_text_encoder(asked: str) -> str | None:
+    """A text encoder file of the user's own choosing: what TEXT_ENCODER is set to for it, or None when there is no
+    such file. On a Mac a path; on a Spark the name of a file in ComfyUI's text_encoders folder (a path's last part)."""
+    if not asked.endswith(".safetensors"):
+        return None
+    if SPARK:
+        name = Path(asked).name
+        return name if (SPARK_REF2VA.parent / "FastH3-Comfy/text_encoders" / name).is_file() else None
+    path = Path(asked).expanduser()
+    return str(path) if path.is_file() else None
+
 def ref2va_ready() -> bool:
     """Whether reference to video can run here: MiniMax H3's Ref2VA transformer (oneshot-setup.sh --ref2va) beside
     the text encoder and decoders every install has. A Mac feature: the passes run on the MLX engine."""
@@ -309,9 +321,11 @@ def custom(params: dict) -> tuple[dict, bool]:
             raise HTTPException(400, f"passes is between {CUSTOM_STEPS[0]} and {CUSTOM_STEPS[1]}")
         env["STEPS"] = str(steps)
     if params.get("text_encoder") not in (None, "", "regular"):
-        found = text_encoders().get(str(params["text_encoder"]))
+        asked = str(params["text_encoder"]).strip()
+        found = text_encoders().get(asked) or own_text_encoder(asked)
         if not found:
-            raise HTTPException(400, f"no text encoder file named {params['text_encoder']} on this machine")
+            raise HTTPException(400, f"no text encoder file at {asked} on this machine (a .safetensors file"
+                                     + (" in ComfyUI's text_encoders folder)" if SPARK else ")"))
         env["TEXT_ENCODER"] = found
     return env, bool(env)
 
