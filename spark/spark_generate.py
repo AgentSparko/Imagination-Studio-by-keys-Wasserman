@@ -182,11 +182,12 @@ class Saved(dict):
         self.sound = sound
 
 
-# The audio decoder's output is levelled by ComfyUI to an RMS of -14 dBFS at most, with nothing done about the peaks:
-# speech comes out with peaks of up to several dB over full scale, which the clip's AAC track then carries and a
-# player clips. So the sound also leaves the workflow as a lossless track, HEADROOM_DB down so that nothing is cut
-# off on the way, and the clip's sound is made again from that track: brought back up, with a limiter when a peak
-# would pass PEAK_DBFS, at the bit rate the Mac build uses. AUDIO_EQ=off keeps ComfyUI's own track.
+# ComfyUI levels the audio decoder's output to an RMS of -14 dBFS at most and leaves the peaks alone: speech comes out
+# touching full scale (measured: -0.6 to +0.2 dBFS between the samples), and the AAC track ComfyUI writes at about
+# 130 kb/s then overshoots it (31 samples over full scale in one test clip), which a player clips. So the sound also
+# leaves the workflow as a lossless track, HEADROOM_DB down so that nothing is cut off on the way, and the clip's
+# sound is made again from that track: brought back up, with a limiter when a peak would pass PEAK_DBFS, at the bit
+# rate the Mac build uses. AUDIO_EQ=off keeps ComfyUI's own track.
 HEADROOM_DB, PEAK_DBFS, SOUND_BITRATE = 12, -1.0, "256k"
 
 

@@ -199,7 +199,14 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >   the camera move is added to the prompt. *Use as motion reference* in the Motion
 >   Previs tab opens the wizard filled in the same way. Without the motion environment a reference video is a plain
 >   reference, as before.
-> - `STEPS` sets the passes of a reference clip; *Custom* is a card of each passes chooser; a first frame or a
+> - **The reference step checks each file as you add it**: a clip under 2 or over 15 seconds, more than 15 seconds of
+>   one kind, a tenth picture, a thirteenth reference or a silent "audio" file is turned away with the reason, and
+>   *the videos' own sound* can only be ticked when every video has sound. A motion layer (skeleton, depth) now
+>   carries the shot's own sound, so that box works with any layer. A failed job shows the renderer's own last
+>   words, not "exited with status 1".
+> - **Sound on a DGX Spark** is made from a lossless copy of the decoder's output and limited to -1 dBFS; it used to
+>   be ComfyUI's own track, which overshot full scale.
+> - `STEPS` sets the passes of a reference clip; *Custom* is the card beside *20 passes* in each passes chooser; a first frame or a
 >   reference picture reaches the Mac's text encoder with the checkpoint's own normalisation (the DGX Spark build
 >   never had that fault: ComfyUI's encoder already used the checkpoint's values).
 >
@@ -210,15 +217,15 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 > [On a DGX Spark](#reference-videos-audio-and-motion-on-a-dgx-spark): reference videos and audio through ComfyUI's
 > node, the Motion Previs analysis on Linux, and the wizard's flow (upload, analyse, choose, compose, render) driven
 > through the app's HTTP API with the source clip and with the skeleton layer.
-> **Not tested on either machine:** the new screens by hand in a browser (on the Spark the wizard's motion panel and
-> the Motion Previs tab were opened in a headless Firefox and their screenshots looked at, and the flow behind them
-> was driven through the API; nobody has clicked through them); the motion figures on more than one shot or seed;
-> the object-motion and camera-only modes in a render; voice cloning (not promised: a video's own sound and a voice
-> that fits the pictured person carried over by measurement, a voice that does not fit did not); more than one
-> reference video or audio clip in a request; references with clips longer than 5 seconds; a real Motion Previs
-> Studio export ZIP; `REF_VIDEO_SIZE=full` (refused on the Spark, for memory). Not tested on the Spark:
-> `REF_VIDEO_SOUND=1`. Not tested on the Mac: the join after the merge (the Mac tests were made on the two branches
-> before they were joined).
+> **Checked on the Spark after the join:** the new screens by hand in a headless Chromium at desktop and phone
+> width (every card of the reference step, the motion panel, the Motion Previs tab and its hand-off, the limits,
+> one clip made start to finish through the page); a video's own sound, a voice recording, and both together, by
+> measurement ([what a sound reference does](#reference-videos-audio-and-motion-on-a-dgx-spark)); two reference videos
+> in one request; an 8 second clip from an 8 second shot; the object-motion and camera-only modes in a render.
+> **Not tested on either machine:** the motion figures on more than a few shots or seeds; voice cloning (not
+> promised: see the measurements); three reference videos at once; a real Motion Previs Studio export ZIP;
+> `REF_VIDEO_SIZE=full` (refused on the Spark, for memory). Not tested on the Mac: the join after the merge (the Mac
+> tests were made on the two branches before they were joined).
 
 > **2.5 (2026-10-11): Wasserman Slate AI Studio, the Wasserman Sharp Spec with its QA gate, and the Keys and
 > Wasserman LoRA Hub.** On both machines, with Sam Wasserman (wassermanproductions.com). **Wasserman Slate AI
@@ -953,9 +960,9 @@ it does not provide, check or recommend the file you choose. That file, its lice
 your own choice and responsibility.
 
 In the app, *Resolution → Custom* takes a width and a height (multiples of 32, each side 256 to 1536, at most
-1344x768 pixels in all). A number of passes of your own, from 1 to 50, is the *Custom* card at the end of each
-passes choice (FastH3's *Passes*, the reference choice, and a *Passes* row under MiniMax H3's *Quality*, whose cards
-are recipes rather than counts); a number box opens under the cards. No time is estimated for either. From
+1344x768 pixels in all). A number of passes of your own, from 1 to 50, is the *Custom* card beside *20 passes* in each
+passes choice (FastH3's *Passes*, the reference choice, and MiniMax H3's *Quality*, where it follows the two
+20-pass recipes and keeps the one that was chosen); a number box opens under the cards. No time is estimated for either. From
 the scripts these are `WIDTH`, `HEIGHT` and `STEPS` (FastH3, and everything on a Spark) or `POINTS` (MiniMax H3 on
 the Mac: one more than the passes).
 
@@ -1123,8 +1130,65 @@ int8 weights), and the reference model loads on top. That is the 7 GB figure of 
 that follows a FastH3 clip now restarts ComfyUI first ("a reference render starts from a server with nothing
 loaded"): the same picture and 5 s video then ran in 213 s, restart included, with 37.9 GB lowest free.
 
-Not tested on the Spark: `REF_VIDEO_SOUND=1`, more than one video or audio clip, a matching voice as the audio reference, clips longer than 5 s with a reference
-video, larger sizes than 864x480 with one, and sound by ear.
+**What a sound reference does (measured on the Spark, 2.6).** Same picture, prompt and seed with and without the
+reference, 5 s at 864x480, Turbo 4 passes unless said; pitch by autocorrelation, likeness as the correlation of the
+two spectrograms moment by moment (two unrelated spoken clips measure about 0.3), words by a speech-to-text pass:
+
+| Request | With the reference | Without it |
+|---|---|---|
+| A woman's picture, a recording of a woman's voice, the prompt's line is what the recording says | the recording itself: likeness 0.98, pitch 229 Hz (the recording's 229) | 188 Hz, likeness 0.28 |
+| The same picture, a man's recording, the prompt's line is what he says | the recording itself: likeness 0.98, pitch 113 Hz (his 122) | not run |
+| The same picture, the man's recording, another line | nothing carried: 188 Hz, likeness 0.11; the prompt's words | 188 Hz |
+| The same picture, the man's recording, another line, and the voice described too ("in the deep male voice of `<Audio 1>`") | pitch 122 Hz (his 122), timbre distance 8.5; the prompt's words | 156 Hz, distance 13.4 (the description alone) |
+| The same picture, the woman's recording, another line | pitch 229 Hz (the recording's), but the words came out garbled | 183 Hz, the words right |
+| A man's picture, his own recording, another line | pitch 130 Hz (his 122); the prompt's words | 147 Hz |
+| A video with its own sound (`REF_VIDEO_SOUND=1`) | likeness 0.81, loudness envelope 0.90, pitch 115 Hz (the video's 122); the prompt's words | likeness 0.34, envelope 0.48, 131 Hz |
+| A picture, a video with its own sound, and a voice recording (`<Audio 2>`) | her voice at 216 Hz (the recording's 229), the prompt's words; neither sound reproduced | not run |
+
+So a reference audio clip is a **performance to repeat** more than a voice to borrow: when the spoken line is what the
+recording says, the clip plays the recording back with the mouth moving in time with it (mouth movement against
+speech, from face landmarks: r 0.55 to 0.59, as for clips with the model's own voice), whoever is in the picture.
+With other words, the voice comes across when the prompt describes it as well as naming the clip (the pitch went to
+the recording's); named without a description, a voice unlike the pictured person changed nothing, and with the
+Turbo adapter a voice of the same kind blurred the words. It is not voice cloning, and the app says so where the clip is added. A video's own sound carries
+as on the Mac. *The videos' own sound* stays **off** by default in the app: the box swaps the sound written in step 3
+for the video's own, which has to be a choice.
+
+**The sound of every clip on a Spark** is now made from a lossless copy of the decoder's output (it used to be
+ComfyUI's own AAC track at about 130 kb/s): 256 kb/s, cut to the picture's length, and limited to -1 dBFS when the
+decoded peak is higher (it usually is: speech comes out of the decoder touching full scale, and the lossy track
+then overshot it, 31 samples over full scale in one test clip). The render says what it found
+(`[tensorfold] sound: peak -0.5 dBFS as decoded, limited to -1 dBFS`); `AUDIO_EQ=off` keeps ComfyUI's track. Every
+clip of this section was checked for sample rate (32 kHz stereo), length against the picture (within one frame),
+start offset (0), silence, channel balance (within 0.6 dB), clicks at the ends, and full-scale samples (none after
+the change).
+
+More of the 2.6 surface, on the same machine (Turbo 4 passes, 864x480):
+
+| Render | Time | Lowest free |
+|---|---|---|
+| Two 5 s reference videos (a man from one, a street and its camera from the other) | 373 s | 33.8 GB |
+| An 8 s clip from a picture and an 8 s source shot, full scene, through the app | 345 s | 30.3 GB |
+| A picture, a 5 s video with its own sound and an audio clip | 229 s | 33.2 GB |
+| Object motion: the depth layer of a ball rolling over a table, no picture, a prompt for an apple on marble | 208 s | 38.1 GB |
+| Camera only: the depth layer of a street shot, no picture, a prompt for an empty canyon | 198 s | 36.9 GB |
+
+The object-motion clip has the apple on the ball's path over a table of the same shape in a new kitchen; the
+camera-only clip has a canyon with the street's layout and no person, with a boulder where the figure stood (a depth
+layer shows the figure, so "camera only" keeps its place filled). The same request with the 4-step adapter at 4, 3
+and 2 passes (*Custom*; a picture and a 5 s reference video) took 219, 191 and 156 s; the three clips are the same
+shot to the eye, equally sharp (median Laplacian variance 70, 73, 84) and equally close to the reference's motion
+(pose distance 1.1 % of the frame width in each), so 2 or 3 passes are worth trying for drafts; one request, one seed.
+
+**The shared motion test** (two fast martial-arts shots, each as *Full scene* with the source clip and as *Actor
+motion* with the depth layer and a new setting; Turbo 4 passes, seed 7, the wizard's own prompts, the same on both
+builds): on the Spark 202 to 216 s a clip and 29.9 GB lowest free. Pose distance from the source, as a share of the
+frame width: 2.9 % median (7.7 % at the 90th percentile), 3.2 % (8.1 %) and 3.2 % (7.6 %) for the first three; the
+fourth, two fighters in a new courtyard, follows by eye, and the checker, which tracks one person, picked the other
+fighter (its 28 % is not a measure of that clip).
+
+Not tested on the Spark: larger sizes than 864x480 with a reference video, clips over 8 s with one, three reference
+videos at once, and sound by ear (the figures above are measurements).
 
 ### GHCR prebuilt carrier
 

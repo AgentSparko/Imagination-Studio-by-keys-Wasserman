@@ -84,11 +84,19 @@ Rules:
   alone. Named `<Video N>` and `<Audio N>` in the prompt; with `REF_VIDEO_SOUND=1` each video's own sound is a
   reference numbered ahead of the `REF_AUDIOS` clips. They need a TensorFold whose H3 family has
   `packing.reference_layout` on a Mac (engine branch `ref-video-audio`); the renderer says so when it is missing. A 5 s
-  reference video about triples the time of a 5 s clip. Do not promise that a voice carries over: a matching voice
-  moved the pitch to the reference's, a man's voice on a woman's picture changed nothing measurable. On a DGX Spark
+  reference video about triples the time of a 5 s clip. Do not promise voice cloning. Measured on the Spark: when the
+  spoken line is what the recording says, the clip plays the recording back (likeness 0.98) with the mouth in time,
+  whoever is pictured; with other words the voice carries when the prompt also describes it ("in the deep male voice of <Audio 1>":
+  122 Hz, the recording's, against 156 without the clip), and a man's voice named without a description beside a
+  woman's picture changed nothing. A video's own sound carries (likeness 0.81 against 0.34).
+  On a DGX Spark
   the same variables go through ComfyUI's `MiniMaxH3ReferenceToVideo` (`spark_generate.py video --ref-video /
   --ref-audio`), which needs no engine change; the video is scaled to the clip's pixel area before the node sees it,
   and must stay so (`REF_VIDEO_SIZE=full` multiplies the rows and the memory and is refused on a Spark).
+  On a Spark the clip's sound is made again from a lossless copy of the decoder's output, limited to -1 dBFS
+  (`finish_sound` in `spark/spark_generate.py`; `AUDIO_EQ=off` skips it): keep it, ComfyUI's own track overshoots full scale.
+  In the app a reference clip is measured as it is added (`/api/probe`) and turned away with the reason; *Custom* passes
+  is the card beside *20 passes* in every chooser.
 - Motion as a reference: the wizard's *Analyse motion* (and *Use as motion reference* in the Motion Previs tab) sends
   one layer of a Motion Previs pack as `<Video 1>`. Defaults by measurement: the same place with a new person takes the
   source clip (written as "`<Video 1>` with its person replaced", never with the first-frame-anchor wording); a new
