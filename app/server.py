@@ -1029,6 +1029,8 @@ import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)
 
 app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, REFERENCE_LIMIT,
                                 lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}))
+import motion  # noqa: E402  (Motion Previs: a Python port of Sam Wasserman's Motion Previs Studio analysis, beside this file)
+app.include_router(motion.attach(HOME, PACK, SPARK))
 app.mount("/", StaticFiles(directory=HERE / "static", html=True), name="static")
 
 if __name__ == "__main__":

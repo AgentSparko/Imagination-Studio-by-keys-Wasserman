@@ -6,6 +6,7 @@
 #   bash oneshot-setup.sh --app         # the same, plus the double-clickable app: the full one-shot
 #   bash oneshot-setup.sh --turbo       # also MiniMax H3's own transformer and its Turbo adapter (64 GB more, 128 GB of memory)
 #   bash oneshot-setup.sh --ref2va      # also MiniMax H3's Ref2VA transformer: reference pictures to video (64 GB more, 128 GB of memory)
+#   bash oneshot-setup.sh --motion      # also the Motion Previs tab's analysis: pose, camera solve and AI depth (0.5 GB, own environment)
 #   bash oneshot-setup.sh --image-only  # the image model only (33 GB), render a test image
 #   bash oneshot-setup.sh --no-render   # install and fetch only
 #   bash oneshot-setup.sh --verify      # check an existing install, no downloads, no render
@@ -27,7 +28,7 @@ if [ "$(uname -s)" = Linux ]; then
   SPARK_ARGS=()
   for arg in "$@"; do
     case "$arg" in
-      --image-only|--no-render|--verify) SPARK_ARGS+=("$arg");;
+      --image-only|--no-render|--verify|--motion) SPARK_ARGS+=("$arg");;
       --fasth3) ;;
       --turbo|--app|--ref2va) echo "note: $arg is for the Mac build and does nothing on a DGX Spark";;
       *) echo "unknown option $arg" >&2; exit 2;;
@@ -65,13 +66,14 @@ REF_ADAPTER_NAME="lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 X2_REPO="speach1sdef178/MiniMax-H3-X2-Detail-VAE"
 X2_NAME="MiniMax-H3-X2-Detail-v1.safetensors"
 X2_SHA256="2296840f4acedcaa976688e7d7b97f7bf570b136e400385d3f46224011897aac"
-MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0
+MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0
 for arg in "$@"; do
   case "$arg" in
     --image-only) VIDEO=0;;
     --fasth3) ;;  # FastH3 is the default video engine since 2.1; the flag is kept so older commands still run
     --turbo) TURBO=1;;
     --ref2va) REF2VA=1;;
+    --motion) MOTION=1;;
     --app) APP=1;;
     --verify|--no-render) MODE="$arg";;
     *) echo "unknown option $arg" >&2; exit 2;;
@@ -307,6 +309,14 @@ if [ "$VIDEO" = 1 ]; then
         *) ok "tf-h3-dit installed, but $CHIP has no tensor units: FastH3 runs on the MLX engine";; esac
     fi
   fi
+fi
+
+if [ "$MOTION" = 1 ] || [ -x "$PREFIX/motion-venv/bin/python" ]; then
+  # Motion Previs (a Python port of Sam Wasserman's Motion Previs Studio analysis): its packages go into an environment
+  # of their own, so nothing here can change the Studio's. A layer that cannot be installed on this machine is left out.
+  step "Motion Previs: MediaPipe, OpenCV, ONNX Runtime and the pose and depth models (0.5 GB) -> $PREFIX/motion-venv"
+  PREFIX="$PREFIX" bash "$HERE/scripts/setup-motion.sh" $([ "$MODE" = "--verify" ] && echo --verify) | sed 's/^/  /' \
+    || echo "  ! Motion Previs is not fully set up: its tab says which layers are not available on this machine"
 fi
 
 export PREFIX H3_MODEL_DIR QWEN_MODEL_DIR FASTH3_DIR
