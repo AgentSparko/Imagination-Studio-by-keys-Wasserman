@@ -620,13 +620,16 @@ cranes up to overhead; pose distance as in the table below, median / 90th percen
 | dummy drill | depth + a picture of her in a bamboo clearing | Turbo 4 | 235 s | 3.5 / 11.7 | held, in the new place |
 | dummy drill | depth + a picture of her on the same rooftop | Turbo 4 | 247 s | 16.0 / 25.3 | the drill and the push-in, with the layout shifted |
 | duel | depth + a picture of the pair in a temple courtyard | Turbo 4 | 234 s | not valid | held by eye: both new fighters in time, the crane-up followed |
+| duel | source clip + a picture of a new pair, *One* person | Turbo 4, without the int8 kernels | 294 s | 3.2 / 8.3 | motion and crane-up followed; only one fighter replaced |
+| duel | the same with *Two or more* people | Turbo 4, without the int8 kernels | 284 s | 3.1 / 8.3 | both fighters replaced, motion and crane-up followed |
 
 The first row was a defect of the Mac build, not of the source-clip route (the DGX Spark held the same request at
 2.9 / 7.7): the Ref2VA Turbo adapter, a reference video and the three int8 kernels together lose the motion. Any one
 kernel alone held (3.4 to 3.5), any two did not (14 to 23), and 20 passes without the adapter held with all three.
 `scripts/video.sh` now runs that one case in bfloat16, about 13 s more a pass at 864x480 (`REF_INT8=1` puts the
-kernels back). The duel's figures are not valid because the checker follows one person and picked different fighters
-in source and result. One seed each.
+kernels back). The depth duel's figures are not valid because the checker follows one person and picked different fighters in
+source and result; the source-clip duel's are for the one fighter it followed. The adapter at 3 passes held the
+dummy drill as well (3.2 / 10.5, 257 s). One seed each.
 
 The camera move in words goes into the prompt in every case (a switch; text of your own in the Camera field wins).
 With the source clip and a picture, step 4 writes "The target video is `<Video 1>` with its person replaced by
