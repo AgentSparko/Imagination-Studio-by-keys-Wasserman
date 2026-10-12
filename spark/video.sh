@@ -19,6 +19,8 @@
 # less memory), SPARK_SPARSITY (0 is dense attention; unset picks by size), SPARK_ENGINE (tensorfold: the transformer's
 # blocks on TensorFold's CUDA engine in int8, the default once it is built; comfy: ComfyUI's own blocks in bf16).
 # TEXT_ENCODER names another MiniMax H3 text encoder file in ComfyUI's text_encoders folder; unset or regular is MiniMax's own.
+# The clip's sound is made from a lossless copy of the decoder's output: 256 kb/s, and limited to -1 dBFS when the
+# decoded peak is higher (the render says which). AUDIO_EQ=off keeps ComfyUI's own track.
 # Not on the Spark: MiniMax H3 Turbo (ENGINE=h3, QUALITY) and the 2x decoder (X2, TWOK, QHD).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

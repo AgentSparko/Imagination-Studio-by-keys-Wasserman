@@ -163,12 +163,79 @@ def render(workflow: dict, sampler: str) -> tuple[dict, float]:
         errors = [m[1] for m in record["status"].get("messages", []) if m[0] == "execution_error"]
         detail = errors[0].get("exception_message", "").strip() if errors else json.dumps(record["status"])[:600]
         sys.exit(f"ComfyUI failed: {detail} (log: {PREFIX}/comfy.log)")
-    # the file a save node wrote: a loader of a reference video or sound lists its input file among the outputs too
+    # the files the save nodes wrote: a loader of a reference video or sound lists its input file among the outputs too
     found = [item for output in record["outputs"].values() for items in output.values()
-             for item in (items if isinstance(items, list) else []) if isinstance(item, dict) and item.get("filename")]
-    for item in sorted(found, key=lambda item: item.get("type") != "output"):
-        return item, time.time() - started
-    sys.exit("ComfyUI finished without writing a file")
+             for item in (items if isinstance(items, list) else []) if isinstance(item, dict) and item.get("filename")
+             and item.get("type", "output") == "output"]
+    # the clip or the picture first, then the lossless sound track (save_sound) when the workflow has one
+    found.sort(key=lambda item: item["filename"].endswith(".flac"))
+    if not found or found[0]["filename"].endswith(".flac"):
+        sys.exit("ComfyUI finished without writing a file")
+    return Saved(found[0], next((item for item in found if item["filename"].endswith(".flac")), None)), time.time() - started
+
+
+class Saved(dict):
+    """The record of the clip or picture a workflow saved; ``sound`` is the record of its lossless sound track."""
+
+    def __init__(self, item: dict, sound: dict | None = None):
+        super().__init__(item)
+        self.sound = sound
+
+
+# The audio decoder's output is levelled by ComfyUI to an RMS of -14 dBFS at most, with nothing done about the peaks:
+# speech comes out with peaks of up to several dB over full scale, which the clip's AAC track then carries and a
+# player clips. So the sound also leaves the workflow as a lossless track, HEADROOM_DB down so that nothing is cut
+# off on the way, and the clip's sound is made again from that track: brought back up, with a limiter when a peak
+# would pass PEAK_DBFS, at the bit rate the Mac build uses. AUDIO_EQ=off keeps ComfyUI's own track.
+HEADROOM_DB, PEAK_DBFS, SOUND_BITRATE = 12, -1.0, "256k"
+
+
+def save_sound(workflow: dict, audio: list, prefix: str) -> None:
+    """Add the lossless copy of the decoded sound to a workflow (nodes 17 and 18)."""
+
+    if os.environ.get("AUDIO_EQ", "on") == "off":
+        return
+    workflow["17"] = {"class_type": "AudioAdjustVolume", "inputs": {"audio": audio, "volume": -HEADROOM_DB}}
+    workflow["18"] = {"class_type": "SaveAudio", "inputs": {"audio": ["17", 0], "filename_prefix": prefix}}
+
+
+def finish_sound(item, target: Path, frames: int) -> None:
+    """Make the clip's sound again from the lossless track: full level, no peak over PEAK_DBFS, cut to the picture's
+    length. The picture is not encoded again. Says what it found."""
+
+    sound = getattr(item, "sound", None)
+    if sound is None or shutil.which("ffmpeg") is None:
+        return
+    import numpy as np
+
+    track = target.with_suffix(".sound.flac")
+    fetch(sound, track)
+    try:
+        # the peak between the samples too: measured at four times the rate
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(track), "-ar", str(4 * AUDIO_RATE), "-f", "f32le", "pipe:1"],
+                             capture_output=True).stdout
+        wave = np.frombuffer(raw, np.float32)
+        if not len(wave) or not float(np.abs(wave).max()):
+            print("[tensorfold] sound: the decoded track is silent", flush=True)
+            return
+        peak = 20 * math.log10(float(np.abs(wave).max())) + HEADROOM_DB
+        chain = f"volume={HEADROOM_DB}dB"
+        if peak > PEAK_DBFS:
+            chain += f",alimiter=limit={10 ** (PEAK_DBFS / 20):.4f}:level=disabled:attack=2:release=40,aresample={AUDIO_RATE}"
+        out = target.with_suffix(".sound.mp4")
+        done = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(target), "-i", str(track), "-map", "0:v:0", "-map", "1:a:0",
+                               "-c:v", "copy", "-af", chain, "-c:a", "aac", "-b:a", SOUND_BITRATE, "-ar", str(AUDIO_RATE),
+                               "-t", f"{frames / FPS:.6f}", "-movflags", "+faststart", str(out)], capture_output=True, text=True)
+        if done.returncode or not out.is_file() or not out.stat().st_size:
+            out.unlink(missing_ok=True)
+            print(f"[tensorfold] sound: left as ComfyUI wrote it ({done.stderr.strip()[-200:]})", flush=True)
+            return
+        out.replace(target)
+        print(f"[tensorfold] sound: peak {peak:+.1f} dBFS as decoded, " + (f"limited to {PEAK_DBFS:g} dBFS" if peak > PEAK_DBFS
+              else "left at its level"), flush=True)
+    finally:
+        track.unlink(missing_ok=True)
+        (PREFIX / "ComfyUI" / "output" / sound.get("subfolder", "") / sound["filename"]).unlink(missing_ok=True)
 
 
 def fetch(item: dict, target: Path) -> None:
@@ -417,9 +484,17 @@ def reference(args) -> None:
         model = ["2", 0]
     w["10"] = {"class_type": "BasicScheduler", "inputs": {"model": model, "scheduler": "simple", "steps": steps, "denoise": 1.0}}
     w["11"] = {"class_type": "BasicGuider", "inputs": {"model": model, "conditioning": ["6", 0]}}
+    guidance = float(os.environ.get("SPARK_REF_CFG") or 1.0)
+    if guidance > 1.0:
+        # an experiment, not a setting: the checkpoint is guidance-distilled and MiniMax runs it without a negative
+        # branch. This runs every pass twice (the prompt, and the same references with an empty prompt).
+        w["7"] = {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["6", 0]}}
+        w["11"] = {"class_type": "CFGGuider", "inputs": {"model": model, "positive": ["6", 0], "negative": ["7", 0], "cfg": guidance}}
+        print(f"[tensorfold] guidance {guidance:g} (experimental: two forwards a pass)", flush=True)
     w["12"] = {"class_type": "SamplerCustomAdvanced",
                "inputs": {"noise": ["8", 0], "guider": ["11", 0], "sampler": ["9", 0], "sigmas": ["10", 0],
                           "latent_image": ["6", 1]}}
+    save_sound(w, ["14", 0], w["16"]["inputs"]["filename_prefix"] + "_sound")
     kind = "Ref2VA with the Turbo adapter" if mode == "turbo" else "Ref2VA"
     count = (f"{len(pictures)} reference picture(s)" + (f", {len(videos)} video(s)" if videos else "")
              + (f", {len(audios)} audio clip(s)" if audios else "") + (", the videos' own sound" if videos and args.ref_video_sound else ""))
@@ -433,6 +508,7 @@ def reference(args) -> None:
         forget_uploads()
     target = Path(args.output)
     fetch(item, target)
+    finish_sound(item, target, args.frames)
     print("[tensorfold] " + json.dumps({"output": str(target), "engine": "cuda", "model": "ref2va", "mode": mode,
                                         "forwards": steps, "total_s": round(seconds_taken, 1), "frames": args.frames,
                                         "size": [args.width, args.height], "references": len(pictures),
@@ -546,6 +622,7 @@ def video(args) -> None:
                                                           "denoise": 1.0}}
     w["11"] = {"class_type": "CFGGuider", "inputs": {"model": model, "positive": ["6", 0], "negative": ["7", 0],
                                                      "cfg": 1.0}}
+    save_sound(w, ["14", 0], w["16"]["inputs"]["filename_prefix"] + "_sound")
     attention = f"sparse attention {sparsity}" if sparsity > 0 else "dense attention"
     runs = "TensorFold int8 blocks in ComfyUI" if args.engine == "tensorfold" else f"ComfyUI, FastH3 {args.weights}"
     print(f"[tensorfold] engine: cuda ({runs}, {attention}), generating "
@@ -553,6 +630,7 @@ def video(args) -> None:
     item, seconds = render(w, "12")
     target = Path(args.output)
     fetch(item, target)
+    finish_sound(item, target, args.frames)
     if args.crop:
         width, height = args.crop.lower().split("x")
         cropped = target.with_suffix(".crop.mp4")
@@ -663,7 +741,26 @@ def main() -> None:
         ensure_server("video")
         if H3_TEXT not in call("/object_info/CLIPLoader")["CLIPLoader"]["input"]["required"]["clip_name"][0]:
             sys.exit(f"ComfyUI does not list the text encoder {H3_TEXT}")
-    args.run(args)
+    try:
+        args.run(args)
+    except Exception as error:  # noqa: BLE001 - the server went away under the render: say why, not a traceback
+        if not isinstance(error, (OSError, ConnectionError)) and type(error).__module__.split(".")[0] != "aiohttp":
+            raise
+        sys.exit(stopped() or f"ComfyUI stopped answering during the render: {error} (log: {PREFIX}/comfy.log)")
+
+
+def stopped() -> str:
+    """Why the ComfyUI server ended, when its own log says so: spark/comfy.sh stops it when free memory runs low."""
+
+    try:
+        tail = (PREFIX / "comfy.log").read_text(errors="replace")[-4000:].splitlines()
+    except OSError:
+        return ""
+    for line in reversed(tail):
+        if "free memory is" in line and "stopping ComfyUI" in line:
+            return ("the render was stopped to protect the machine: " + line.split("] ", 1)[-1].strip()
+                    + ". Use a shorter clip, a shorter or fewer reference videos, or a smaller size.")
+    return ""
 
 
 if __name__ == "__main__":
