@@ -4,6 +4,7 @@
 #   bash oneshot-setup-spark.sh --image-only  # Qwen-Image-2.1 only (26 GB)
 #   bash oneshot-setup-spark.sh --no-render   # skip the test clip
 #   bash oneshot-setup-spark.sh --ref2va      # add MiniMax H3 Ref2VA (reference pictures hold a face), 39 GB more
+#   bash oneshot-setup-spark.sh --motion      # add the Motion Previs tab's analysis: pose, camera solve and AI depth (0.5 GB, own environment)
 #   bash oneshot-setup-spark.sh --verify      # check an existing install, download nothing
 # What it installs under $PREFIX (default ~/.local/opt/tensorfold-studio):
 #   venv/       Python 3.12, PyTorch for CUDA 13, ComfyUI's requirements, the web app's
@@ -21,10 +22,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MODELS="${SPARK_MODELS:-$HOME/spark-studio-models}"
 COMFY_COMMIT=a4b5a045e56fc334903db8457b728b64e006119c
-IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0
+IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0
 for arg in "$@"; do
   case "$arg" in
-    --ref2va) REF2VA=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;;
+    --ref2va) REF2VA=1;; --motion) MOTION=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;;
     *) echo "unknown option $arg" >&2; exit 2;;
   esac
 done
@@ -143,6 +144,14 @@ if [ "$IMAGE_ONLY" = 0 ]; then
   else
     echo "  the engine did not build: clips will render on ComfyUI's own blocks (slower). Fix and rerun spark/build-engine.sh"
   fi
+fi
+
+if [ "$MOTION" = 1 ] || [ -x "$PREFIX/motion-venv/bin/python" ]; then
+  # Motion Previs (a Python port of Sam Wasserman's Motion Previs Studio analysis): its packages go into an environment
+  # of their own, so nothing here can change the Studio's. A layer that cannot be installed on this machine is left out.
+  say "Motion Previs: MediaPipe, OpenCV, ONNX Runtime and the pose and depth models (0.5 GB) -> $PREFIX/motion-venv"
+  PREFIX="$PREFIX" bash "$HERE/scripts/setup-motion.sh" $([ "$VERIFY" = 1 ] && echo --verify) | sed 's/^/  /' \
+    || echo "  ! Motion Previs is not fully set up: its tab says which layers are not available on this machine"
 fi
 
 if [ "$RENDER" = 1 ]; then
