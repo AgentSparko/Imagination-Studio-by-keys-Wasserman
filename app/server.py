@@ -1271,6 +1271,8 @@ app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, RE
                                 lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}))
 import motion  # noqa: E402  (Motion Previs: a Python port of Sam Wasserman's Motion Previs Studio analysis, beside this file)
 app.include_router(motion.attach(HOME, PACK, SPARK))
+import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
+app.include_router(clear.attach(HOME, jobs, order, lock)[0])
 app.mount("/", StaticFiles(directory=HERE / "static", html=True), name="static")
 
 if __name__ == "__main__":

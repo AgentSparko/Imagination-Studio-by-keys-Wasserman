@@ -164,6 +164,7 @@ label.check { display:flex; gap:9px; align-items:flex-start; text-transform:none
   <aside>
     <h2>Queue</h2>
     <div class="note">One job at a time, in order. Renders are written under <span id="home"></span>.</div>
+    <div id="jobtools" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
     <div id="jobs" style="margin-top:10px"></div>
   </aside>
 </main>
@@ -183,7 +184,34 @@ const api = async (path, body, method) => { const r = await fetch(path, body ===
 const file = path => "/files/" + path.split("/").map(encodeURIComponent).join("/");
 const mmss = s => s == null ? "" : s >= 3600 ? Math.floor(s / 3600) + " h " + Math.round(s % 3600 / 60) + " min" : (s >= 60 ? Math.floor(s / 60) + " min " : "") + Math.round(s % 60) + " s";
 const put = (node, ...kids) => node.append(...kids.flat().filter(k => k != null && k !== false));
-const toast = text => { const n = el("div", { style: "position:fixed;bottom:18px;left:18px;background:#2b3050;border:1px solid var(--accent);padding:9px 14px;border-radius:8px;z-index:9" }, text); document.body.append(n); setTimeout(() => n.remove(), 3500); };
+const toast = (text, ms = 3500) => { for (const old of document.querySelectorAll(".toast")) old.remove(); const n = el("div", { class: "toast", style: "position:fixed;bottom:18px;left:18px;background:#2b3050;border:1px solid var(--accent);padding:9px 14px;border-radius:8px;z-index:9" }, text); document.body.append(n); setTimeout(() => n.remove(), ms); };
+// Clear and Undo for a form's text. A form is a node marked data-clear="key"; fields under data-keep stay as they
+// are, and data-clear-to names what a field goes back to. The last clear is kept until the page is left.
+let CLEARED = null;
+const keep = node => { node.setAttribute("data-keep", ""); return node; };
+const clearFields = root => [...root.querySelectorAll("textarea, input:not([type]), input[type=text]")].filter(n => !n.disabled && !n.closest("[data-keep]"));
+const fill = (n, v) => { n.value = v; n.dispatchEvent(new Event("input", { bubbles: true })); };
+function undoClear() { const c = CLEARED; if (!c) return; CLEARED = null;
+  if (c.model) { c.model(); render(); return toast("Put back"); }
+  const root = document.querySelector('[data-clear="' + c.key + '"]'), f = root ? clearFields(root) : [];
+  if (f.length !== c.values.length) { CLEARED = c; return toast("Open the form that was cleared to put its text back"); }
+  f.forEach((n, i) => fill(n, c.values[i])); render(); toast("Put back"); }
+const undoToast = text => toast(el("span", {}, text + " ", el("button", { class: "small", onclick: e => { e.target.closest(".toast").remove(); undoClear(); } }, "Undo")), 12000);
+function clearForm(key) { const root = document.querySelector('[data-clear="' + key + '"]'); if (!root) return; const f = clearFields(root);
+  if (!f.some(n => n.value !== (n.dataset.clearTo || ""))) return toast("Nothing to clear here");
+  CLEARED = { key, values: f.map(n => n.value) }; f.forEach(n => fill(n, n.dataset.clearTo || "")); render(); undoToast("Cleared."); }
+const clearButton = (key, label = "Clear", title = "Empty the text fields of this form (Undo puts them back)") => [el("button", { class: "small fit", title, onclick: () => clearForm(key) }, label),
+  CLEARED && CLEARED.key === key ? el("button", { class: "small fit on", onclick: undoClear }, "Undo clear") : null];
+// Deleting: jobs leave the queue list and their files go to the studio's trash folder (app/clear.py); the last deletion can be put back
+const PICK = new Set(), LIBPICK = new Set();
+const sizeText = b => b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : b >= 1e6 ? Math.round(b / 1e6) + " MB" : Math.max(1, Math.round(b / 1e3)) + " kB";
+const count = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+async function restoreLast() { try { const r = await api("/api/trash/restore", {}); toast("Put back " + count(r.files, "file") + (r.jobs ? " and " + count(r.jobs, "job card") : "") + (r.missing.length ? " · " + r.missing.length + " could not be put back" : "")); } catch (e) { toast(e.message); } await poll(); render(); }
+async function clearOut(body, ask) { if (ask && !confirm(ask + "\nFiles are moved to the trash folder inside " + S.home + ", not erased. “Restore last deletion” in the Library puts them back.")) return;
+  try { const r = await api("/api/clear", body); PICK.clear(); LIBPICK.clear();
+    toast(el("span", {}, (r.jobs ? count(r.jobs, "job") + " and " : "") + count(r.files, "file") + " moved to the trash" + (r.skipped.length ? " · " + r.skipped.length + " kept: " + r.skipped[0].why : "") + " ",
+      r.files || r.jobs ? el("button", { class: "small", onclick: e => { e.target.closest(".toast").remove(); restoreLast(); } }, "Undo") : null), 12000);
+  } catch (e) { toast(e.message); } await poll(); render(); }
 
 let S = null, jobs = [], tab = "Create", project = null;
 const TABS = ["Create", "Production", "Motion Previs", "Editor", "Library", "Tutorial"];
@@ -488,11 +516,18 @@ function useMotionReference(ref, pack) {
 
 /* ---------- Create ---------- */
 const STEPS = ["1. Intent / Mode", "2. First frame", "3. Words / Sound", "4. Review prompt", "5. Render"];
+const C_TEXT = { scene: "", action: "", camera: "", dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", prompt: "", beats: "" }, C_NOTES = { subjects: "refs", video_subjects: "refVideos", audio_notes: "refAudios" };
+function clearAllCreate() { const keys = [...Object.keys(C_TEXT), ...Object.keys(C_NOTES)], was = JSON.parse(JSON.stringify(Object.fromEntries(keys.map(k => [k, C[k]]))));
+  const empty = { ...JSON.parse(JSON.stringify(C_TEXT)), ...Object.fromEntries(Object.entries(C_NOTES).map(([k, of]) => [k, C[of].map(() => "")])) };
+  if (JSON.stringify(was) === JSON.stringify(empty)) return toast("Nothing to clear here");
+  Object.assign(C, empty); CLEARED = { key: "create-all", model: () => Object.assign(C, was) }; render(); undoToast("Every prompt field of this clip is empty."); }
 function viewCreate() {
   const body = el("div");
   const steps = el("div", { class: "steps" }, STEPS.map((name, i) => el("button", { class: i === C.step ? "on" : "", onclick: () => { C.step = i; render(); } }, i === 1 && isRef() ? "2. " + refWord() : name)));
   const next = el("div", { class: "row", style: "margin-top:14px" }, el("button", { class: "fit", disabled: C.step === 0, onclick: () => { C.step--; render(); } }, "Back"),
-    el("span"), C.step < 4 ? el("button", { class: "primary fit", onclick: () => { C.step++; render(); } }, "Next") : null);
+    el("span"), C.step === 3 && C.mode !== "image" ? null : clearButton("create-" + C.step, "Clear this step"), el("button", { class: "small fit", title: "Empty every prompt field of this clip: scene, action, camera, lines, sound, and the composed prompt. Pictures, clips and settings stay.", onclick: clearAllCreate }, "Clear all"),
+    C.step < 4 ? el("button", { class: "primary fit", onclick: () => { C.step++; render(); } }, "Next") : null);
+  body.setAttribute("data-clear", "create-" + C.step);
   sync();
   const goes = el("div", {}, el("label", {}, "The prompt goes to"), choice(C, "goes", { video: ["Video with sound", S.turbo ? "FastH3 or MiniMax H3" : "FastH3"], image: ["Image only", "Qwen-Image-2.1"] }, changed));
   const picture = field("Describe the scene / condition where it takes place", bind(C, "scene", el("textarea", { placeholder: isRef() ? "The woman with red hair sits at a wooden desk in a small radio studio at night, medium close-up, a warm lamp on the left." : "A middle-aged baker in a cream shirt and green apron behind a wooden counter in a small bakery at dawn, warm window light from the left…" })));
@@ -594,13 +629,13 @@ function viewCreate() {
   } else if (C.step === 2) {
     put(body, el("h2", {}, "Words and sound"), el("div", { class: "note" }, "Spoken or sung lines are written into the prompt exactly. Leave empty for a clip with no speech."),
       C.dialogue.map((line, i) => el("div", { class: "seg" }, el("div", { class: "row" }, field("Voice", bind(line, "voice", el("input", { placeholder: "a calm, slightly raspy male voice" }))),
-        el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Language"), bind(line, "language", el("input"))),
+        keep(el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Language"), bind(line, "language", el("input")))),
         isRef() && refPeople() > 1 ? el("div", { class: "fit", style: "width:140px" }, el("label", {}, "Speaker"), select(line, "subject", Object.fromEntries(Array.from({ length: refPeople() }, (_, k) => [k + 1, "<Subject " + (k + 1) + ">"])), () => { C.prompt = ""; })) : null,
         el("label", { class: "check fit" }, bind(line, "sung", el("input", { type: "checkbox" })), el("span", {}, "sung")),
         el("button", { class: "small fit", onclick: () => { C.dialogue.splice(i, 1); render(); } }, "Remove")), field("Line", bind(line, "text", el("textarea", { style: "min-height:54px" }))))),
       el("button", { onclick: () => { C.dialogue.push({ voice: "", language: "English", text: "", sung: false }); render(); } }, "+ Add a line"),
       field("Soundscape", bind(C, "soundscape", el("textarea", { placeholder: "Quiet bakery room tone and a low oven hum. A light ceramic tap as the loaf is set down." }))),
-      field("Music (N/A for none)", bind(C, "music", el("input"))));
+      field("Music (N/A for none)", bind(C, "music", el("input", { "data-clear-to": "N/A" }))));
   } else if (C.step === 3) {
     const area = bind(C, "prompt", el("textarea", { style: "min-height:260px;font-family:ui-monospace,monospace;font-size:12px" }));
     const again = async () => { const r = await api("/api/compose", { fields: { ...C, motion: isRef() ? motionFields() : null }, first_frame: !noFrame(), references: isRef() ? Math.max(C.refs.length, refMedia() ? 0 : 1) : 0, referenced: isRef() }); C.prompt = r.prompt; area.value = r.prompt; };
@@ -643,6 +678,12 @@ async function generateSeg(index) { const seg = project.segments[index]; if (!se
 // two ways to plan a film: this board of segments, or the port of Sam Wasserman's Slate (slate.js)
 const productionSwitch = () => el("div", { class: "choice", role: "radiogroup", style: "margin-bottom:16px" }, [["board", "Production board", "segments one after another: the simple way"], ["slate", "Wasserman Slate AI Studio", "bible, casting, coverage and a First AD, straight to the render queue"]].map(([k, title, sub]) =>
   el("button", { type: "button", role: "radio", "aria-checked": String(SL.mode === k), class: SL.mode === k ? "on" : "", onclick: () => { SL.mode = k; try { localStorage.setItem("production-mode", k); } catch {} render(); } }, el("b", {}, title), el("span", {}, sub))));
+const SEG_TEXT = ["scene", "action", "voice", "line", "soundscape", "prompt"];
+function clearSegments() { const was = project.segments.map(s => Object.fromEntries(SEG_TEXT.map(k => [k, s[k] || ""]))), of = project.id;
+  if (!was.some(w => SEG_TEXT.some(k => k !== "prompt" && w[k]))) return toast("Nothing to clear here");
+  for (const s of project.segments) for (const k of SEG_TEXT) s[k] = "";
+  CLEARED = { key: "segments", model: () => { if (project && project.id === of) { project.segments.forEach((s, i) => was[i] && Object.assign(s, was[i])); saveProject(); } } };
+  saveProject(); render(); undoToast("The text of every segment is empty."); }
 function viewProduction() {
   if (SL.mode === "slate") return viewSlate(productionSwitch());
   const box = el("section", { class: "card" }, productionSwitch(), el("h2", {}, "Production"));
@@ -663,17 +704,19 @@ function viewProduction() {
         el("button", { class: "hot fit", disabled: !project.segments.length, onclick: async () => { try { for (let i = 0; i < project.segments.length; i++) if (!project.segments[i].output || segJob(project.segments[i])?.status === "failed") await generateSeg(i);
           await saveProject(); await poll(); render(); } catch (e) { toast(e.message); } } }, "Generate every segment not yet rendered"),
         el("button", { class: "fit", disabled: !project.segments.some(s => s.output), onclick: () => { project.timeline = project.segments.filter(s => s.output).map(s => ({ path: s.output, in: 0, out: 0, duration: Number(s.seconds) }));
-          saveProject(); tab = "Editor"; render(); } }, "Send rendered segments to the editor"), el("span")));
+          saveProject(); tab = "Editor"; render(); } }, "Send rendered segments to the editor"),
+        el("button", { class: "fit", disabled: !project.segments.length, title: "Empty the scene, action, voice, line and soundscape of every segment. Titles, lengths and rendered clips stay.", onclick: clearSegments }, "Clear every segment's text"),
+        CLEARED && CLEARED.key === "segments" ? el("button", { class: "fit", onclick: undoClear }, "Undo clear") : null, el("span")));
     project.segments.forEach((seg, i) => { const job = segJob(seg); const change = () => { seg.prompt = ""; saveProject(); };
-      put(box, el("div", { class: "seg" }, el("div", { class: "seghead" }, el("b", {}, "Segment " + (i + 1)), job ? el("span", { class: "pill " + job.status }, job.status) : el("span", { class: "pill queued" }, seg.output ? "rendered" : "draft"),
-          el("span", { style: "flex:1" }), el("button", { class: "small", onclick: async () => { try { await generateSeg(i); await saveProject(); await poll(); render(); } catch (e) { toast(e.message); } } }, seg.output ? "Render again" : "Render"),
+      put(box, el("div", { class: "seg", "data-clear": "segment-" + i }, el("div", { class: "seghead" }, el("b", {}, "Segment " + (i + 1)), job ? el("span", { class: "pill " + job.status }, job.status) : el("span", { class: "pill queued" }, seg.output ? "rendered" : "draft"),
+          el("span", { style: "flex:1" }), clearButton("segment-" + i), el("button", { class: "small", onclick: async () => { try { await generateSeg(i); await saveProject(); await poll(); render(); } catch (e) { toast(e.message); } } }, seg.output ? "Render again" : "Render"),
           el("button", { class: "small", disabled: i === 0, onclick: () => { project.segments.splice(i - 1, 0, project.segments.splice(i, 1)[0]); saveProject(); render(); } }, "↑"),
           el("button", { class: "small", onclick: () => { project.segments.splice(i, 1); saveProject(); render(); } }, "Remove")),
-        el("div", { class: "row" }, field("Title", bind(seg, "title", el("input"), saveProject)),
+        el("div", { class: "row" }, keep(field("Title", bind(seg, "title", el("input"), saveProject))),
           el("div", { class: "fit", style: "width:150px" }, el("label", {}, "Length"), select(seg, "seconds", Object.fromEntries(Object.keys(S.durations).map(s => [s, s + " s"])), saveProject)),
           field("Opens on", select(seg, "start", { text: "nothing (text to video)", previous: "the last frame of the segment before", image: "an image from the library" }, () => { change(); render(); })),
           el("div", { class: "fit", style: "width:90px" }, el("label", {}, "Seed"), bind(seg, "seed", el("input", { type: "number" }), saveProject))),
-        seg.start === "image" ? field("Image path (copy from the Library tab)", bind(seg, "image", el("input", { placeholder: "scouts/…/scout_s3.png" }), saveProject)) : null,
+        seg.start === "image" ? keep(field("Image path (copy from the Library tab)", bind(seg, "image", el("input", { placeholder: "scouts/…/scout_s3.png" }), saveProject))) : null,
         field("Describe the scene / condition where it takes place", bind(seg, "scene", el("textarea", { style: "min-height:54px" }), change)), field("What happens to the characters inside the scene / clip", bind(seg, "action", el("textarea", { style: "min-height:54px" }), change)),
         el("div", { class: "row" }, field("Voice", bind(seg, "voice", el("input", { placeholder: "a warm female voice" }), change)), field("Spoken line (optional)", bind(seg, "line", el("input"), change))),
         field("Soundscape", bind(seg, "soundscape", el("input"), change)),
@@ -722,12 +765,22 @@ function viewEditor() {
 
 /* ---------- Library ---------- */
 function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {}, "Library"));
-  api("/api/library").then(list => put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it. 🗑 moves a file to the trash folder."), el("div", { class: "grid", style: "margin-top:10px" }, list.map(m =>
-    el("div", { class: "tile" }, media(m.path), el("div", { class: "cap" }, el("span", { style: "cursor:pointer", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.slice(-26)),
+  Promise.all([api("/api/library"), api("/api/trash").catch(() => null)]).then(([list, bin]) => { for (const p of [...LIBPICK]) if (!list.some(m => m.path === p)) LIBPICK.delete(p);
+    const many = el("button", { class: "fit", onclick: () => clearOut({ paths: [...LIBPICK], films: true }, "Delete the " + count(LIBPICK.size, "selected file") + "?") });
+    const all = el("button", { class: "fit", onclick: () => { const every = LIBPICK.size === list.length; LIBPICK.clear(); if (!every) for (const m of list) LIBPICK.add(m.path); render(); } }, LIBPICK.size && LIBPICK.size === list.length ? "Select none" : "Select all");
+    const show = () => { many.textContent = "Delete selected (" + LIBPICK.size + ")"; many.disabled = !LIBPICK.size; }; show();
+    put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased."),
+      el("div", { class: "row", style: "margin-top:10px" }, all, many, el("span"),
+        bin ? el("span", { class: "note fit", id: "trashline" }, "Trash: " + (bin.files ? count(bin.files, "file") + " · " + sizeText(bin.bytes) : "empty")) : null,
+        bin && bin.last ? el("button", { class: "fit", title: "Puts the files of the last deletion back where they were, and its job cards back in the queue", onclick: restoreLast }, "Restore last deletion (" + count(bin.last.files, "file") + ")") : null,
+        bin && bin.files ? el("button", { class: "fit", title: "Erases the files in the trash folder for good", onclick: async () => { if (!confirm("Erase the " + count(bin.files, "file") + " (" + sizeText(bin.bytes) + ") in the trash folder for good?\n" + bin.folder + "\nThis cannot be undone.")) return;
+          try { const r = await api("/api/trash?confirm=erase", undefined, "DELETE"); toast("Erased " + count(r.files, "file") + ", " + sizeText(r.bytes) + " freed"); } catch (e) { toast(e.message); } render(); } }, "Empty trash") : null),
+      el("div", { class: "grid", style: "margin-top:10px" }, list.map(m =>
+    el("div", { class: "tile" }, media(m.path), el("div", { class: "cap" }, el("input", { type: "checkbox", title: "Select " + m.path, "aria-label": "Select " + m.path, checked: LIBPICK.has(m.path), style: "width:auto;flex:none", onchange: e => { if (e.target.checked) LIBPICK.add(m.path); else LIBPICK.delete(m.path); show(); } }),
+      el("span", { style: "cursor:pointer", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.slice(-26)),
       m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use"),
       // out of the library: the server moves the file to the studio's trash folder
-      el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: async () => { if (!confirm("Delete " + m.path.split("/").pop() + "?\nIt is moved to the trash folder inside " + S.home + ", not erased.")) return;
-        try { await api("/api/library?path=" + encodeURIComponent(m.path), undefined, "DELETE"); toast("Moved to the trash folder"); render(); } catch (e) { toast(e.message); } } }, "🗑")))))));
+      el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: () => clearOut({ paths: [m.path], films: true }, "Delete " + m.path.split("/").pop() + "?") }, "🗑")))))); });
   return box; }
 
 /* ---------- Tutorial ---------- */
@@ -785,7 +838,8 @@ function lessons() {
       { t: "Make and use them", d: ["“Make image” queues the batch; seeds count up from the one you gave. Each result has “Download” and “animate this”, which takes the image to Create as the first frame of a video."], go: { tab: "Create", step: 0, spot: "Make image", set: { goes: "image" } } } ] },
     { id: "queue", track: "Create", title: "The queue", sub: "time left, cancel, logs", steps: [
       { t: "One job at a time", d: ["Everything you queue from any tab lands in the list on the right and runs in order. You can keep working and queue more while a job runs."], go: { tab: "Create", spot: "Queue" } },
-      { t: "Reading a job", d: ["A running job shows its stage and the time left. “Cancel” stops a queued or running job. “Log” shows what the engine printed, which is where to look when a job fails.", "A finished job shows how long it took."], tip: "The list lives in memory. It empties when the app restarts; the files stay in the Library." } ] },
+      { t: "Reading a job", d: ["A running job shows its stage and the time left. “Cancel” stops a queued or running job. “Log” shows what the engine printed, which is where to look when a job fails.", "A finished job shows how long it took."], tip: "The list lives in memory. It empties when the app restarts; the files stay in the Library." },
+      { t: "Clear the list", d: ["🗑 on a finished job deletes the job and what it made: its clip or stills, its check sheets and a first frame only it used. Tick several jobs and press “Delete selected”. “Clear failed” takes the failed jobs out of the list; “Delete all finished” takes every finished or cancelled job and its files.", "Nothing is erased: the files go to the trash folder, and “Undo” in the message, or “Restore last deletion” in the Library, puts the last deletion back. A clip that is in a film (a project's timeline, a Slate take) stays where it is."], tip: "A queued or running job cannot be deleted: cancel it first.", go: { tab: "Create", spot: "Delete all finished" } } ] },
     { id: "production", track: "Production", title: "A film in segments", sub: "plan, render and hand over to the editor", steps: [
       { t: "Projects", d: ["Production is for a film made of several clips. A project holds its segments and its editor timeline. Pick one, rename it, or press “New project”."], go: on("Production", "Project") },
       { t: "One output for all", d: ["“Output for every segment” and “Quality” apply to the whole project, so every segment has the same size and joins cleanly."], go: on("Production", "Output for every segment") },
@@ -828,7 +882,8 @@ function lessons() {
       { t: "What is in the Library", d: ["Every clip, scout, image and export the app has made, as files under " + S.home + ". They stay there when the app restarts."], go: on("Library", "Library") },
       { t: "Copy a path", d: ["Click the name under a file to copy its path. Paste it into a Production segment that opens on “an image from the library”."], go: on("Library", "Library") },
       { t: "Reuse a file", d: ["On a video, “+ timeline” adds it to the editor timeline. On an image, “use” takes it to Create as the first frame of a new clip."], go: on("Library", "Library") },
-      { t: "Delete a file", d: ["🗑 on a tile takes the file out of the Library after you confirm. It is moved to the “trash” folder inside " + S.home + ", so a mistake can be undone by moving it back; empty that folder yourself to free the disk space."], tip: "A file that a queued or running job needs cannot be deleted until the job is done.", go: on("Library", "Library") } ] } ]; }
+      { t: "Delete files", d: ["🗑 on a tile takes the file out of the Library after you confirm. To delete several, tick them (or “Select all”) and press “Delete selected”. Deleted files are moved to the “trash” folder inside " + S.home + ", not erased.", "“Restore last deletion” puts the files of the last deletion back where they were. “Empty trash” shows how much the trash holds and, after you confirm, erases it for good: that is the one step that cannot be undone, and the one that frees the disk space."], tip: "A file that a queued or running job needs cannot be deleted until the job is done.", go: on("Library", "Library") },
+      { t: "Clear what you typed", d: ["Every form has a Clear button: “Clear this step” and “Clear all” at the foot of the create wizard, “Clear” on a segment and “Clear every segment's text” on the production board, “Clear” above a Slate shot's prompt. It empties the text only; pictures, clips, titles and settings stay.", "“Undo” in the message, or the “Undo clear” button that appears beside Clear, puts the text back until you close or reload the page."], go: { tab: "Create", spot: "Clear all" } } ] } ]; }
 // outline the control a step talks about; Production and Editor draw themselves a moment after the tab opens, so look again
 function spot(text, tries = 14, again = false) { if (!text) return; const want = text.toLowerCase(); if (!again) T.spot = [text, Date.now() + 7000];
   const hit = [...document.querySelectorAll("#view label, #view h2, #view h3, #view button, aside h2")].find(n => n.textContent.trim().toLowerCase().startsWith(want));
@@ -887,14 +942,22 @@ function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != n
   const share = job.estimate && elapsed != null ? Math.min(99, Math.max(3, Math.round(100 * elapsed / job.estimate))) : (p ? Math.round(100 * p.at / p.of) : 3);
   const pre = el("pre", { class: "hide" }, job.log || "");
   return el("div", { class: "job" }, el("div", { class: "seghead" }, el("b", {}, job.title), el("span", { class: "pill " + job.status }, job.status), el("span", { style: "flex:1" }),
-      ["queued", "running"].includes(job.status) ? el("button", { class: "small", onclick: async () => { await api("/api/jobs/" + job.id + "/cancel", {}); poll(); } }, "Cancel") : null,
+      ["queued", "running"].includes(job.status) ? el("button", { class: "small", onclick: async () => { await api("/api/jobs/" + job.id + "/cancel", {}); poll(); } }, "Cancel")
+        : [el("input", { type: "checkbox", title: "Select this job", "aria-label": "Select " + job.title, checked: PICK.has(job.id), style: "width:auto;flex:none", onchange: e => { if (e.target.checked) PICK.add(job.id); else PICK.delete(job.id); jobTools(); } }),
+           el("button", { class: "small", title: "Delete this job and what it made (moved to the trash folder)", "aria-label": "Delete " + job.title, onclick: () => clearOut({ jobs: [job.id] }, "Delete “" + job.title + "” and the files it made?") }, "🗑")],
       el("button", { class: "small", onclick: () => pre.classList.toggle("hide") }, "Log")),
     job.status === "running" ? el("div", {}, el("div", { class: "bar" }, el("i", { style: "width:" + share + "%" })),
       el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + (job.estimate && elapsed != null ? (job.estimate - elapsed > 5 ? "about " + mmss(job.estimate - elapsed) + " left" : "almost done") : "no time estimate for this setting") + (job.passes ? " · " + job.passes + " passes" : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : job.engine === "cuda" ? "CUDA" : "MLX engine") : ""))) : null,
     job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.passes ? " · " + job.passes + " passes" : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : job.engine === "cuda" ? "CUDA" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, qaLines(job), paceLine(job), pre); }
+function jobTools() { const done = jobs.filter(j => ["done", "cancelled"].includes(j.status)).length, failed = jobs.filter(j => j.status === "failed").length;
+  for (const id of [...PICK]) if (!jobs.some(j => j.id === id && !["queued", "running"].includes(j.status))) PICK.delete(id);
+  $("#jobtools").replaceChildren(...(done || failed ? [
+    el("button", { class: "small", disabled: !PICK.size, onclick: () => clearOut({ jobs: [...PICK] }, "Delete the " + count(PICK.size, "selected job") + " and the files they made?") }, "Delete selected (" + PICK.size + ")"),
+    el("button", { class: "small", disabled: !failed, title: "Take every failed job out of this list", onclick: () => clearOut({ failed: true }, "Clear the " + count(failed, "failed job") + " from the queue list?") }, "Clear failed (" + failed + ")"),
+    el("button", { class: "small", disabled: !done, title: "Every finished or cancelled job leaves this list and its clips, stills and check sheets go to the trash folder. A clip that is in a film (a project's timeline, a Slate take) stays.", onclick: () => clearOut({ finished: true }, "Delete all " + count(done, "finished job") + " and the files they made?\nA clip that is in a film (a project's timeline or a Slate take) stays where it is.") }, "Delete all finished (" + done + ")")] : [])); }
 let lastSig = "";
 async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
-  const box = $("#jobs"); box.replaceChildren(...(jobs.length ? jobs.slice(0, 30).map(jobCard) : [el("div", { class: "note" }, "Nothing queued yet.")]));
+  jobTools(); const box = $("#jobs"); box.replaceChildren(...(jobs.length ? jobs.slice(0, 30).map(jobCard) : [el("div", { class: "note" }, "Nothing queued yet.")]));
   // a timeline changed from another window or device shows here without a reload
   if (project && tab === "Editor" && !document.activeElement.matches("input,textarea,select")) { try { const fresh = await api("/api/projects/" + project.id);
     if (JSON.stringify(fresh.timeline) !== JSON.stringify(project.timeline)) { project = fresh; render(); } } catch {} }

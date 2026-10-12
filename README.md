@@ -204,6 +204,12 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >   reference that moves slowly. Every finished reference clip is measured for it and flagged when it does not agree.
 >   A source clip's mouth is kept out of a clip in which nobody speaks. See
 >   [Sound and movement of a motion reference](#sound-and-movement-of-a-motion-reference-impacts-or-flow).
+> - **Clear and delete.** Every prompt form has a *Clear* with an *Undo* (a wizard step, the whole draft, a segment,
+>   every segment, a Slate shot's prompt). In the queue, 🗑 deletes a finished job with its clip, check sheets and
+>   the first frame only it used; *Delete selected*, *Clear failed* and *Delete all finished* do the same for
+>   several. The Library deletes one or several ticked files. Everything goes to the trash folder and the last
+>   deletion can be put back; *Empty trash* shows the size and erases it after a confirmation. See
+>   [Clearing prompts and deleting clips](#clearing-prompts-and-deleting-clips).
 > - **The reference step checks each file as you add it**: a clip under 2 or over 15 seconds, more than 15 seconds of
 >   one kind, a tenth picture, a thirteenth reference or a silent "audio" file is turned away with the reason, and
 >   *the videos' own sound* can only be ticked when every video has sound. A motion layer (skeleton, depth) now
@@ -480,6 +486,31 @@ length. A segment can open on the last frame of the one before; one button rende
 
 **Library** lists every render, scout and export; *use* makes an image the first frame of a new clip, *+ timeline*
 sends a clip to the editor, and 🗑 moves a file to `~/TensorFoldStudio/trash`.
+
+### Clearing prompts and deleting clips
+
+From 2.6. Nothing below erases a file except *Empty trash*.
+
+| Where | Control | What it does |
+|---|---|---|
+| Create wizard | *Clear this step* | Empties the text fields of the step on screen. *Music* goes back to `N/A`; a line's language stays. |
+| Create wizard | *Clear all* | Empties every prompt field of the clip: scene, action, camera, lines, soundscape, music, the notes on references and the composed prompt. Pictures, clips and settings stay. |
+| Production board | *Clear* on a segment, *Clear every segment's text* | Empties scene, action, voice, line and soundscape. Titles, lengths, seeds and rendered clips stay. |
+| Slate | *Clear* above a shot's prompt | Empties that shot's prompt. |
+| Queue | 🗑 on a finished job | The job leaves the list; its clip or stills, its QA sheets and takes, and uploads no other job in the list uses go to the trash. |
+| Queue | *Delete selected*, *Clear failed*, *Delete all finished* | The same for the ticked jobs, the failed ones, or every finished and cancelled one. A clip that is in a film (a project's timeline, a Slate take) stays. |
+| Library | 🗑, or tick files and *Delete selected* | The files go to the trash. |
+| Library | *Restore last deletion* | The files of the last deletion return to where they were, and its job cards to the queue. |
+| Library | *Empty trash* | Shows the number of files and their size, asks, then erases them. This cannot be undone. |
+
+A cleared form is put back by *Undo* in the message or by *Undo clear* beside the button, until the page is closed
+or reloaded. A queued or running job cannot be deleted (cancel it first), and a file such a job reads or writes
+stays. Deleting never touches a project file, a LoRA or a model: only pictures, clips and sound in `renders`,
+`exports`, `scouts`, `uploads` and `qa`, and clips in `projects` and `slate`, can be moved. The trash is
+`~/TensorFoldStudio/trash`; a LoRA removed in the hub goes there too, so *Empty trash* erases that as well.
+`tests/test_clear.py` holds the path checks. Driven in a headless Chromium on both machines' builds: each Clear and
+Undo, one job deleted and put back, two ticked jobs, the failed ones, all finished, restore, two ticked Library
+files, and the trash emptied (25 checks).
 
 ![Tutorial](samples/ui_tutorial.png)
 
