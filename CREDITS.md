@@ -64,7 +64,9 @@ activation scales, per-output-channel weight scales, one scale per 1,024 channel
 int8 tiles on the M5 tensor units, and the q/k norm and rotation inside the QKV kernel. No h3.c source is
 copied; the design is his. (MIT.) Its `--ref-image` was the working reference-to-video on a Mac that this pack's
 Ref2VA layout was checked against, row for row; the layout itself follows **ComfyUI**'s MiniMax H3 nodes
-(Comfy-Org, GPL-3.0: read for the arithmetic, no source copied).
+(Comfy-Org, GPL-3.0: read for the arithmetic, no source copied). Reference videos and reference audio follow
+**MiniMax**'s own diffusers pipeline for H3 (`packing_ref2va.py`, Apache-2.0, as vendored by minimax-h3-mlx), and
+h3.c's `--ref-video` and `--ref-audio` were the second implementation the layout was compared with.
 
 ## H3MLX: RobZombAI
 

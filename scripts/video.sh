@@ -7,6 +7,8 @@
 #   QUALITY=high bash scripts/video.sh "a prompt" out.mp4               # 20 steps, no adapter, fast recipe (QUALITY=full for plain)
 #   FIRST_FRAME=photo.jpg bash scripts/video.sh "what happens next" out.mp4   # image to video
 #   REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the person. The person ..." out.mp4   # reference to video
+#   REF_VIDEOS="dance.mp4" bash scripts/video.sh "The robot dances with the motion of <Video 1>." out.mp4   # a reference video
+#   REF_IMAGES="face.jpg" REF_AUDIOS="voice.wav" bash scripts/video.sh "<Picture 1> speaks with the voice of <Audio 1>: ..." out.mp4
 #   X2=1 WIDTH=1344 HEIGHT=768 bash scripts/video.sh "a prompt" out.mp4   # generate at 672x384, decode at 2x
 #   ENGINE=fasth3 STEPS=8 bash scripts/video.sh "a prompt" out.mp4       # FastH3; see scripts/fast.sh
 # Environment: PREFIX, H3_MODEL_DIR, ADAPTER (a file, or none), FIRST_FRAME (an image the clip starts from; it is
@@ -30,6 +32,17 @@
 # installed by --ref2va): 4 passes, then the sound made again by the Ref2VA model without the adapter (REVOICE=20),
 # 1 min 28 s for the same clip. QUALITY=high is the 20 passes with the fast recipe (1 min 58 s). Not with FIRST_FRAME,
 # and not with ENGINE=fasth3.
+# STEPS=N sets the number of passes of a reference clip by hand (POINTS=N+1 does the same and wins when both are
+# set), with or without REF_TURBO=1: the adapter then runs N passes instead of the 4 it was trained for, and the
+# render says so. The first line of a reference render names the passes it will run.
+# REF_VIDEOS (one to three clips, each 2 to 15 s, 15 s in all) and REF_AUDIOS (one to three clips, each 2 to 15 s, 15 s
+# in all, and only beside a picture or a video) are the same model's other references, on the Mac only: <Video 1>, ...
+# carry a subject and how it moves, <Audio 1>, ... a voice or music. At most 12 references of all kinds. The model
+# reads pictures first, then videos, then audio clips. A video is read at 24 fps up to the clip's own length and
+# brought down to the clip's pixel area (REF_VIDEO_SIZE=full keeps the model's 768-pixel canvas, several times
+# slower); its own sound is ignored unless REF_VIDEO_SOUND=1, which makes each video's soundtrack a reference too,
+# numbered <Audio 1>, ... ahead of the REF_AUDIOS clips. Audio is cut to the clip's length. Every reference latent
+# rides through every pass: a 5 s reference video doubles the rows of a 5 s clip. Needs ffmpeg on the PATH.
 # TEXT_ENCODER may be the path of another MiniMax H3 text encoder file (a ComfyUI int8 safetensors, decoded to
 # bfloat16 as it loads); unset or regular is MiniMax's own. With ENGINE=fasth3 it renders on the MLX engine.
 set -euo pipefail
@@ -49,30 +62,55 @@ esac
 # MiniMax H3's own transformer (the Turbo adapter and the 20-step qualities run on it) is an optional part of the
 # install: oneshot-setup.sh --turbo. Without it the engine is FastH3, which needs only H3's text encoder and decoders.
 TURBO_OK=0; ls "$H3_MODEL_DIR"/FL2VA/transformer/*.safetensors >/dev/null 2>&1 && TURBO_OK=1
-REFS=()
-if [ -n "${REF_IMAGES:-}" ]; then
-  case "$REF_IMAGES" in *$'\n'*) while IFS= read -r REF; do [ -z "$REF" ] || REFS+=("$REF"); done <<<"$REF_IMAGES";;
-    *) read -r -a REFS <<<"$REF_IMAGES";; esac
-fi
-if [ "${#REFS[@]}" -gt 0 ]; then
+# a list of files from the environment: separated by spaces, or one per line when a path has spaces
+ref_list() {
+  LIST=()
+  [ -n "$1" ] || return 0
+  case "$1" in *$'\n'*) while IFS= read -r REF; do [ -z "$REF" ] || LIST+=("$REF"); done <<<"$1";;
+    *) read -r -a LIST <<<"$1";; esac
+}
+ref_list "${REF_IMAGES:-}"; REFS=(${LIST[@]+"${LIST[@]}"})
+ref_list "${REF_VIDEOS:-}"; REF_CLIPS=(${LIST[@]+"${LIST[@]}"})
+ref_list "${REF_AUDIOS:-}"; REF_SOUNDS=(${LIST[@]+"${LIST[@]}"})
+REF_COUNT=$(( ${#REFS[@]} + ${#REF_CLIPS[@]} + ${#REF_SOUNDS[@]} ))
+if [ "$REF_COUNT" -gt 0 ]; then
   # reference to video runs on the Ref2VA transformer; the text encoder and the two decoders are FL2VA's own files
-  [ -z "${FIRST_FRAME:-}" ] || { echo "REF_IMAGES and FIRST_FRAME do not combine: a reference is not a frame of the clip" >&2; exit 2; }
-  [ "${ENGINE:-h3}" = h3 ] || { echo "REF_IMAGES needs MiniMax H3's Ref2VA transformer, not ENGINE=$ENGINE" >&2; exit 2; }
+  [ -z "${FIRST_FRAME:-}" ] || { echo "references (REF_IMAGES, REF_VIDEOS, REF_AUDIOS) and FIRST_FRAME do not combine: a reference is not a frame of the clip" >&2; exit 2; }
+  [ "${ENGINE:-h3}" = h3 ] || { echo "references need MiniMax H3's Ref2VA transformer, not ENGINE=$ENGINE" >&2; exit 2; }
+  # MiniMax's limits for one request: 9 pictures, 3 videos, 3 audio clips, 12 files in all
   [ "${#REFS[@]}" -le 9 ] || { echo "at most 9 reference pictures, got ${#REFS[@]}" >&2; exit 2; }
-  for REF in "${REFS[@]}"; do [ -s "$REF" ] || { echo "no reference picture at $REF" >&2; exit 2; }; done
+  [ "${#REF_CLIPS[@]}" -le 3 ] || { echo "at most 3 reference videos, got ${#REF_CLIPS[@]}" >&2; exit 2; }
+  [ "${#REF_SOUNDS[@]}" -le 3 ] || { echo "at most 3 reference audio clips, got ${#REF_SOUNDS[@]}" >&2; exit 2; }
+  [ "$REF_COUNT" -le 12 ] || { echo "at most 12 references in all, got $REF_COUNT" >&2; exit 2; }
+  [ "${#REF_SOUNDS[@]}" = 0 ] || [ $(( ${#REFS[@]} + ${#REF_CLIPS[@]} )) -gt 0 ] \
+    || { echo "REF_AUDIOS needs a reference picture or video beside it (REF_IMAGES or REF_VIDEOS): the model does not take sound alone" >&2; exit 2; }
+  for REF in ${REFS[@]+"${REFS[@]}"}; do [ -s "$REF" ] || { echo "no reference picture at $REF" >&2; exit 2; }; done
+  for REF in ${REF_CLIPS[@]+"${REF_CLIPS[@]}"}; do [ -s "$REF" ] || { echo "no reference video at $REF" >&2; exit 2; }; done
+  for REF in ${REF_SOUNDS[@]+"${REF_SOUNDS[@]}"}; do [ -s "$REF" ] || { echo "no reference audio clip at $REF" >&2; exit 2; }; done
+  case "${REF_VIDEO_SIZE:-match}" in match|full) ;; *) echo "REF_VIDEO_SIZE is match or full, got $REF_VIDEO_SIZE" >&2; exit 2;; esac
+  # each video and each audio clip is 2 to 15 seconds, and 15 seconds in all per kind: the renderer measures them
+  # and says which file is out of range before any model is loaded
   ls "$H3_MODEL_DIR"/Ref2VA/transformer/*.safetensors >/dev/null 2>&1 \
     || { echo "MiniMax H3's Ref2VA transformer is not installed (oneshot-setup.sh --ref2va adds it: 62 GB, 128 GB of memory)" >&2; exit 2; }
   for PART in text_encoder tokenizer processor video_vae audio_vae; do
     [ -e "$H3_MODEL_DIR/Ref2VA/$PART" ] || [ ! -e "$H3_MODEL_DIR/FL2VA/$PART" ] || ln -s "../FL2VA/$PART" "$H3_MODEL_DIR/Ref2VA/$PART"
   done
   ENGINE=h3; TURBO_OK=1
+  # a number of passes set by hand: STEPS, as for FastH3 and on a Spark (POINTS, one more, still works and wins)
+  if [ -n "${STEPS:-}" ] && [ -z "${POINTS:-}" ]; then
+    case "$STEPS" in *[!0-9]*|0) echo "STEPS must be a positive number of passes, got $STEPS" >&2; exit 2;; esac
+    POINTS=$((STEPS + 1))
+  fi
   # the FL2VA Turbo adapter is not for this transformer: plain 20 passes, or the Ref2VA adapter with REF_TURBO=1
   ADAPTER=none
   if [ "${REF_TURBO:-0}" = 1 ]; then
     ADAPTER="${REF_ADAPTER:-$PREFIX/adapters/lightx2v_ref2v_4step_v0.1_ourlayout.safetensors}"; RECIPE=""
     [ -f "$ADAPTER" ] || { echo "no Ref2VA Turbo adapter at $ADAPTER (oneshot-setup.sh --ref2va adds it)" >&2; exit 2; }
     POINTS="${POINTS:-5}"  # four passes, what the adapter was trained for
+    [ "$POINTS" = 5 ] || echo "[tensorfold] the Ref2VA Turbo adapter was trained for 4 passes; running $((POINTS - 1)) as asked"
   fi
+  case "${POINTS:-21}" in *[!0-9]*|0|1) echo "POINTS is one more than the passes, 2 at least, got ${POINTS}" >&2; exit 2;; esac
+  echo "[tensorfold] reference to video: $(( ${POINTS:-21} - 1 )) passes$([ "$ADAPTER" = none ] || echo " with the Ref2VA Turbo adapter"), ${#REFS[@]} picture(s), ${#REF_CLIPS[@]} video(s), ${#REF_SOUNDS[@]} audio clip(s)"
 fi
 ENGINE="${ENGINE:-$([ "$TURBO_OK" = 1 ] && echo h3 || echo fasth3)}"; STEPS="${STEPS:-8}"
 [ "$ENGINE" = fasth3 ] || [ "$TURBO_OK" = 1 ] || { echo "MiniMax H3's transformer is not installed (oneshot-setup.sh --turbo adds it, 128 GB of memory): use ENGINE=fasth3" >&2; exit 2; }
@@ -142,6 +180,10 @@ if [ -n "${LORA:-}" ]; then while IFS= read -r ONE; do [ -z "$ONE" ] || ARGS+=(-
 [ -z "${FIRST_FRAME:-}" ] || ARGS+=(--first-frame "$FIRST_FRAME")
 [ -z "$TEXT_ENCODER" ] || ARGS+=(--text-encoder "$TEXT_ENCODER")
 for REF in ${REFS[@]+"${REFS[@]}"}; do ARGS+=(--ref-image "$REF"); done
+for REF in ${REF_CLIPS[@]+"${REF_CLIPS[@]}"}; do ARGS+=(--ref-video "$REF"); done
+for REF in ${REF_SOUNDS[@]+"${REF_SOUNDS[@]}"}; do ARGS+=(--ref-audio "$REF"); done
+[ "${#REF_CLIPS[@]}" = 0 ] || [ "${REF_VIDEO_SOUND:-0}" != 1 ] || ARGS+=(--ref-video-sound)
+[ "${#REF_CLIPS[@]}" = 0 ] || [ "${REF_VIDEO_SIZE:-match}" = match ] || ARGS+=(--ref-video-size "$REF_VIDEO_SIZE")
 if [ -n "${PROMPT_FILE:-}" ]; then ARGS+=(--prompt-file "$PROMPT_FILE"); else ARGS+=(--prompt "$PROMPT"); fi
 [ -z "${CROP:-}" ] || ARGS+=(--crop "$CROP")
 # shellcheck disable=SC2086
