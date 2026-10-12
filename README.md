@@ -602,29 +602,31 @@ well under a minute and gives two choices:
 - **What to carry over:** *Full scene* (the same place and motion with a new person: its person is replaced by
   `<Picture 1>`), *Actor motion* (the body motion and the camera, in a new place), *Object motion* (an object's path
   and the camera) or *Camera only*.
-- **What goes to the model as `<Video 1>`:** the **source clip** (the default for *Full scene* at 20 passes), the
-  **depth** layer as a control video (the default for the other three, and for *Full scene* with Turbo 4 passes), or
-  the **skeleton** (offered, never the default) or edges.
+- **What goes to the model as `<Video 1>`:** the **source clip** (the default for *Full scene*), the **depth** layer
+  as a control video (the default for the other three), or the **skeleton** (offered, never the default) or edges.
 - **People in `<Video 1>`:** *One* or *Two or more*. With two or more the prompt speaks of its people and figures,
   one for one. You say it: the pose pass, its skeleton layer and the distance figures below follow **one person
   only** (asked for up to four people on a two-person duel at arm's length, it returned one in every frame).
 
-**The source clip needs 20 passes for fast motion.** On the Mac, through the app, 5 s at 864x480, seed 7 (two cuts
-of a fictional martial-arts short: one man drilling a wooden dummy while the camera pushes in to a close-up, and two
-fighters trading hands while the camera cranes up to overhead; pose distance as in the table below, median / 90th
-percentile):
+**Fast motion, on the Mac** (through the app, 5 s at 864x480, seed 7; two cuts of a fictional martial-arts short: one
+man drilling a wooden dummy while the camera pushes in to a close-up, and two fighters trading hands while the camera
+cranes up to overhead; pose distance as in the table below, median / 90th percentile):
 
 | shot | `<Video 1>` | passes | time | distance | what came out |
 |---|---|---|---|---|---|
-| dummy drill | source clip + a picture of a woman | Turbo 4 | 236 s | 26.4 / 36.6 | the place kept; she drifts out of frame, strikes lost |
+| dummy drill | source clip + a picture of a woman | Turbo 4, as first shipped | 236 s | 26.4 / 36.6 | the place kept; she drifts out of frame, strikes lost |
+| dummy drill | the same request | Turbo 4, without the int8 kernels | 231 s | 3.7 / 11.2 | held |
 | dummy drill | the same request | 20 | 741 s | 4.2 / 11.7 | held: she does the drill and the push-in on the same rooftop |
 | dummy drill | depth + a picture of her in a bamboo clearing | Turbo 4 | 235 s | 3.5 / 11.7 | held, in the new place |
 | dummy drill | depth + a picture of her on the same rooftop | Turbo 4 | 247 s | 16.0 / 25.3 | the drill and the push-in, with the layout shifted |
-| duel | source clip + a picture of a new pair | Turbo 4 | 238 s | not valid | lost: one new fighter appears, the crane-up is not followed |
 | duel | depth + a picture of the pair in a temple courtyard | Turbo 4 | 234 s | not valid | held by eye: both new fighters in time, the crane-up followed |
 
-The duel's figures are not valid because the checker follows one person and picked different fighters in source and
-result. One seed each; the duel was not run at 20 passes with the source clip.
+The first row was a defect of the Mac build, not of the source-clip route (the DGX Spark held the same request at
+2.9 / 7.7): the Ref2VA Turbo adapter, a reference video and the three int8 kernels together lose the motion. Any one
+kernel alone held (3.4 to 3.5), any two did not (14 to 23), and 20 passes without the adapter held with all three.
+`scripts/video.sh` now runs that one case in bfloat16, about 13 s more a pass at 864x480 (`REF_INT8=1` puts the
+kernels back). The duel's figures are not valid because the checker follows one person and picked different fighters
+in source and result. One seed each.
 
 The camera move in words goes into the prompt in every case (a switch; text of your own in the Camera field wins).
 With the source clip and a picture, step 4 writes "The target video is `<Video 1>` with its person replaced by

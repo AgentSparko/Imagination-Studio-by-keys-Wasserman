@@ -135,7 +135,17 @@ else
   W="${WIDTH:-864}"; H="${HEIGHT:-480}"
 fi
 ARGS=("$H3_MODEL_DIR" -o "$OUT" --width "$W" --height "$H" --frames "${FRAMES:-124}"
-      --seed "${SEED:-0}" --points "$POINTS" --int8-mlp --int8-qkv --int8-out)
+      --seed "${SEED:-0}" --points "$POINTS")
+# The int8 tensor-unit kernels run the block MLPs and the two attention projections. One exception, by measurement:
+# the Ref2VA Turbo adapter with a reference video. With all three kernels the clip lost the video's fast motion (pose
+# distance 26 % of the frame width against 3.7 % in bfloat16; any two kernels 14 to 23 %, any one alone 3.4 to 3.5 %),
+# while 20 passes without the adapter held with them (4.2 %). So that one case runs in bfloat16: about 13 s more a
+# pass at 864x480. REF_INT8=1 puts the kernels back.
+if [ "$ADAPTER" != none ] && [ "${#REF_CLIPS[@]}" -gt 0 ] && [ "${REF_INT8:-0}" != 1 ]; then
+  echo "[tensorfold] reference video with the Turbo adapter: passes in bfloat16, without the int8 kernels"
+else
+  ARGS+=(--int8-mlp --int8-qkv --int8-out)
+fi
 [ "$ENGINE" != fasth3 ] || ARGS+=(--fasth3 "$FASTH3_DIR" --fasth3-steps "$STEPS")
 [ "$REVOICE" = 0 ] || ARGS+=(--revoice "$REVOICE")
 [ "${X2:-0}" != 1 ] || ARGS+=(--upscale-vae "$X2_VAE")

@@ -105,9 +105,9 @@ Rules:
 - Motion as a reference: the wizard's *Analyse motion* (and *Use as motion reference* in the Motion Previs tab) sends
   one layer of a Motion Previs pack as `<Video 1>`. Defaults by measurement: the same place with a new person takes the
   source clip (written as "`<Video 1>` with its person replaced", never with the first-frame-anchor wording); a new
-  place or the camera alone takes depth; the skeleton is offered but is the loosest. The source clip holds fast motion
-  at 20 passes and lost it with the Turbo 4-pass adapter (two shots of two), so with Turbo the wizard sends depth for
-  full scene too. The pose pass, the skeleton and the distance checker follow one person only; the user says when
+  place or the camera alone takes depth; the skeleton is offered but is the loosest. On the Mac the Ref2VA Turbo adapter with a
+  reference video runs without the int8 kernels (`scripts/video.sh`): with them it lost fast motion (26 % against 3.7 %);
+  do not put them back for that case. The pose pass, the skeleton and the distance checker follow one person only; the user says when
   `<Video 1>` has two or more people (`motion.people`) and the prompt then speaks of its people. A skeleton or depth layer goes
   with the control-video prompt (`motion_template` in `app/server.py`: structural template,
   first-frame anchor, legend, "labels only", and the negative): keep that wording, and do not promise figures: one shot was
