@@ -25,7 +25,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.6** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.6.1** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -125,6 +125,21 @@ bash oneshot-setup.sh            # the same command as on a Mac: on Linux it run
 bash scripts/app.sh              # http://127.0.0.1:7870
 ```
 
+#### Upgrade from 2.5 or 2.6 (DGX Spark)
+
+```bash
+cd keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark && git pull
+bash oneshot-setup.sh --upgrade  # on Linux: oneshot-setup-spark.sh --upgrade
+```
+
+`--upgrade` moves an existing install to the version of the clone: the environment's packages, ComfyUI at its pinned
+commit, the engine (rebuilt only when its pinned commit changed) and the Motion Previs environment, which it adds
+when it is missing. It **fetches no weights** (a model that is not on disk is named and left out; an image-only
+install stays image-only), does not touch `~/TensorFoldStudio` (clips, projects, LoRAs, settings), prints the version
+before and after, and ends with `--verify`. Running it a second time changes nothing. Restart the app afterwards
+(`bash scripts/app.sh`) so it serves the new pages. Run it when no clip is rendering.
+
+
 The installer takes the prebuilt engine from the carrier image when Docker is there, and otherwise builds it from
 source (`spark/build-engine.sh`: it fetches Zig 0.17.0 and the engine's source,
 [drowzeys/TensorFold `h3-1.0.4`](https://github.com/drowzeys/TensorFold/tree/h3-1.0.4), and needs the CUDA toolkit's
@@ -184,6 +199,28 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 
 ## What changed
 
+> **2.6.1 (2026-10-12): reference videos and audio on a freshly installed Mac.**
+> - **The Mac installer installs the engine that reference videos and audio need** (TensorFold fork branch
+>   `ref-video-audio`, pinned to `a2b592f`; carrier image `ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1`). 2.6
+>   installed the engine before it, so on a new Mac those two kinds of reference stopped with a message. Running
+>   `oneshot-setup.sh` again on an existing install replaces the engine. The DGX Spark build is unchanged.
+> - **Library tiles have two rows:** the file name, then the buttons. A long name pushed *+ timeline* out of the tile.
+> - **One command upgrades an existing install:** `git pull && bash oneshot-setup.sh --upgrade` on either machine.
+>   No weights are fetched and the studio folder is not touched. See *Upgrade from 2.5 or 2.6* under each install.
+> - **A Motion Previs tutorial:** a 13-step lesson in the app (*Tutorial → Motion Previs*) and
+>   [TUTORIAL.md, section 9](TUTORIAL.md#9-motion-previs-make-a-clip-that-moves-like-another), with two worked examples.
+>
+> **What was tested for 2.6.1** (2026-10-12). *Mac Studio M5 Ultra:* a fresh clone installed into an empty prefix
+> (weights already on the disk, engine from the public fork at `a2b592f`), then one reference-video clip (284 s) and
+> one picture-with-reference-audio clip (91 s) through that copy's app, Turbo 4 passes, 5 s at 864x480; a 2.6 install
+> (engine `a2068c0`, on which both requests stop with the message) moved up with `--upgrade` in 19 s, the same two
+> clips after it (288 s and 91 s), a second `--upgrade` in 3 s with nothing changed, the studio folder and the model
+> folders untouched. *DGX Spark:* `--upgrade` twice on the existing install (the first run added the QA gate's
+> speech-to-text packages, the second changed nothing), `--verify`, and one 5 second clip after it (109 s). The
+> tutorial's 13 steps were walked in headless Chromium on the Spark app: each link lands on its screen. Not tested:
+> an upgrade of an image-only install, of a Mac without tensor units, and a fresh DGX Spark install of 2.6.1 (its
+> installer's fresh path is 2.6's).
+
 > **2.6 (2026-10-12): reference videos and audio, Motion Previs, and the two joined in the create wizard.**
 > **What's new in 2.6:**
 > - **Reference videos and reference audio** for MiniMax H3 Ref2VA beside reference pictures (`REF_VIDEOS`,
@@ -225,8 +262,8 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >
 > **What was tested where.** *Mac Studio M5 Ultra:* reference videos, reference audio, `STEPS`, the normalisation fix
 > and the Motion Previs analysis, as their sections say; the source clip, a depth layer and a skeleton as
-> `<Video 1>` with a picture, measured against the source shot (the figures are in the Motion Previs section). The Mac renders need the TensorFold engine branch
-> `ref-video-audio`, which the engine build this release installs does not have yet. *DGX Spark (GB10):* everything in
+> `<Video 1>` with a picture, measured against the source shot (the figures are in the Motion Previs section). The Mac renders run on the TensorFold engine branch
+> `ref-video-audio`, which the installer has installed since 2.6.1. *DGX Spark (GB10):* everything in
 > [On a DGX Spark](#reference-videos-audio-and-motion-on-a-dgx-spark): reference videos and audio through ComfyUI's
 > node, the Motion Previs analysis on Linux, and the wizard's flow (upload, analyse, choose, compose, render) driven
 > through the app's HTTP API with the source clip and with the skeleton layer.
@@ -403,6 +440,22 @@ bash oneshot-setup.sh --app             # engine, image model, FastH3, 2x decode
 bash oneshot-setup.sh --turbo --app     # the same plus MiniMax H3 Turbo (64 GB more on disk, 128 GB of memory)
 bash oneshot-setup.sh --ref2va --app    # the same plus reference pictures to video (64 GB more on disk, 128 GB of memory)
 ```
+
+#### Upgrade from 2.5 or 2.6 (Mac)
+
+```bash
+cd keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark && git pull
+bash oneshot-setup.sh --upgrade         # add --app to rebuild the double-clickable app as well
+```
+
+`--upgrade` moves an existing install to the version of the clone: it replaces the TensorFold engine in the
+install's own environment when it is older than this version needs (2.6.1: the build with reference videos and
+audio), copies the render scripts, and adds the Motion Previs environment when it is missing (0.5 GB). It **fetches
+no weights**: a model that is not on disk is named and left out, and an image-only install stays image-only. It does
+not touch `~/TensorFoldStudio` (clips, projects, LoRAs, settings), prints the version before and after, and ends with
+`--verify`. Running it a second time changes nothing. Quit and reopen the app afterwards. A plain
+`bash oneshot-setup.sh` after `git pull` upgrades the engine too, and also fetches any model the install lacks.
+
 
 **Step-by-step tutorial with screenshots: [TUTORIAL.md](TUTORIAL.md).**
 
@@ -599,6 +652,10 @@ transforms, text, transitions or audio mixing), and there is no assisted prompt 
 on rookiestar28's ComfyUI-MiniMaxH3-Studio, which does far more; no code is shared with it.
 
 ## Motion Previs: a shot into control layers and a camera move
+
+**New to it? Start with the walkthrough:** [TUTORIAL.md, section 9](TUTORIAL.md#9-motion-previs-make-a-clip-that-moves-like-another)
+(two worked examples, what each choice does, and what to do when a clip goes wrong), or **Tutorial → Motion Previs** in
+the app.
 
 The **Motion Previs** tab takes a clip (one you upload, or an earlier render or upload), a range of 2 to 15 seconds
 and one of four reference modes (camera only, actor motion, object motion, full scene), and writes a production pack
@@ -1166,10 +1223,10 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
 ### Reference videos and reference audio (Ref2VA)
 
 The same Ref2VA transformer takes two more kinds of reference, as MiniMax's model card describes: videos, which
-carry a subject and how it moves, and audio clips, which carry a voice or music. **On a Mac, not in a released engine
-yet:** the passes need TensorFold's H3 family to pack these references and to hold reference audio rows, which is on
-the engine branch `ref-video-audio` and not in the engine build this release installs; with the installed engine the
-renderer stops with a message saying so. Reference pictures alone are unaffected. **On a DGX Spark** they run now,
+carry a subject and how it moves, and audio clips, which carry a voice or music. **On a Mac** the passes need TensorFold's H3 family to pack these references and to hold reference audio rows, which is on
+the engine branch `ref-video-audio` of the fork this pack installs from (pinned to `a2b592f` since 2.6.1). An install
+made with 2.6 or earlier has the older engine, with which the renderer stops with a message saying so: run
+`oneshot-setup.sh` again and it replaces the engine. Reference pictures alone are unaffected. **On a DGX Spark** they run now,
 through ComfyUI's node: see [below](#reference-videos-audio-and-motion-on-a-dgx-spark).
 
 ```bash
@@ -1371,9 +1428,9 @@ videos at once, and sound by ear (the figures above are measurements).
 ### GHCR prebuilt carrier
 
 ```bash
-docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.5
-# index digest: sha256:6d27fa35d57cae1f66a5ad4bb002c15086207cb1eab8ecec0544a3367b9466bc (linux/arm64 + linux/amd64)
-docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.5 cp -a /payload/. /out/payload/
+docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1
+# index digest: sha256:759aa57789223c4f63ecea950638b90d045a39d5c7452ff411fea5ecbcda8e0b (linux/arm64 + linux/amd64)
+docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1 cp -a /payload/. /out/payload/
 ```
 
 One image for both builds. For a Mac it holds the TensorFold wheel, `requirements.lock`, the render scripts, the

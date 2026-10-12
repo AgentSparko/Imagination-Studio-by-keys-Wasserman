@@ -6,6 +6,8 @@
 #   bash oneshot-setup-spark.sh --ref2va      # add MiniMax H3 Ref2VA (reference pictures hold a face), 39 GB more
 #   bash oneshot-setup-spark.sh --motion      # add the Motion Previs tab's analysis: pose, camera solve and AI depth (0.5 GB, own environment)
 #   bash oneshot-setup-spark.sh --verify      # check an existing install, download nothing
+#   bash oneshot-setup-spark.sh --upgrade     # after `git pull`: move an existing install to this version (environment, ComfyUI pin,
+#                                             # engine, Motion Previs environment), fetch no weights, then --verify. Safe to run twice.
 # What it installs under $PREFIX (default ~/.local/opt/tensorfold-studio):
 #   venv/       Python 3.12, PyTorch for CUDA 13, ComfyUI's requirements, the web app's
 #   ComfyUI/    pinned; its own flash and block-sparse attention kernels are what the renders use
@@ -22,10 +24,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MODELS="${SPARK_MODELS:-$HOME/spark-studio-models}"
 COMFY_COMMIT=a4b5a045e56fc334903db8457b728b64e006119c
-IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0
+IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; UPGRADE=0
 for arg in "$@"; do
   case "$arg" in
-    --ref2va) REF2VA=1;; --motion) MOTION=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;;
+    --ref2va) REF2VA=1;; --motion) MOTION=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;; --upgrade) UPGRADE=1; RENDER=0; MOTION=1;;
     *) echo "unknown option $arg" >&2; exit 2;;
   esac
 done
@@ -38,6 +40,15 @@ say "Preflight"
 if [ "$(uname -s)" = Darwin ]; then echo "macOS detected: installing the Mac (Metal) build"; exec bash "$HERE/oneshot-setup.sh" "$@"; fi
 [ "$(uname -s)" = Linux ] || die "this installs on a DGX Spark (Linux, CUDA) or an Apple-silicon Mac"
 command -v nvidia-smi >/dev/null || die "no nvidia-smi: this needs an NVIDIA GPU with its driver"
+# --upgrade moves an existing install to this version and fetches no weights: an image-only install stays image-only,
+# Ref2VA stays if it is there. The studio folder (clips, projects, LoRAs, settings) is not touched.
+INSTALLED="$(cat "$PREFIX/VERSION" 2>/dev/null || echo "2.6 or earlier")"
+if [ "$UPGRADE" = 1 ]; then
+  [ -x "$PREFIX/venv/bin/python" ] || die "nothing to upgrade at $PREFIX: run oneshot-setup-spark.sh without --upgrade"
+  [ -s "$MODELS/FastH3-Comfy/diffusion_models/fastvideo_fasth3_8step_v2_pruned_bf16.safetensors" ] || IMAGE_ONLY=1
+  [ ! -s "$MODELS/MiniMax-H3-Comfy/diffusion_models/minimax_h3_ref2va_pruned_bf16.safetensors" ] || REF2VA=1
+  ok "upgrade: installed $INSTALLED -> $(cat "$HERE/VERSION")$([ "$IMAGE_ONLY" = 0 ] || echo " (image-only install)")"
+else ok "version $(cat "$HERE/VERSION")$([ ! -f "$PREFIX/VERSION" ] || echo " (installed: $INSTALLED)")"; fi
 GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
 MEM_GB=$(awk '/MemTotal/{print int($2/1048576)}' /proc/meminfo)
 ok "$GPU, $(uname -m), ${MEM_GB} GB"
@@ -109,6 +120,7 @@ fetch() {
   for file in "$@"; do [ -s "$MODELS/$folder/$file" ] || missing+=("$file"); done
   [ ${#missing[@]} = 0 ] && return 0
   [ "$VERIFY" = 0 ] || die "missing in $MODELS/$folder: ${missing[*]}"
+  if [ "$UPGRADE" = 1 ]; then echo "  ! missing in $MODELS/$folder: ${missing[*]}: --upgrade fetches no weights (run oneshot-setup-spark.sh without it)"; return 0; fi
   "$PREFIX/venv/bin/hf" download "$repo" "${missing[@]}" --local-dir "$MODELS/$folder" >/dev/null
   for file in "${missing[@]}"; do [ -s "$MODELS/$folder/$file" ] || die "$file did not download"; done
 }
@@ -154,6 +166,11 @@ if [ "$MOTION" = 1 ] || [ -x "$PREFIX/motion-venv/bin/python" ]; then
     || echo "  ! Motion Previs is not fully set up: its tab says which layers are not available on this machine"
 fi
 
+[ "$VERIFY" = 1 ] || cp "$HERE/VERSION" "$PREFIX/VERSION"
+if [ "$UPGRADE" = 1 ]; then
+  say "Upgraded: $INSTALLED -> $(cat "$PREFIX/VERSION"). Checking the install (restart the app to serve the new pages: scripts/app.sh)"
+  exec bash "$HERE/oneshot-setup-spark.sh" --verify $([ "$IMAGE_ONLY" = 0 ] || echo --image-only) $([ "$REF2VA" = 0 ] || echo --ref2va)
+fi
 if [ "$RENDER" = 1 ]; then
   say "Test render"
   mkdir -p "$HERE/outputs"
