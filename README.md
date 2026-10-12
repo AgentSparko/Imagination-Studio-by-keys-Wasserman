@@ -840,7 +840,9 @@ it does not provide, check or recommend the file you choose. That file, its lice
 your own choice and responsibility.
 
 In the app, *Resolution → Custom* takes a width and a height (multiples of 32, each side 256 to 1536, at most
-1344x768 pixels in all) and *Custom passes* a number of passes from 1 to 50; no time is estimated for either. From
+1344x768 pixels in all). A number of passes of your own, from 1 to 50, is the *Custom* card at the end of each
+passes choice (FastH3's *Passes*, the reference choice, and a *Passes* row under MiniMax H3's *Quality*, whose cards
+are recipes rather than counts); a number box opens under the cards. No time is estimated for either. From
 the scripts these are `WIDTH`, `HEIGHT` and `STEPS` (FastH3, and everything on a Spark) or `POINTS` (MiniMax H3 on
 the Mac: one more than the passes).
 
@@ -865,8 +867,8 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
   without it: 1 min 28 s, 103 GiB peak while the adapter is merged. `QUALITY=high` runs the 20 passes with the fast
   recipe: 1 min 58 s. Two pictures (a person and a bicycle) took 4 min 5 s at 20 passes and 1 min 29 s with the adapter.
 - Not with `FIRST_FRAME`, and not with FastH3, which has no reference-trained weights.
-- **Your own number of passes:** `STEPS=12` (or `POINTS=13`, one more, which wins when both are set), and *Custom
-  passes* in the app. It applies to every kind of reference, and with `REF_TURBO=1` too: the adapter then runs the
+- **Your own number of passes:** `STEPS=12` (or `POINTS=13`, one more, which wins when both are set), and the
+  *Custom* card of the passes choice in the app. It applies to every kind of reference, and with `REF_TURBO=1` too: the adapter then runs the
   number asked for instead of the 4 it was trained for, and the render says so. A reference render starts by naming
   the passes it will run, and the app's job card shows them. Before this, `STEPS` was read for FastH3 only and a
   reference render from the scripts ignored it; the app already converted its field.
