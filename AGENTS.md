@@ -95,6 +95,9 @@ Rules:
   and must stay so (`REF_VIDEO_SIZE=full` multiplies the rows and the memory and is refused on a Spark).
   On a Spark the clip's sound is made again from a lossless copy of the decoder's output, limited to -1 dBFS
   (`finish_sound` in `spark/spark_generate.py`; `AUDIO_EQ=off` skips it): keep it, ComfyUI's own track overshoots full scale.
+  A reference prompt keeps its sound under an `overall_soundscape:` heading (`compose_references`): on the end of the
+  shot description the model reads it out as gibberish speech. Do not add ComfyUI guidance (CFG) to reference renders:
+  at 5 it burns the picture with the 4-step adapter.
   In the app a reference clip is measured as it is added (`/api/probe`) and turned away with the reason; *Custom* passes
   is the card beside *20 passes* in every chooser.
 - Motion as a reference: the wizard's *Analyse motion* (and *Use as motion reference* in the Motion Previs tab) sends

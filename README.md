@@ -204,6 +204,8 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >   *the videos' own sound* can only be ticked when every video has sound. A motion layer (skeleton, depth) now
 >   carries the shot's own sound, so that box works with any layer. A failed job shows the renderer's own last
 >   words, not "exited with status 1".
+> - **No more voice that nobody asked for in reference clips:** the app writes the sound of a reference prompt under
+>   its own `overall_soundscape` heading. Written on the end of the shot, the model sometimes read it out.
 > - **Sound on a DGX Spark** is made from a lossless copy of the decoder's output and limited to -1 dBFS; it used to
 >   be ComfyUI's own track, which overshot full scale.
 > - `STEPS` sets the passes of a reference clip; *Custom* is the card beside *20 passes* in each passes chooser; a first frame or a
@@ -993,7 +995,8 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
   the passes it will run, and the app's job card shows them. Before this, `STEPS` was read for FastH3 only and a
   reference render from the scripts ignored it; the app already converted its field.
 - In the app: **The clip starts from → Reference pictures**. Step 4 writes the prompt in the model's own reference
-  form (`subject_definitions`, `summary`, `retention_analysis`, `detailed_description`); edit it freely.
+  form (`subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, and from 2.6 the sound under
+  its own `overall_soundscape` heading); edit it freely.
 - **On a DGX Spark** the same `REF_IMAGES` and `REF_TURBO=1` work after `bash oneshot-setup-spark.sh --ref2va` (39 GB:
   the Ref2VA transformer for ComfyUI in bf16 and LightX2V's adapter). Measured on one Spark, 5 s at 864x480, one
   portrait: 20 steps 288 s, `REF_TURBO=1` (4 passes, the adapter's own sound) 107 s; the app's *Reference pictures*
@@ -1153,6 +1156,15 @@ the recording's); named without a description, a voice unlike the pictured perso
 Turbo adapter a voice of the same kind blurred the words. It is not voice cloning, and the app says so where the clip is added. A video's own sound carries
 as on the Mac. *The videos' own sound* stays **off** by default in the app: the box swaps the sound written in step 3
 for the video's own, which has to be a choice.
+
+**A voice nobody asked for.** Up to this change the app wrote the soundscape on the end of the shot description of
+a reference prompt. With some pictures the model then read it out: a clip of a woman drinking coffee, whose prompt
+says that nobody speaks, had a voice talking nonsense in 41 % of its frames (63 % on a second seed, 49 % at 20
+passes), not in time with her mouth. With the same words under an `overall_soundscape:` heading, as text-to-video
+prompts have always had, the voice is gone (0 % on both seeds, the room tone at -40 dBFS), and a spoken line is still
+spoken as written. The app now writes the heading. Guidance was tried as well (ComfyUI's CFG at 5 with an empty
+negative): it also removes the voice but burns the picture with the 4-step adapter and doubles the time, and at 2 it
+does nothing; the reference model is run without guidance, as MiniMax ships it.
 
 **The sound of every clip on a Spark** is now made from a lossless copy of the decoder's output (it used to be
 ComfyUI's own AAC track at about 130 kb/s): 256 kb/s, cut to the picture's length, and limited to -1 dBFS when the

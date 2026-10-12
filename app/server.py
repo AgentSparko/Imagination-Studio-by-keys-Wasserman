@@ -345,7 +345,10 @@ def compose_references(fields: dict, count: int) -> str:
                else "A new video that follows its video reference. ")
             + (scene or "A new scene.")
             + "\n\nretention_analysis:\n" + "\n".join(kept)
-            + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()} {sound}")
+            # the sound under its own heading, as in the text-to-video form: written on the end of the shot, the model
+            # read it as something to say (measured on a DGX Spark: a voice in 41 % and 63 % of the frames of a
+            # clip that asks for no speech, on two seeds, and in none with the heading)
+            + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()}\n\noverall_soundscape:\n{sound}")
 
 
 def compose(fields: dict, first_frame: bool) -> str:
