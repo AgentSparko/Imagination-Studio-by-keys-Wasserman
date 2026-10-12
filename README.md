@@ -877,6 +877,19 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
   same prompt and seed without the reference, and the same identity as h3.c's `--ref-image` gives. The token layout
   matches h3.c's to the last float32 bit. Not checked: reference videos and reference audio (not implemented), sound
   by ear, lengths over 5 s.
+- **What the text encoder sees of a picture (corrected after 2.5).** A first frame or a reference picture also goes
+  to the text encoder's vision tower. Up to 2.5 it was normalised there with the mean and deviation of the earlier
+  Qwen-VL models, which minimax-h3-mlx builds its image processor with; MiniMax H3's own processor
+  (`processor/preprocessor_config.json` in the checkpoint) uses 0.5 and 0.5, pixels to -1..1. The renderer now reads
+  that file (0.5 and 0.5 when it is absent). For one 864x480 picture the values handed to the tower were up to 1.12
+  away from MiniMax's processor before (0.39 on average, range -1.79..2.09) and are equal to it now, and to h3.c's
+  `x * 2 - 1`. The video VAE's view of the picture, which carries most of the likeness, was never affected. Same
+  prompt and seed, before and after, one first-frame clip (Turbo, 5 passes) and one reference-picture clip (20
+  passes), 5 s at 864x480: a different take each time, as any change to the conditioning gives, with the same
+  person, colours and sharpness; we could not see a gain or a loss. `EXTRA="--vision-stats mlx"` renders with the
+  old values. This covers MiniMax H3 and FastH3 on the Mac, both engines; the DGX Spark build encodes text in
+  ComfyUI, which already used 0.5 and 0.5. The sample clips and timings in this README from first frames and
+  reference pictures were made with the old values: the timings stand, the clips would come out as other takes.
 
 ### GHCR prebuilt carrier
 

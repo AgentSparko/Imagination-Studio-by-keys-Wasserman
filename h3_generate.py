@@ -173,10 +173,37 @@ def _from_comfy_int8(base, path):
     return Encoder
 
 
-def encode_text(root: Path, prompt: str, images=None, weights=None):
+VISION_STATS = ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])  # Qwen3-VL's own: pixels to -1..1 (used when the file is absent)
+MLX_VISION_STATS = ([0.48145466, 0.4578275, 0.40821073], [0.26862954, 0.26130258, 0.27577711])
+
+
+def vision_stats(root: Path, name: str = "preprocessor_config.json"):
+    """The mean and deviation the text encoder's vision tower was trained with, per colour channel.
+
+    They are read from the checkpoint's own `processor/` folder (`preprocessor_config.json` for pictures,
+    `video_preprocessor_config.json` for video frames): 0.5 and 0.5 for MiniMax H3, which is Qwen3-VL's
+    normalisation to -1..1. A folder without that file gets the same 0.5 and 0.5. minimax-h3-mlx builds its
+    image processor with the values of the earlier Qwen-VL models instead (``MLX_VISION_STATS``), which shows the
+    tower a picture with nearly twice the contrast; releases up to 2.5 used those.
+    """
+
+    path = root / "processor" / name
+    if not path.is_file():
+        return VISION_STATS
+    with open(path) as handle:
+        conf = json.load(handle)
+    mean, std = conf.get("image_mean"), conf.get("image_std")
+    if not (isinstance(mean, list) and isinstance(std, list) and len(mean) == len(std) == 3):
+        return VISION_STATS
+    return [float(v) for v in mean], [float(v) for v in std]
+
+
+def encode_text(root: Path, prompt: str, images=None, weights=None, checkpoint_stats: bool = True):
     """Text rows and their tags. ``images`` (one picture or a list) go ahead of the prompt, each as
     ``<Picture i>: `` and its vision block, which is how the prompt refers to them. ``weights`` is a ComfyUI int8
-    file to take the encoder's weights from, in place of the ones in the model folder."""
+    file to take the encoder's weights from, in place of the ones in the model folder. Pictures are normalised
+    with the checkpoint's own mean and deviation (:func:`vision_stats`); ``checkpoint_stats`` false keeps the
+    values minimax-h3-mlx's image processor is built with, for comparisons with clips made before this was corrected."""
 
     if images is not None and not isinstance(images, (list, tuple)):
         images = [images]
@@ -197,10 +224,13 @@ def encode_text(root: Path, prompt: str, images=None, weights=None):
     _streamed(encoder)
     if images is not None:
         # the checkpoint's processor folder asks for PyTorch; the image processor built from the vision config
-        # needs only numpy, and the image arrives already on the render canvas
+        # needs only numpy, and the image arrives already on the render canvas. Its mean and deviation are the
+        # checkpoint's own, not the ones minimax-h3-mlx builds it with
         from minimax_h3_mlx.text_encoder import _FallbackProcessor
 
-        encoder._processor = _FallbackProcessor(encoder._build_image_processor())
+        processor = encoder._build_image_processor()
+        processor.image_mean, processor.image_std = vision_stats(root) if checkpoint_stats else MLX_VISION_STATS
+        encoder._processor = _FallbackProcessor(processor)
     embeds, tags = encoder.encode(prompt, images)
     mx.eval(embeds)
     del encoder
@@ -522,6 +552,10 @@ def main():
     parser.add_argument("--ref-image", action="append", default=[], metavar="PATH",
                         help="a reference picture (repeatable, up to 9): <Picture 1>, <Picture 2>, ... in the "
                              "prompt. Needs the Ref2VA transformer; not with --first-frame or --fasth3")
+    parser.add_argument("--vision-stats", default="checkpoint", choices=("checkpoint", "mlx"),
+                        help="how a first frame or a reference picture is normalised for the text encoder's vision "
+                             "tower: the checkpoint's own processor values (default) or minimax-h3-mlx's fixed "
+                             "ones, which releases up to 2.5 used (for comparisons)")
     parser.add_argument("--text-encoder", default=None, metavar="PATH",
                         help="a ComfyUI int8 (int8_tensorwise, ConvRot) safetensors of the Qwen3-VL text encoder, "
                              "decoded to bfloat16 as it loads; the tokenizer stays the model folder's")
@@ -560,7 +594,8 @@ def main():
 
         image = prepare_keyframe_image(Image.open(args.first_frame).convert("RGB"), args.height, args.width,
                                        stretch=True)
-    text, tags = encode_text(root, prompt, references if references is not None else image, args.text_encoder)
+    text, tags = encode_text(root, prompt, references if references is not None else image, args.text_encoder,
+                             args.vision_stats == "checkpoint")
     condition = None
     if references is not None:
         from tensorfold.families.h3 import sampler
