@@ -95,6 +95,11 @@ SPARK_REF2VA_5S = {"small": 321}
 SPARK_REF2VA_TURBO_5S = {"small": 107}
 REF2VA_ADAPTER = "lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 REFERENCE_LIMIT = 9
+# MiniMax's limits for the other two kinds of reference: 3 videos and 3 audio clips, each 2 to 15 seconds and 15
+# seconds in all per kind, and 12 files of all kinds in one request (the Mac engine and, on a Spark, ComfyUI's node)
+REFERENCE_VIDEO_LIMIT, REFERENCE_AUDIO_LIMIT, REFERENCE_TOTAL = 3, 3, 12
+REFERENCE_CLIP_SECONDS, REFERENCE_KIND_SECONDS = (2.0, 15.0), 15.0
+VIDEO_SUFFIXES, AUDIO_SUFFIXES = (".mp4", ".mov"), (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
 # a size typed in by hand: multiples of 32, and no more pixels than the largest size the model is run at here
 CUSTOM_SIDES, CUSTOM_PIXELS, CUSTOM_STEPS = (256, 1536), 1344 * 768, (1, 50)
 LEAD = "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
@@ -155,17 +160,260 @@ def relative(path: Path) -> str:
     return str(Path(path).resolve().relative_to(HOME.resolve()))
 
 
-def compose_references(fields: dict, count: int) -> str:
-    """The Ref2VA model's own prompt form: who each picture is, what is kept of it, then the shot."""
+# What a Motion Previs layer shows, for the model: a control layer is a diagram of the shot, not footage of it.
+MOTION_LEGENDS = {
+    "openpose": "an OpenPose skeleton on a black background, where the coloured lines are the joints and limbs of the subject's body and the black area is everything else",
+    "pose": "a pose skeleton on a black background, where the coloured lines are the joints and limbs of the subject's body and the black area is everything else",
+    "ai-depth": "a depth map in shades of grey, where brighter is nearer to the camera and darker is farther away",
+    "depth": "a depth map in shades of grey, where brighter is nearer to the camera and darker is farther away",
+    "edges": "an edge map, where the bright lines on black are the outlines of the people and objects",
+    "lineart": "a line drawing, where the lines are the outlines of the people and objects",
+    "masks": "a motion mask, where the bright areas are what moves and the black area is what stays still",
+    "normals": "a surface-direction map, where each colour stands for the way a surface faces",
+}
+MOTION_MODES = ("camera-only", "actor-motion", "object-motion", "full-scene")
+# what each mode keeps of a control layer, and of the source clip itself
+MOTION_KEEPS = {"camera-only": "the camera path and the scale and layout it gives the scene",
+                "actor-motion": "the positions, silhouettes and body movement of its figure and the camera path",
+                "object-motion": "the position and motion path of its main object and the camera path",
+                "full-scene": "the layout, silhouettes, positions, movement and camera path"}
+MOTION_SOURCE = {
+    "camera-only": ("the camera reference for the target video: only its camera movement and timing are kept",
+                    "the camera movement and timing of <Video 1> are followed; its people, objects and setting are not rendered.",
+                    "The camera moves as the camera of <Video 1> does."),
+    "actor-motion": ("the motion reference for the target video: the body motion of its person and its camera movement are kept, and who it is and where it is are replaced",
+                     "the position, stance, body motion and timing of its person and the camera movement of <Video 1> are followed frame by frame; its person and its setting are not rendered.",
+                     "{who} moves as the person in <Video 1> does, move for move, and the camera follows the camera of <Video 1>."),
+    "object-motion": ("the motion reference for the target video: the path of its main object and its camera movement are kept, and the object's design and the setting are replaced",
+                      "the motion path and timing of the main object and the camera movement of <Video 1> are followed frame by frame; its design, surface and setting are not rendered.",
+                      "The main object moves along the path of the object in <Video 1>, and the camera follows the camera of <Video 1>."),
+    "full-scene": ("the source video: its setting, its camera movement and the motion in it are kept",
+                   "the setting, light, camera path and the position, motion and timing of what moves in <Video 1> are followed frame by frame.",
+                   "The scene, the motion and the camera follow <Video 1>."),
+}
 
-    count = max(1, min(int(count), REFERENCE_LIMIT))
+
+# the same sentences for a clip with more than one person in it: longest phrases first
+MOTION_PLURAL = (
+    ("the body motion of its person", "the body motion of its people"), ("its person is replaced by", "its people are replaced by"),
+    ("with its person replaced by", "with its people replaced by"), ("the person shown in", "the people shown in"),
+    ("the person of <Video 1> is not rendered", "the people of <Video 1> are not rendered"),
+    ("its person and its setting are not rendered", "its people and its setting are not rendered"),
+    ("<Subject 1> takes the place of the person in <Video 1> and moves as that person does",
+     "<Subject 1> take the places of the people in <Video 1>, one for one, and move as those people do"),
+    ("moves as the person in <Video 1> does", "move as the people in <Video 1> do"),
+    ("timing of its person", "timing of its people"), ("of its figure", "of its figures"),
+    ("are those of the figure in <Video 1>", "are those of the figures in <Video 1>, one for one"),
+)
+
+
+def motion_template(motion: dict, pictures: int) -> dict:
+    """``motion_template_one`` for the number of people the user says are in ``<Video 1>`` (``motion["people"]``,
+    1 when not given): with two or more the same sentences speak of its people and figures, one for one. The count is
+    the user's: the pose pass follows one person even when asked for more (two fighters at arm's length came back
+    as one in every frame)."""
+
+    made = motion_template_one(motion, pictures)
+    try:
+        people = int(motion.get("people") or 1)
+    except (TypeError, ValueError):
+        people = 1
+    if people < 2:
+        return made
+
+    def plural(text: str) -> str:
+        for one, many in MOTION_PLURAL:
+            text = text.replace(one, many)
+        return text
+
+    return {key: [plural(line) for line in value] if isinstance(value, list) else plural(value) for key, value in made.items()}
+
+
+def motion_template_one(motion: dict, pictures: int) -> dict:
+    """What a motion reference adds to the Ref2VA prompt: how ``<Video 1>`` is declared, what is kept of it, and what
+    the clip must not look like. ``motion`` is ``{"layer", "mode"}``: the layer of a Motion Previs pack that goes in
+    as ``<Video 1>`` ("reference" is the source clip itself) and what to carry over.
+
+    The source clip is declared as footage (the form tested on both builds). A control layer (skeleton, depth, edges)
+    is declared in the control-video form: ``<Video 1>`` the structural template, ``<Picture 1>`` the first-frame
+    anchor, a legend of the layer, and its colours named as labels, not as the look of the clip.
+    """
+
+    layer = motion.get("layer") or "reference"
+    mode = motion.get("mode") if motion.get("mode") in MOTION_MODES else "full-scene"
+    who = "<Subject 1>" if pictures else "The subject"
+    if layer not in MOTION_LEGENDS:  # the source clip
+        role, keep, follow = MOTION_SOURCE[mode]
+        if mode == "full-scene" and pictures:
+            # the form that held best in the tests: the clip is <Video 1> with its person replaced. Calling the picture
+            # a first-frame anchor here made the picture's layout override the video.
+            lead = "The target video is <Video 1> with its person replaced by <Subject 1>, the person shown in <Picture 1>."
+            role += ", and its person is replaced by <Subject 1>. Only the appearance of <Subject 1> comes from <Picture 1>"
+            keep = keep[:-1] + "; the person of <Video 1> is not rendered."
+            follow = "<Subject 1> takes the place of the person in <Video 1> and moves as that person does, move for move; the setting and the camera are those of <Video 1>."
+        return {"video_roles": [role], "video_keeps": [keep], "video_follows": [follow.format(who=who)],
+                **({"lead": lead} if mode == "full-scene" and pictures else {})}
+    kept = MOTION_KEEPS[mode]
+    definitions = []
+    if pictures:
+        definitions.append("<Picture 1> is the first-frame anchor: the opening frame of the target video, with the subject, "
+                           "setting and light of the target. The appearance of <Subject 1> comes from <Picture 1>"
+                           + ("." if mode == "camera-only" else ", the position and motion from <Video 1>."))
+    definitions.append(f"Legend of <Video 1>: {MOTION_LEGENDS[layer]}. These colours are labels only, not the look of the target video.")
+    follow = ("The camera follows the path of <Video 1> frame by frame." if mode == "camera-only"
+              else "The main object is where the main object of <Video 1> is in every frame and moves along the same path, and the camera "
+                   "follows the path of <Video 1>." if mode == "object-motion" and not pictures
+              else f"The position, scale and movement of {who.replace('The', 'the')} in every frame are those of the "
+                   f"{'main object' if mode == 'object-motion' else 'figure'} in <Video 1>, and the camera follows the path of <Video 1>.")
+    look = ", continuing the look of <Picture 1>" if pictures else ""
+    return {"lead": "A photorealistic video that follows the structure of <Video 1> frame by frame"
+                    + (" and has the look of <Picture 1>, with <Subject 1>." if pictures else "."),
+            "video_roles": [f"the structural template of the target video: it supplies {kept} frame by frame"],
+            "video_keeps": [f"fully_preserved structure - {kept} of <Video 1> are followed frame by frame; its look is not rendered."],
+            "video_follows": [follow], "definitions": definitions,
+            "avoid": f"The picture is photorealistic throughout{look}: no skeleton lines, no flat-coloured, depth-map or segmentation-map look."}
+
+
+def freed(asked, motion: dict | None, pictures: int) -> bool:
+    """Whether a clip leaves its reference video out: the user chose Impacts, said so (``motion["free"]``), there is a
+    picture to carry who is in it, and the reference was measured and is not fast. The model follows a reference
+    video's movement whatever the prompt says about speed (measured: a slow sticky-hands duel stayed at 15 to 19
+    percent of the frame width a second under four wordings, the camera-only one among them, and reached 42 with the
+    video left out), so hits over a slow reference are only true when the reference is not sent."""
+
+    measured = (motion or {}).get("measured")
+    return bool(motion and motion.get("free") and pictures > 0 and isinstance(measured, dict)
+                and measured.get("motion") in ("slow", "moderate") and pace.choose(asked or motion.get("pace"), measured) == "impacts")
+
+
+def paced_fields(fields: dict, motion: dict | None, has_video: bool, pictures: int) -> dict:
+    """The sound and the motion of a reference clip made to agree (pace.py). ``pace`` is the user's choice, in
+    ``fields["pace"]`` or ``motion["pace"]``: "impacts" (fast strikes and blocks, with their sound), "flow" (slow,
+    continuous movement, silent or with music) or "auto". Automatic reads ``motion["measured"]`` (what the analysis
+    measured of the reference: ``pace.measure``) and changes one case only: a soundscape that names hits over a
+    reference that moves slowly becomes Flow. Everything else is left as it was written.
+
+    Flow takes the hits out of the soundscape, says that the movement is slow and that no strike lands, and does not
+    reuse a video's own sound when that sound holds hits. Impacts says that the arms attack and block at full speed
+    and that each strike is heard as it lands. Returns ``{"fields", "pace"}``.
+    """
+
+    measured = (motion or {}).get("measured") if isinstance((motion or {}).get("measured"), dict) else None
+    asked = fields.get("pace") or (motion or {}).get("pace")
+    asked = asked if asked in pace.PACES else "auto"
+    chosen = pace.choose(asked, measured)
+    if asked == "auto" and not (chosen == "flow" and has_video and measured.get("motion") == "slow"
+                                and pace.has_impacts(fields.get("soundscape") or "")):
+        return {"fields": fields, "pace": ""}  # Automatic steps in only where hits were asked for over a slow reference
+    if not (has_video or asked != "auto"):
+        return {"fields": fields, "pace": ""}
+    fields = dict(fields)
+    try:
+        many = int((motion or {}).get("people") or 1) > 1
+    except (TypeError, ValueError):
+        many = False
+    action, soundscape = (fields.get("action") or "").strip(), (fields.get("soundscape") or "").strip()
+    if chosen == "flow":
+        fields["action"] = (action + " " + pace.SMOOTH).strip()
+        # Without music the clip is asked for near silence in so many words: left at "cloth rustle", or told "No
+        # music", the model laid music of its own over the shot (measured on the Mac, twice)
+        quiet = pace.calm(soundscape)
+        named = (fields.get("music") or "N/A").strip().upper() != "N/A"
+        fields["soundscape"] = quiet if named or quiet == pace.QUIET else "Near silence: " + quiet[0].lower() + quiet[1:]
+        if asked == "flow" and measured and measured.get("sound") == "impacts":
+            fields["video_sound"] = False  # Flow by choice: the reference's own hits are not reused
+    else:
+        who = "<Subject 1>" if pictures else ("The two" if many else "The subject")
+        fields["action"] = (action + " " + (pace.VIGOROUS if many else pace.VIGOROUS_ONE).format(who=who)).strip()
+        if not fields.get("video_sound") and not pace.has_impacts(soundscape):
+            fields["soundscape"] = ("Sharp slaps and knocks of hands and forearms, one on every strike that lands. " + soundscape).strip()
+    return {"fields": fields, "pace": chosen}
+
+
+def compose_references(fields: dict, count: int) -> str:
+    """The Ref2VA model's own prompt form: who each picture is, what is kept of it, then the shot.
+
+    ``fields`` may also describe reference videos (``video_subjects``: one entry per video, who or what it shows,
+    empty for a video that only gives the motion) and audio clips (``audio_notes``: one per clip, what it is).
+    With ``video_sound`` each video's own soundtrack is a reference too, and the model numbers those sounds first:
+    ``<Audio 1>`` is then the sound of ``<Video 1>`` and the audio clips follow.
+
+    A caller with its own template for a reference video (a control layer such as a depth or segmentation pass
+    rather than footage, say) can replace what is written about it: ``video_roles`` (one per video) is the
+    sentence after ``<Video k> is``, ``video_keeps`` (one per video) the sentence after ``<Video k>: reference -``,
+    ``lead`` opens the summary in place of the usual sentence, ``definitions`` are further lines for the subject definitions (a legend of the control colours, or what a
+    picture is in relation to a video), and ``avoid`` is closing text for the shot (what the clip must not look
+    like), and ``video_follows`` (one per video) the sentence the shot ends on. The create wizard sets them through
+    ``motion`` (``{"layer", "mode", "camera"}``, a Motion Previs hand-off for ``<Video 1>``: see ``motion_template``),
+    whose ``camera`` sentence stands in for an empty Camera field.
+    """
+
+    motion = fields.get("motion") if isinstance(fields.get("motion"), dict) else None
+    free = len(fields.get("video_subjects") or []) <= 1 and freed(fields.get("pace"), motion, int(count))
+    if free:  # the fight is the prompt's: no video goes in, and its camera move stays as words
+        fields = {**fields, "video_subjects": [], "video_sound": False}
+    if motion and (fields.get("video_subjects") or motion.get("layer") in (None, "", "none") or free):
+        pictures = max(0, min(int(count), REFERENCE_LIMIT)) if fields.get("video_subjects") else 0
+        made = motion_template(motion, pictures) if fields.get("video_subjects") and motion.get("layer") not in (None, "", "none") else {}
+        fields = {**fields, **{key: value for key, value in made.items() if not fields.get(key)}}
+        if not (fields.get("camera") or "").strip() and (motion.get("camera") or "").strip():
+            fields["camera"] = motion["camera"].strip()
+
+    videos = [(text or "").strip() for text in (fields.get("video_subjects") or [])][:REFERENCE_VIDEO_LIMIT]
+    audios = [(text or "").strip() for text in (fields.get("audio_notes") or [])][:REFERENCE_AUDIO_LIMIT]
+    count = max(0 if videos else 1, min(int(count), REFERENCE_LIMIT))
+    paced = paced_fields(fields, motion, bool(videos) or free, max(0, min(int(count), REFERENCE_LIMIT)))
+    fields, pacing = paced["fields"], paced["pace"]
     names = [(text or "").strip() for text in (fields.get("subjects") or [])][:count]
     names += [""] * (count - len(names))
     subjects = [f"<Subject {i}> is {name or 'the main subject'} shown in <Picture {i}>." for i, name in enumerate(names, start=1)]
     kept = [f"<Subject {i}> (appears in [Shot 1]): fully_preserved - the identity, face, hair, clothing and colours "
             f"shown in <Picture {i}> are kept." for i in range(1, count + 1)]
+    people, sounds, follow, tracks = count, 0, [], []
+    # how the speaker sounds, in the user's words: written beside an audio reference too, because the model follows a
+    # voice reference when the prompt describes the same voice and may ignore it when the prompt is silent about it
+    described = next(((line.get("voice") or "").strip() for line in fields.get("dialogue") or []
+                      if (line.get("text") or "").strip() and (line.get("voice") or "").strip()), "")
+    roles = [(text or "").strip() for text in (fields.get("video_roles") or [])]
+    keeps = [(text or "").strip() for text in (fields.get("video_keeps") or [])]
+    follows = [(text or "").strip() for text in (fields.get("video_follows") or [])]
+    for k, shown in enumerate(videos, start=1):
+        role, keep = (roles[k - 1] if k <= len(roles) else ""), (keeps[k - 1] if k <= len(keeps) else "")
+        if role:  # the caller's own account of this video
+            subjects.append(f"<Video {k}> is {role.rstrip('.')}.")
+            kept.append(f"<Video {k}>: " + ("" if keep.startswith("fully_preserved") else "reference - ")
+                        + (keep or f"the structure and movement of <Video {k}> are followed."))
+            follow.append((follows[k - 1] if k <= len(follows) else "") or f"The layout, movement and camera path follow <Video {k}>.")
+        elif shown or not people:  # a video that shows someone: a subject of its own, as the model card writes it
+            people += 1
+            subjects.append(f"<Subject {people}> is {shown or 'the main subject'} in <Video {k}>.")
+            subjects.append(f"<Video {k}> is the reference video for the appearance and the motion of <Subject {people}>.")
+            kept.append(f"<Subject {people}> (appears in [Shot 1]): fully_preserved - the identity, face, hair, "
+                        f"clothing and colours shown in <Video {k}> are kept.")
+            kept.append(f"<Video {k}>: reference - the motion and timing of <Subject {people}> in <Video {k}> are followed.")
+            follow.append(f"<Subject {people}> moves as in <Video {k}>.")
+        else:
+            subjects.append(f"<Video {k}> is the motion reference for the target video.")
+            kept.append(f"<Video {k}>: reference - the motion, timing and camera movement of <Video {k}> are followed.")
+            follow.append(f"The motion and camera movement follow <Video {k}>.")
+        if fields.get("video_sound"):
+            sounds += 1
+            subjects.append(f"<Audio {sounds}> is the synchronized audio track of <Video {k}>.")
+            kept.append(f"<Audio {sounds}>: reference - the sound of <Audio {sounds}> is reused in the target video.")
+            tracks.append(f"<Audio {sounds}>")
+    subjects += [line.strip() for line in (fields.get("definitions") or []) if line and line.strip()]
+    voices = []
+    for note in audios:
+        sounds += 1
+        subjects.append(f"<Audio {sounds}> is " + (note.rstrip(".") if note else "the voice timbre reference for <Subject 1>'s voice"
+                                                   + (f", containing {described}" if described else "")) + ".")
+        kept.append(f"<Audio {sounds}>: reference - the target audio references the voice timbre from <Audio {sounds}>"
+                    + " for the spoken lines." if described or not note
+                    else f"<Audio {sounds}>: reference - the target audio references the sound of <Audio {sounds}>.")
+        voices.append(f"<Audio {sounds}>")
     scene = (fields.get("scene") or "").strip()
-    shot = " ".join(part.strip() for part in (scene, fields.get("camera", ""), fields.get("action", "")) if part and part.strip())
+    shot = " ".join(part.strip() for part in (scene, fields.get("camera", ""), fields.get("action", ""), *follow)
+                    if part and part.strip())
     spoken = []
     for index, line in enumerate(fields.get("dialogue") or [], start=1):
         text = (line.get("text") or "").strip()
@@ -176,22 +424,39 @@ def compose_references(fields: dict, count: int) -> str:
         language = (line.get("language") or "English").strip()
         spoken.append(f"<Subject {int(line.get('subject') or 1)}> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
     if spoken:
+        if voices:
+            shot += " The speaker's voice timbre references the delivery from " + " and ".join(voices) + "."
         # a clip longer than its lines: without this the model may keep the mouth moving and invent words
         shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
                  " talking, closes the mouth and stays silent until the end of the clip.")
+    elif tracks:  # a video's own sound is a reference: it may hold speech, so nothing here says that nobody speaks
+        shot += " The sound of " + " and ".join(tracks) + " plays through the clip."
     else:
         shot += " Nobody speaks."
-    sound = (fields.get("soundscape") or "Natural ambient sound for the scene.").strip()
-    sound += " No speech after the spoken lines." if spoken else " No voices, no speech."
+    if (fields.get("avoid") or "").strip():
+        shot += " " + fields["avoid"].strip()
+    sound = (fields.get("soundscape") or ("The sound of " + " and ".join(tracks) + ", reused." if tracks
+                                          else "Natural ambient sound for the scene.")).strip()
+    sound += " No speech after the spoken lines." if spoken else "" if tracks else " No voices, no speech."
+    if voices:
+        sound += (" The spoken lines reference the voice timbre of " if spoken else " The sound references ") + " and ".join(voices) + "."
     music = (fields.get("music") or "N/A").strip()
     if music.upper() != "N/A":
         sound += f" Music: {music}."
-    who = ", ".join(f"<Subject {i}>" for i in range(1, count + 1))
+    who = ", ".join(f"<Subject {i}>" for i in range(1, people + 1))
+    kinds = " + ".join(kind for kind, used in (("subject reference", count), ("video reference", videos),
+                                               ("audio reference", sounds)) if used)
     return ("subject_definitions:\n" + "\n".join(subjects)
-            + f"\n\nsummary:\n[subject reference] A new video with {who}, keeping how each looks in its picture. "
+            + f"\n\nsummary:\n[{kinds}] "
+            + ((fields.get("lead") or "").strip() + " " if (fields.get("lead") or "").strip()
+               else f"A new video with {who}, keeping how each looks in its " + ("reference. " if videos else "picture. ") if who
+               else "A new video that follows its video reference. ")
             + (scene or "A new scene.")
             + "\n\nretention_analysis:\n" + "\n".join(kept)
-            + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()} {sound}")
+            # the sound under its own heading, as in the text-to-video form: written on the end of the shot, the model
+            # read it as something to say (measured on a DGX Spark: a voice in 41 % and 63 % of the frames of a
+            # clip that asks for no speech, on two seeds, and in none with the heading)
+            + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()}\n\noverall_soundscape:\n{sound}")
 
 
 def compose(fields: dict, first_frame: bool) -> str:
@@ -275,6 +540,18 @@ def text_encoders() -> dict[str, str]:
     return {f.name: str(f) for f in sorted(folder.glob("*.safetensors"))}
 
 
+
+def own_text_encoder(asked: str) -> str | None:
+    """A text encoder file of the user's own choosing: what TEXT_ENCODER is set to for it, or None when there is no
+    such file. On a Mac a path; on a Spark the name of a file in ComfyUI's text_encoders folder (a path's last part)."""
+    if not asked.endswith(".safetensors"):
+        return None
+    if SPARK:
+        name = Path(asked).name
+        return name if (SPARK_REF2VA.parent / "FastH3-Comfy/text_encoders" / name).is_file() else None
+    path = Path(asked).expanduser()
+    return str(path) if path.is_file() else None
+
 def ref2va_ready() -> bool:
     """Whether reference to video can run here: MiniMax H3's Ref2VA transformer (oneshot-setup.sh --ref2va) beside
     the text encoder and decoders every install has. A Mac feature: the passes run on the MLX engine."""
@@ -309,9 +586,11 @@ def custom(params: dict) -> tuple[dict, bool]:
             raise HTTPException(400, f"passes is between {CUSTOM_STEPS[0]} and {CUSTOM_STEPS[1]}")
         env["STEPS"] = str(steps)
     if params.get("text_encoder") not in (None, "", "regular"):
-        found = text_encoders().get(str(params["text_encoder"]))
+        asked = str(params["text_encoder"]).strip()
+        found = text_encoders().get(asked) or own_text_encoder(asked)
         if not found:
-            raise HTTPException(400, f"no text encoder file named {params['text_encoder']} on this machine")
+            raise HTTPException(400, f"no text encoder file at {asked} on this machine (a .safetensors file"
+                                     + (" in ComfyUI's text_encoders folder)" if SPARK else ")"))
         env["TEXT_ENCODER"] = found
     return env, bool(env)
 
@@ -323,28 +602,83 @@ def ref2va_turbo_ready() -> bool:
     return ref2va_ready() and (ZIG_ENGINE.parent / "adapters" / REF2VA_ADAPTER).is_file()
 
 
-def references(params: dict) -> list[str]:
-    """The job's reference pictures as paths under the studio folder, or [] when it has none."""
+def media_seconds(path: str) -> tuple[float | None, bool | None]:
+    """(length in seconds, whether it has sound) of a media file, or (None, None) without ffprobe: the renderer
+    measures again and refuses what is out of range."""
 
-    found = [str(inside(path)) for path in (params.get("references") or []) if path]
-    if not found:
-        return []
-    if len(found) > REFERENCE_LIMIT:
-        raise HTTPException(400, f"at most {REFERENCE_LIMIT} reference pictures")
+    tool = shutil.which("ffprobe") or shutil.which("ffprobe", path="/opt/homebrew/bin:/usr/local/bin")
+    if tool is None:
+        return None, None
+    done = subprocess.run([tool, "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json",
+                           path], capture_output=True, text=True)
+    try:
+        data = json.loads(done.stdout)
+        return float(data["format"]["duration"]), any(one.get("codec_type") == "audio" for one in data["streams"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+
+
+def references(params: dict) -> dict:
+    """The job's references as paths under the studio folder: {} when it has none, else ``pictures``, ``videos``
+    and ``audios`` (each a list) and ``video_sound`` (the videos' own soundtracks are references too)."""
+
+    found = {kind: [str(inside(path)) for path in (params.get(key) or []) if path]
+             for kind, key in (("pictures", "references"), ("videos", "reference_videos"), ("audios", "reference_audios"))}
+    if len(found["videos"]) == 1 and freed(params.get("pace"), params.get("motion") if isinstance(params.get("motion"), dict) else None, len(found["pictures"])):
+        found["videos"] = []  # Impacts over a slow reference: the prompt carries the fight (see freed)
+    pictures, videos, audios = found["pictures"], found["videos"], found["audios"]
+    if not (pictures or videos or audios):
+        return {}
+    for kind, limit, files in (("reference pictures", REFERENCE_LIMIT, pictures), ("reference videos", REFERENCE_VIDEO_LIMIT, videos),
+                               ("reference audio clips", REFERENCE_AUDIO_LIMIT, audios)):
+        if len(files) > limit:
+            raise HTTPException(400, f"at most {limit} {kind}")
+    if len(pictures) + len(videos) + len(audios) > REFERENCE_TOTAL:
+        raise HTTPException(400, f"at most {REFERENCE_TOTAL} references in all")
+    if audios and not (pictures or videos):
+        raise HTTPException(400, "reference audio needs a reference picture or video beside it: the model does not take sound alone")
     if params.get("image") or params.get("first_frame_from"):
-        raise HTTPException(400, "reference pictures do not combine with a first frame")
+        raise HTTPException(400, "references do not combine with a first frame")
     if not ref2va_ready():
         raise HTTPException(400, "MiniMax H3 Ref2VA is not installed here (oneshot-setup.sh --ref2va adds it)")
     if params.get("ref_turbo") and not ref2va_turbo_ready():
         raise HTTPException(400, "the Ref2VA Turbo adapter is not installed here (oneshot-setup.sh --ref2va adds it)")
-    missing = [path for path in found if not Path(path).is_file()]
+    missing = [path for path in pictures + videos + audios if not Path(path).is_file()]
     if missing:
-        raise HTTPException(400, f"no reference picture at {relative(Path(missing[0]))}")
-    return found
+        raise HTTPException(400, f"no reference file at {relative(Path(missing[0]))}")
+    wrong = [path for path in videos if Path(path).suffix.lower() not in VIDEO_SUFFIXES]
+    if wrong:
+        raise HTTPException(400, f"a reference video is an mp4 or mov file, and {relative(Path(wrong[0]))} is not")
+    wrong = [path for path in audios if Path(path).suffix.lower() not in AUDIO_SUFFIXES + VIDEO_SUFFIXES]
+    if wrong:
+        raise HTTPException(400, f"a reference audio clip is a sound file, and {relative(Path(wrong[0]))} is not")
+    video_sound = bool(videos and params.get("reference_video_sound"))
+    measured = (params.get("motion") or {}).get("measured") if isinstance(params.get("motion"), dict) else None
+    if video_sound and isinstance(measured, dict) and measured.get("sound") == "impacts" and params.get("pace") == "flow":
+        video_sound = False  # Flow by choice: the reference's own hits are not reused (as the prompt says)
+    low, high = REFERENCE_CLIP_SECONDS
+    for kind, files in (("video", videos), ("audio clip", audios)):
+        total = 0.0
+        for path in files:
+            seconds, sound = media_seconds(path)
+            if seconds is None:
+                continue
+            if not low - 0.05 <= seconds <= high + 0.05:
+                raise HTTPException(400, f"a reference {kind} is {low:g} to {high:g} seconds long, and "
+                                         f"{relative(Path(path))} is {seconds:.1f} s")
+            if not sound and (kind == "audio clip" or video_sound):
+                raise HTTPException(400, f"{relative(Path(path))} has no sound" + (": untick the videos' own sound"
+                                                                                  if kind == "video" else ""))
+            total += seconds
+        if total > REFERENCE_KIND_SECONDS + 0.05:
+            raise HTTPException(400, f"the reference {kind}s are at most {REFERENCE_KIND_SECONDS:g} seconds in all, got {total:.1f} s")
+    return {**found, "video_sound": video_sound}
 
 
 def estimate(preset: str, quality: str, seconds: int, text_only: bool = False, referenced: bool = False,
-             ref_turbo: bool = False) -> int | None:
+             ref_turbo: bool = False, ref_media: bool = False) -> int | None:
+    if referenced and ref_media:
+        return None  # a reference video or audio clip adds its own rows to every pass: the time depends on its length
     if referenced:
         # the same MLX engine as the 20-step qualities, whose time grows with the length to the power 1.6
         if SPARK:
@@ -427,7 +761,12 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
         if pictures:
             # Ref2VA takes neither the Turbo adapter nor FastH3: the quality setting does not apply
             env = {k: v for k, v in env.items() if k not in QUALITIES[quality][1]}
-            env["REF_IMAGES"] = "\n".join(pictures) + "\n"  # one per line, so a path may hold spaces
+            # one per line, so a path may hold spaces
+            for name, kind in (("REF_IMAGES", "pictures"), ("REF_VIDEOS", "videos"), ("REF_AUDIOS", "audios")):
+                if pictures[kind]:
+                    env[name] = "\n".join(pictures[kind]) + "\n"
+            if pictures["video_sound"]:
+                env["REF_VIDEO_SOUND"] = "1"
             if params.get("ref_turbo"):
                 env["REF_TURBO"] = "1"
         env.update(passes(chosen, SPARK or (fast_h3 and not pictures)))  # Ref2VA runs on MiniMax H3
@@ -524,8 +863,23 @@ def run(job: dict, command: list[str], env: dict, label: str = "") -> bool:
     if job["status"] == "cancelled":
         return False
     if code:
-        raise RuntimeError(f"the script exited with status {code}")
+        # the script's own last words say why: a file out of range, a model not installed, memory
+        said = [line.strip() for line in job["log"].splitlines() if line.strip() and not STEP.search(line)]
+        raise RuntimeError((said[-1][-400:] if said else "the script stopped") + f" (status {code})")
     return True
+
+
+def hush(clip: Path) -> None:
+    """The clip with its sound track silenced (``silent`` in a job's settings: a Flow clip without music). Asking the
+    model for near silence is not enough: on the Mac it laid music of its own over two of three such clips."""
+
+    quiet = clip.with_name(clip.stem + ".quiet" + clip.suffix)
+    done = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(clip), "-map", "0:v:0", "-map", "0:a?", "-c:v", "copy", "-af", "volume=0",
+                           "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(quiet)], capture_output=True, text=True, env=environment({}))
+    if done.returncode or not quiet.is_file():
+        quiet.unlink(missing_ok=True)
+        raise RuntimeError("the clip's sound could not be silenced: " + (done.stderr or "").strip()[-200:])
+    quiet.replace(clip)
 
 
 def gated(job: dict, clip: Path) -> bool:
@@ -646,6 +1000,13 @@ def work() -> None:
                 if job["kind"] == "video" and params.get("preset") == "sharp" and params.get("qa", True):
                     if not gated(job, Path(outputs[0])):
                         continue
+                if job["kind"] == "video" and params.get("silent"):
+                    hush(Path(outputs[0]))
+                if job["kind"] == "video" and (params.get("reference_videos") or params.get("pace") in ("impacts", "flow")):
+                    try:  # reported beside the clip like the QA gate; it never fails a clip that was made
+                        job["pace"] = {**pace.measure(Path(outputs[0])), "asked": params.get("pace") or "auto"}
+                    except Exception as error:  # noqa: BLE001
+                        job["pace"] = {"verdict": "not measured", "note": str(error)[-200:]}
             job["status"] = "done"
         except Exception as error:  # noqa: BLE001 - a failed job must not stop the queue
             if job["status"] != "cancelled":
@@ -659,7 +1020,7 @@ threading.Thread(target=work, daemon=True).start()
 
 def public(job: dict) -> dict:
     out = {k: job.get(k) for k in ("id", "kind", "status", "title", "outputs", "progress", "error", "created",
-                                    "started", "finished", "estimate", "engine", "qa")}
+                                    "started", "finished", "estimate", "engine", "qa", "passes", "pace")}
     # by this machine's clock: the page may be open on another one
     out["elapsed"] = (job.get("finished") or time.time()) - job["started"] if job.get("started") else None
     out["log"] = job["log"][-3000:]
@@ -674,6 +1035,9 @@ def state() -> dict:
             "home": str(HOME), "pack": str(PACK), "version": (PACK / "VERSION").read_text().strip(),
             "zig": zig_ready(), "turbo": turbo_ready() and not SPARK, "x2": not SPARK,
             "ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready(), "reference_limit": REFERENCE_LIMIT,
+            # reference videos and audio: wherever Ref2VA is installed
+            "ref_media": ref2va_ready(), "reference_video_limit": REFERENCE_VIDEO_LIMIT,
+            "reference_audio_limit": REFERENCE_AUDIO_LIMIT, "reference_total": REFERENCE_TOTAL,
             "text_encoders": sorted(text_encoders()), "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
             "platform": machine()[0], "platform_label": machine()[1],
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
@@ -681,8 +1045,8 @@ def state() -> dict:
 
 @app.post("/api/compose")
 def compose_prompt(body: dict) -> dict:
-    if body.get("references"):
-        return {"prompt": compose_references(body.get("fields", {}), int(body["references"]))}
+    if body.get("references") or body.get("referenced"):
+        return {"prompt": compose_references(body.get("fields", {}), int(body.get("references") or 0))}
     return {"prompt": compose(body.get("fields", {}), bool(body.get("first_frame")))}
 
 
@@ -692,7 +1056,7 @@ def estimate_time(body: dict) -> dict:
         return {"seconds": None}  # a LoRA changes which engine renders the clip: no time is measured for it
     return {"seconds": estimate(body.get("preset", "draft"), body.get("quality", "standard"),
                                 int(body.get("seconds", 5)), bool(body.get("text_only")), bool(body.get("referenced")),
-                                bool(body.get("ref_turbo")))}
+                                bool(body.get("ref_turbo")), bool(body.get("ref_media")))}
 
 
 @app.post("/api/jobs")
@@ -711,7 +1075,10 @@ def submit(body: dict) -> dict:
         raise HTTPException(400, "a prompt is needed")
     if kind != "video" and params.get("references"):
         raise HTTPException(400, "reference pictures are for single clips")
-    referenced = kind == "video" and bool(references(params))
+    if kind != "video" and (params.get("reference_videos") or params.get("reference_audios")):
+        raise HTTPException(400, "reference videos and audio are for single clips")
+    found = references(params) if kind == "video" else {}
+    referenced, ref_media = bool(found), bool(found and (found["videos"] or found["audios"]))
     if kind in ("video", "studio", "long") and not referenced and not str(params.get("quality", "standard")).startswith("fh") and not turbo_ready():
         raise HTTPException(400, "MiniMax H3 Turbo is not installed here (oneshot-setup.sh --turbo adds it): use FastH3, quality fh4, fh8 or fh20")
     job_id = time.strftime("%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
@@ -723,8 +1090,10 @@ def submit(body: dict) -> dict:
                                                   int(params.get("total_seconds") or params.get("seconds", 5)),
                                                   kind == "video" and not params.get("image")
                                                   and not params.get("first_frame_from"), referenced,
-                                                  bool(params.get("ref_turbo")))
+                                                  bool(params.get("ref_turbo")), ref_media)
            if kind in ("video", "studio", "long") else None}
+    if referenced:  # the passes a reference clip runs: the number set by hand, or the model's 20, or the adapter's 4
+        job["passes"] = int(params["steps"]) if params.get("steps") not in (None, "") else 4 if params.get("ref_turbo") else 20
     with lock:
         jobs[job_id] = job
         order.append(job_id)
@@ -760,8 +1129,9 @@ def cancel(job_id: str) -> dict:
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)) -> dict:
     suffix = Path(file.filename or "image.png").suffix.lower()
-    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov", ".safetensors"):  # .safetensors: a LoRA for the hub
-        raise HTTPException(400, "images (png, jpg, webp) and videos (mp4, mov) only")
+    # .safetensors: a LoRA for the hub; sound files: reference audio
+    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".safetensors") + VIDEO_SUFFIXES + AUDIO_SUFFIXES:
+        raise HTTPException(400, "images (png, jpg, webp), videos (mp4, mov) and sound (wav, mp3, m4a, aac, flac, ogg) only")
     target = HOME / "uploads" / f"{uuid.uuid4().hex[:10]}{suffix}"
     with open(target, "wb") as handle:
         shutil.copyfileobj(file.file, handle)
@@ -803,13 +1173,16 @@ def discard(path: str) -> dict:
 @app.get("/api/probe")
 def probe(path: str) -> dict:
     target = inside(path)
-    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                          "stream=width,height,nb_frames:format=duration", "-of", "json", str(target)],
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                          "stream=codec_type,width,height,nb_frames:format=duration", "-of", "json", str(target)],
                          capture_output=True, text=True, env=environment({}))
     data = json.loads(out.stdout or "{}")
-    stream = (data.get("streams") or [{}])[0]
+    streams = data.get("streams") or []
+    stream = next((one for one in streams if one.get("codec_type") == "video"), {})
+    # sound: whether the file has an audio track (a reference video's own sound, a reference audio clip)
     return {"width": stream.get("width"), "height": stream.get("height"), "frames": stream.get("nb_frames"),
-            "duration": float((data.get("format") or {}).get("duration") or 0)}
+            "duration": float((data.get("format") or {}).get("duration") or 0),
+            "sound": any(one.get("codec_type") == "audio" for one in streams)}
 
 
 def project_file(project_id: str) -> Path:
@@ -822,7 +1195,11 @@ def project_file(project_id: str) -> Path:
 def projects() -> list[dict]:
     out = []
     for file in sorted((HOME / "projects").glob("*/project.json"), key=lambda f: -f.stat().st_mtime):
-        data = json.loads(file.read_text())
+        try:
+            data = json.loads(file.read_text())
+            data["id"]
+        except (ValueError, KeyError, TypeError):
+            continue  # a file that was cut off while being written must not take the Production tab down
         out.append({"id": data["id"], "name": data.get("name", data["id"]), "segments": len(data.get("segments", [])),
                     "modified": file.stat().st_mtime})
     return out
@@ -835,7 +1212,9 @@ def new_project(body: dict) -> dict:
             "segments": [], "timeline": []}
     file = project_file(project_id)
     file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(json.dumps(data, indent=1))
+    fresh = file.with_suffix(".json.new")
+    fresh.write_text(json.dumps(data, indent=1))
+    fresh.replace(file)
     return data
 
 
@@ -853,7 +1232,9 @@ def save_project(project_id: str, body: dict) -> dict:
     if not file.is_file():
         raise HTTPException(404, "no such project")
     body["id"] = project_id
-    file.write_text(json.dumps(body, indent=1))
+    fresh = file.with_suffix(".json.new")  # written beside it and swapped in: a reader never sees half a file
+    fresh.write_text(json.dumps(body, indent=1))
+    fresh.replace(file)
     return body
 
 
@@ -882,11 +1263,16 @@ async def errors(_, error: HTTPException):
 import loras  # noqa: E402  (Keys and Wasserman LoRA Hub, beside this file)
 lora_router, lora_resolve, lora_lead = loras.attach(HOME, PACK, SPARK)
 app.include_router(lora_router)
+import pace  # noqa: E402  (whether a clip's sound and motion agree, beside this file)
 import qa  # noqa: E402  (Sam Wasserman's QA gate, beside this file)
 import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)
 
 app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, REFERENCE_LIMIT,
                                 lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}))
+import motion  # noqa: E402  (Motion Previs: a Python port of Sam Wasserman's Motion Previs Studio analysis, beside this file)
+app.include_router(motion.attach(HOME, PACK, SPARK))
+import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
+app.include_router(clear.attach(HOME, jobs, order, lock)[0])
 app.mount("/", StaticFiles(directory=HERE / "static", html=True), name="static")
 
 if __name__ == "__main__":

@@ -14,7 +14,8 @@ it here. Qwen-Image-2.1-Turbo images and MiniMax H3 / FastH3 video with sound, o
 
 **Sam Wasserman shaped the production side of this studio: the AI film workflow and the ideas behind it.** Slate, his
 prompt studio for AI filmmaking, is the workflow inside the Wasserman Slate AI Studio tab. The Wasserman Sharp Spec,
-the QA gate that follows it, and the 80s Horror LoRA that opens the Keys and Wasserman LoRA Hub are his too. The aim
+the QA gate that follows it, and the 80s Horror LoRA that opens the Keys and Wasserman LoRA Hub are his too. The Motion Previs tab's analysis is a
+Python port of his [Motion Previs Studio](https://github.com/wassermanproductions/motion-previs-studio). The aim
 we share is the best AI film studio there is, and this pack is where his planning tools meet a render engine. See
 [CREDITS.md](CREDITS.md).
 
@@ -24,7 +25,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.5** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.6** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -182,6 +183,68 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 (the files were already on the test machine), any GPU other than the GB10, and two Sparks working on one clip.
 
 ## What changed
+
+> **2.6 (2026-10-12): reference videos and audio, Motion Previs, and the two joined in the create wizard.**
+> **What's new in 2.6:**
+> - **Reference videos and reference audio** for MiniMax H3 Ref2VA beside reference pictures (`REF_VIDEOS`,
+>   `REF_AUDIOS`; *The clip starts from → References* in the app): a video carries a subject and how it moves, an
+>   audio clip a voice or music. See [Reference videos and reference audio](#reference-videos-and-reference-audio-ref2va).
+> - **Motion Previs**, a new tab: a Python port, modified, of the analysis of Sam Wasserman's Motion Previs Studio.
+>   A shot becomes a pose skeleton, depth, edges, a camera move in words and a production pack. See
+>   [Motion Previs](#motion-previs-a-shot-into-control-layers-and-a-camera-move). Installed with `--motion`.
+> - **The two joined.** On the references screen of the create wizard, *Analyse motion* runs Motion Previs on
+>   `<Video 1>` and offers what to carry over (camera only, actor motion, object motion, full scene) and what goes to
+>   the model as `<Video 1>`: the source clip (the default for the same place with a new person), the depth layer
+>   as a control video (the default for a new place or the camera alone), or the skeleton (offered, the loosest);
+>   the camera move is added to the prompt. *Use as motion reference* in the Motion
+>   Previs tab opens the wizard filled in the same way. Without the motion environment a reference video is a plain
+>   reference, as before.
+> - **Sound and movement agree.** *Sound and movement* under *Analyse motion*: **Impacts** (fast strikes and blocks,
+>   with their sound), **Flow** (slow movement, silent or under music) or **Automatic**, which never lays hits over a
+>   reference that moves slowly. Every finished reference clip is measured for it and flagged when it does not agree.
+>   A source clip's mouth is kept out of a clip in which nobody speaks. See
+>   [Sound and movement of a motion reference](#sound-and-movement-of-a-motion-reference-impacts-or-flow).
+> - **Clear and delete.** Every prompt form has a *Clear* with an *Undo* (a wizard step, the whole draft, a segment,
+>   every segment, a Slate shot's prompt). In the queue, 🗑 deletes a finished job with its clip, check sheets and
+>   the first frame only it used; *Delete selected*, *Clear failed* and *Delete all finished* do the same for
+>   several. The Library deletes one or several ticked files. Everything goes to the trash folder and the last
+>   deletion can be put back; *Empty trash* shows the size and erases it after a confirmation. See
+>   [Clearing prompts and deleting clips](#clearing-prompts-and-deleting-clips).
+> - **The reference step checks each file as you add it**: a clip under 2 or over 15 seconds, more than 15 seconds of
+>   one kind, a tenth picture, a thirteenth reference or a silent "audio" file is turned away with the reason, and
+>   *the videos' own sound* can only be ticked when every video has sound. A motion layer (skeleton, depth) now
+>   carries the shot's own sound, so that box works with any layer. A failed job shows the renderer's own last
+>   words, not "exited with status 1".
+> - **No more voice that nobody asked for in reference clips:** the app writes the sound of a reference prompt under
+>   its own `overall_soundscape` heading. Written on the end of the shot, the model sometimes read it out.
+> - **Sound on a DGX Spark** is made from a lossless copy of the decoder's output and limited to -1 dBFS; it used to
+>   be ComfyUI's own track, which overshot full scale.
+> - `STEPS` sets the passes of a reference clip; *Custom* is the card beside *20 passes* in each passes chooser; a first frame or a
+>   reference picture reaches the Mac's text encoder with the checkpoint's own normalisation (the DGX Spark build
+>   never had that fault: ComfyUI's encoder already used the checkpoint's values).
+>
+> **What was tested where.** *Mac Studio M5 Ultra:* reference videos, reference audio, `STEPS`, the normalisation fix
+> and the Motion Previs analysis, as their sections say; the source clip, a depth layer and a skeleton as
+> `<Video 1>` with a picture, measured against the source shot (the figures are in the Motion Previs section). The Mac renders need the TensorFold engine branch
+> `ref-video-audio`, which the engine build this release installs does not have yet. *DGX Spark (GB10):* everything in
+> [On a DGX Spark](#reference-videos-audio-and-motion-on-a-dgx-spark): reference videos and audio through ComfyUI's
+> node, the Motion Previs analysis on Linux, and the wizard's flow (upload, analyse, choose, compose, render) driven
+> through the app's HTTP API with the source clip and with the skeleton layer.
+> **Checked on the Spark after the join:** the new screens by hand in a headless Chromium at desktop and phone
+> width (every card of the reference step, the motion panel, the Motion Previs tab and its hand-off, the limits,
+> one clip made start to finish through the page); a video's own sound, a voice recording, and both together, by
+> measurement ([what a sound reference does](#reference-videos-audio-and-motion-on-a-dgx-spark)); two reference videos
+> in one request; an 8 second clip from an 8 second shot; the object-motion and camera-only modes in a render.
+> **Sound and movement** (Impacts, Flow with and without music, the soft mouth) was rendered on both machines
+> through the wizard's API calls and looked at frame by frame. The controls were then clicked in a headless Chromium
+> against both machines' running apps: a reference video added, *Analyse motion*, each of *Automatic*, *Impacts* and
+> *Flow*, the mouth switch off and on, and one Flow clip queued from the page (DGX Spark 206 s, Mac 242 s, 5 s at
+> 864x480, 4 passes; both measured slow and silent, "agree"). **Clear and delete** were driven the same way on both
+> builds against a studio folder of test clips (25 checks each).
+> **Not tested on either machine:** the motion figures on more than a few shots or seeds; voice cloning (not
+> promised: see the measurements); three reference videos at once; a real Motion Previs Studio export ZIP;
+> `REF_VIDEO_SIZE=full` (refused on the Spark, for memory). Not tested on the Mac: the join after the merge (the Mac
+> tests were made on the two branches before they were joined).
 
 > **2.5 (2026-10-11): Wasserman Slate AI Studio, the Wasserman Sharp Spec with its QA gate, and the Keys and
 > Wasserman LoRA Hub.** On both machines, with Sam Wasserman (wassermanproductions.com). **Wasserman Slate AI
@@ -368,7 +431,7 @@ and roughly how long it takes.
 | Choice | What it does |
 |---|---|
 | **The prompt goes to** | *Video with sound*, or *Image only*: Qwen-Image-2.1 makes the pictures and stops there. |
-| **The clip starts from** | *Text only*; *a Qwen scout image* (step 2 makes several, you pick one); *your own image* (step 2 uploads it); or, with `--ref2va` installed, *reference pictures* (step 2 takes up to nine: who or what must look the same, in a scene the prompt describes). |
+| **The clip starts from** | *Text only*; *a Qwen scout image* (step 2 makes several, you pick one); *your own image* (step 2 uploads it); or, with `--ref2va` installed, *reference pictures* (step 2 takes up to nine: who or what must look the same, in a scene the prompt describes; on a Mac whose engine packs them, also up to three reference videos and three audio clips: see [Reference videos and reference audio](#reference-videos-and-reference-audio-ref2va-mac-only-for-now)). |
 | **Video engine** (shown only with `--turbo` installed) | *FastH3*: fastest; text to video runs on the native Zig engine, and the bar under the cards says which engine a clip will use. *MiniMax H3*: the Turbo adapter with the sound made again by the base model, or the full 20 steps. |
 | **Passes** (FastH3) | 4 (fastest, a little softer), 8 (what it was trained for), 20 (for prompts with several actions; slowest). |
 | **Quality** (MiniMax H3, with `--turbo`) | Turbo 5 + base sound (the standard), Turbo 3, 20 steps with the fast recipe, or plain 20 steps. |
@@ -426,6 +489,32 @@ length. A segment can open on the last frame of the one before; one button rende
 
 **Library** lists every render, scout and export; *use* makes an image the first frame of a new clip, *+ timeline*
 sends a clip to the editor, and 🗑 moves a file to `~/TensorFoldStudio/trash`.
+
+### Clearing prompts and deleting clips
+
+From 2.6. Nothing below erases a file except *Empty trash*.
+
+| Where | Control | What it does |
+|---|---|---|
+| Create wizard | *Clear this step* | Empties the text fields of the step on screen. *Music* goes back to `N/A`; a line's language stays. |
+| Create wizard | *Clear all* | Empties every prompt field of the clip: scene, action, camera, lines, soundscape, music, the notes on references and the composed prompt. Pictures, clips and settings stay. |
+| Production board | *Clear* on a segment, *Clear every segment's text* | Empties scene, action, voice, line and soundscape. Titles, lengths, seeds and rendered clips stay. |
+| Slate | *Clear* above a shot's prompt | Empties that shot's prompt. |
+| Queue | 🗑 on a finished job | The job leaves the list; its clip or stills, its QA sheets and takes, and uploads no other job in the list uses go to the trash. |
+| Queue | *Delete selected*, *Clear failed*, *Delete all finished* | The same for the ticked jobs, the failed ones, or every finished and cancelled one. A clip that is in a film (a project's timeline, a Slate take) stays. |
+| Library | 🗑, or tick files and *Delete selected* | The files go to the trash. |
+| Library | *Restore last deletion* | The files of the last deletion return to where they were, and its job cards to the queue. |
+| Library | *Empty trash* | Shows the number of files and their size, asks, then erases them. This cannot be undone. |
+
+A cleared form is put back by *Undo* in the message or by *Undo clear* beside the button, until the page is closed
+or reloaded. A queued or running job cannot be deleted (cancel it first), and a file such a job reads or writes
+stays. Deleting never touches a project file, a LoRA or a model: only pictures, clips and sound in `renders`,
+`exports`, `scouts`, `uploads` and `qa`, and clips in `projects` and `slate`, can be moved. The trash is
+`~/TensorFoldStudio/trash`; a LoRA removed in the hub goes there too, so *Empty trash* erases that as well.
+`tests/test_clear.py` holds the path checks. Driven in a headless Chromium on both machines' builds, against a
+studio folder of test clips: each Clear and Undo, one job deleted and put back, two ticked jobs, the failed ones,
+all finished, restore, two ticked Library files, and the trash emptied (25 checks). Not driven in a browser: the
+*Clear* above a Slate shot's prompt (it is the same control as a segment's).
 
 ![Tutorial](samples/ui_tutorial.png)
 
@@ -508,6 +597,181 @@ The app drives the same scripts as the command line, one job at a time, and keep
 under `~/TensorFoldStudio`. What it is not: the editor has one video track with trims and ordering only (no
 transforms, text, transitions or audio mixing), and there is no assisted prompt writing. The workflow is modelled
 on rookiestar28's ComfyUI-MiniMaxH3-Studio, which does far more; no code is shared with it.
+
+## Motion Previs: a shot into control layers and a camera move
+
+The **Motion Previs** tab takes a clip (one you upload, or an earlier render or upload), a range of 2 to 15 seconds
+and one of four reference modes (camera only, actor motion, object motion, full scene), and writes a production pack
+under `~/TensorFoldStudio/motion/<id>/` with a ZIP beside it: the trimmed reference clip, a pose track
+(`pose_landmarks.json`), an OpenPose BODY_25 skeleton video and `openpose_keypoints.json`, a subject-masked camera
+solve (`camera_motion.json`), depth (Depth-Anything-small, and an ffmpeg proxy), edges, line art, a motion mask, a
+contact sheet, a shot bible and a prompt pack. The tab shows the reference, skeleton, depth and edges side by side
+and says the camera move in a sentence ("The camera pushes in while it slowly tilts up ..."). Stages report their own
+progress and Cancel stops the job and keeps nothing. A pack ZIP exported by Motion Previs Studio can be uploaded in
+place of an analysis.
+
+**The analysis is a Python port, modified, of [Motion Previs Studio](https://github.com/wassermanproductions/motion-previs-studio)
+by Sam Wasserman** (Apache-2.0, Copyright 2026 Sam Wasserman). Packs use his file names and manifest layout, so they
+are interchangeable with his app's. His NOTICE is at `LICENSES/Motion-Previs-Studio-NOTICE`; what was changed and the
+notices for MediaPipe, Depth Anything, OpenCV and ONNX Runtime are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+```bash
+bash oneshot-setup.sh --motion      # or: bash scripts/setup-motion.sh   (0.5 GB, an environment of its own)
+```
+
+`--motion` is an option, not part of the default install: MediaPipe brings its own OpenCV build, which must not replace
+the Studio's, so the analysis has its own environment (`$PREFIX/motion-venv`, 433 MB, and `$PREFIX/motion-models`,
+70 MB). Without it the tab still trims the shot and makes the ffmpeg layers, and on a Mac the camera solve; pose and
+AI depth say that they are not available on this machine. Measured on a Mac Studio M5 Ultra, a 5 second 864x480 shot
+with every layer at 12 samples a second: 6.6 s in all (prepare 0.2, pose 1.3, camera 0.1, depth 3.4, encode 0.9,
+pack 0.1), 0.5 GB of memory at its peak, on the processor. On a DGX Spark (`bash oneshot-setup-spark.sh --motion`;
+MediaPipe 1.1.0, OpenCV 5.0.0 and ONNX Runtime 1.31.0 all installed from their Linux aarch64 wheels) the same kind of
+shot with every layer took 12.6 to 17.6 s (prepare 0.4, pose 3.3, camera 0.2, depth 5.8, encode 1.9, pack 0.4 in the
+quicker run), 0.4 to 0.5 GB at its peak, with the same camera sentence the Mac gave for that clip. On the Spark the
+tab was driven through its API and a screenshot of it from a headless Firefox was looked at; it has not been used by
+hand in a browser on either machine. `?motionref=1` in the app's address opens the create wizard on the stored motion
+reference.
+
+**Use as motion reference** makes a hand-off (one layer of the pack resampled to the length and size of the clip to
+be made, the camera move in words, and the reference mode: `motion_reference()` in `app/motion.py`) and opens the
+create wizard on its references screen with that layer as `<Video 1>` of a MiniMax H3 Ref2VA clip.
+
+### Motion as a reference in the create wizard
+
+*The clip starts from → References*, add a reference video, then **Analyse motion** under it (offered when the
+motion environment is installed; without it the video is a plain reference). The analysis runs on the processor in
+well under a minute and gives two choices:
+
+- **What to carry over:** *Full scene* (the same place and motion with a new person: its person is replaced by
+  `<Picture 1>`), *Actor motion* (the body motion and the camera, in a new place), *Object motion* (an object's path
+  and the camera) or *Camera only*.
+- **What goes to the model as `<Video 1>`:** the **source clip** (the default for *Full scene*), the **depth** layer
+  as a control video (the default for the other three), or the **skeleton** (offered, never the default) or edges.
+- **People in `<Video 1>`:** *One* or *Two or more*. With two or more the prompt speaks of its people and figures,
+  one for one. You say it: the pose pass, its skeleton layer and the distance figures below follow **one person
+  only** (asked for up to four people on a two-person duel at arm's length, it returned one in every frame).
+
+**Fast motion, on the Mac** (through the app, 5 s at 864x480, seed 7; two cuts of a fictional martial-arts short: one
+man drilling a wooden dummy while the camera pushes in to a close-up, and two fighters trading hands while the camera
+cranes up to overhead; pose distance as in the table below, median / 90th percentile):
+
+| shot | `<Video 1>` | passes | time | distance | what came out |
+|---|---|---|---|---|---|
+| dummy drill | source clip + a picture of a woman | Turbo 4, as first shipped | 236 s | 26.4 / 36.6 | the place kept; she drifts out of frame, strikes lost |
+| dummy drill | the same request | Turbo 4, without the int8 kernels | 231 s | 3.7 / 11.2 | held |
+| dummy drill | the same request | 20 | 741 s | 4.2 / 11.7 | held: she does the drill and the push-in on the same rooftop |
+| dummy drill | depth + a picture of her in a bamboo clearing | Turbo 4 | 235 s | 3.5 / 11.7 | held, in the new place |
+| dummy drill | depth + a picture of her on the same rooftop | Turbo 4 | 247 s | 16.0 / 25.3 | the drill and the push-in, with the layout shifted |
+| duel | depth + a picture of the pair in a temple courtyard | Turbo 4 | 234 s | not valid | held by eye: both new fighters in time, the crane-up followed |
+| duel | source clip + a picture of a new pair, *One* person | Turbo 4, without the int8 kernels | 294 s | 3.2 / 8.3 | motion and crane-up followed; only one fighter replaced |
+| duel | the same with *Two or more* people | Turbo 4, without the int8 kernels | 284 s | 3.1 / 8.3 | both fighters replaced, motion and crane-up followed |
+
+The first row was a defect of the Mac build, not of the source-clip route (the DGX Spark held the same request at
+2.9 / 7.7): the Ref2VA Turbo adapter, a reference video and the three int8 kernels together lose the motion. Any one
+kernel alone held (3.4 to 3.5), any two did not (14 to 23), and 20 passes without the adapter held with all three.
+`scripts/video.sh` now runs that one case in bfloat16, about 13 s more a pass at 864x480 (`REF_INT8=1` puts the
+kernels back). The depth duel's figures are not valid because the checker follows one person and picked different fighters in
+source and result; the source-clip duel's are for the one fighter it followed. The adapter at 3 passes held the
+dummy drill as well (3.2 / 10.5, 257 s). One seed each.
+
+The camera move in words goes into the prompt in every case (a switch; text of your own in the Camera field wins).
+With the source clip and a picture, step 4 writes "The target video is `<Video 1>` with its person replaced by
+`<Subject 1>`"; calling the picture a first-frame anchor there made the picture's layout override the video. For a
+control layer it writes the control-video form: `<Video 1>` is declared the structural template (layout, silhouettes,
+positions, movement and camera path frame by frame), `<Picture 1>` the first-frame anchor, with a legend of the layer
+(a skeleton's coloured lines are joints and limbs on black; in a depth map brighter is nearer), "These colours are
+labels only, not the look of the target video", and the closing "no skeleton lines, no flat-coloured, depth-map or
+segmentation-map look". Give a picture of the opening frame as `<Picture 1>` with a control layer: the look and the
+setting come from it.
+
+Where the defaults come from: one shot measured on the Mac (a martial-arts sequence with a kick and a punch toward
+the camera, fictional people, 5 s at 864x480; the distance of the body's keypoints from the source's, in percent of
+the frame width, lower is closer):
+
+| `<Video 1>` | Distance | What it kept |
+|---|---|---|
+| Source clip, with a picture of another person | 0.6 to 2.2 | the shot move for move, in its own place, with the new person |
+| Depth, with a first-frame picture | 1.3 to 2.9 | the kick and the punch toward the camera; the setting is the picture's |
+| Depth, with a picture of another setting | 2.7 to 5.5 | the new place with no leak of the source's; the punch, not the kick |
+| Skeleton, with a first-frame picture | 2.0 to 4.5 | the scale and the camera; the kick was lost |
+| The picture alone | 5.0 to 9.8 | |
+
+No control layer left a trace of its look in a clip. One shot: read the table as an order, not as figures to promise.
+On the DGX Spark the same routes were rendered through the wizard's own API calls with the Turbo adapter and looked
+at, not measured: see [the Spark's table](#reference-videos-audio-and-motion-on-a-dgx-spark).
+
+### Sound and movement of a motion reference: Impacts or Flow
+
+A clip's sound and its movement have to agree. The first duel renders above did not: the reference is two people
+doing slow sticky hands (forearms in contact, circling), the soundscape asked for "quick slaps of forearms and hands",
+and the model did both: it followed the slow hands and laid 1.7 to 1.9 slaps a second over them, on the Mac and on
+the DGX Spark alike. Three things were measured before anything was changed:
+
+- **The slaps came from the Soundscape field**, not from the source clip (its own sound is at -54 dBFS and was not
+  sent).
+- **The slow hands came from the reference.** The source clip's quickest movement is 14 percent of the frame width a
+  second; the renders made from it are at 14 to 17. A reference video is followed whatever the prompt says about
+  speed: four wordings were tried on the Spark (fast words in the action, a template that says the slow hands are
+  not followed, *Camera only*, and the clip played at twice its speed and back), and the arms stayed at 15 to 21.
+- **The music of the Mac's fourth test** was the model's own: nothing in that prompt asked for music.
+
+**Sound and movement**, under *Analyse motion* on the references screen, is the choice that follows from this:
+
+| | What the prompt says | What is sent | Sound |
+|---|---|---|---|
+| **Impacts** | both fight at full speed: sharp strikes and hard blocks, attacking and blocking, every strike heard as it lands | a reference that moves fast goes in as before. One that moves slowly is **left out** (a switch, on by default, when there is a picture of who is in the clip): the picture and the prompt carry the fight, and the camera move of the video stays, in words | the hits of the soundscape |
+| **Flow** | the movement is slow, smooth and continuous, and no strike lands | the reference, as before | the hits are taken out of the soundscape and a video's own hits are not reused. Without music the clip is **delivered silent** (its track is muted after the render); with music named in step 3, under that music |
+| **Automatic** (the default) | as you wrote it, except that a soundscape that names hits over a reference that moves slowly becomes Flow | the reference | as Flow in that one case |
+
+The analysis measures the reference for this (`app/pace.py`, with ffmpeg and NumPy alone): **movement** is how fast
+the quickest parts of the picture move against the rest of it, in percent of the frame width a second (frames lined
+up on the camera's shift, each pixel's change over its edge strength, the three quickest blocks less the median
+block, 90th percentile over the clip), read also against the size of the action in the frame, so that a fight seen
+from across a roof is not called slow for being small; **hits** are sharp onsets a second that fill the band above
+600 Hz and die away within 50 ms, which a plucked note and a spoken consonant do not. The same two figures are taken
+of every finished reference clip and shown under it ("Sound and movement: agree", or "impact sound over slow motion"
+in red): a flag beside the clip, like the QA gate's lines, never a failed job. `pace`, `silent` and
+`motion.measured` / `motion.free` are the job's settings for scripts that drive `/api/jobs`.
+
+Measured on the duel, through the wizard's own API calls, Turbo 4 passes, 5 s at 864x480, seed 7 (movement in percent
+of the frame width a second, then the same against the size of the action; fast is 24 or 44):
+
+| machine | Sound and movement | time | movement | hits a second | checker | by eye |
+|---|---|---|---|---|---|---|
+| Mac | before: source clip, slaps in the soundscape | 284 s | 14.2 / 34.8 slow | 1.7 | impact sound over slow motion | slow sticky hands under slaps |
+| Mac | Impacts (video left out) | 89 s | 25.0 / 62.4 fast | 2.5 | agree | both throw straight punches and block, in time with the slaps; a new rooftop from the Scene text, the push-in and tilt followed |
+| Mac | Flow, no music | 262 s | 14.5 / 35.5 slow | 0 | agree | the slow hands of the reference, silent |
+| Mac | Flow, with music | 272 s | 15.6 / 40.4 slow | 0 | agree | the slow hands under a slow plucked melody |
+| DGX Spark | before: source clip, slaps in the soundscape | 216 s | 16.8 / 40.6 slow | 1.9 | impact sound over slow motion | slow sticky hands under slaps |
+| DGX Spark | Impacts (video left out) | 101 s | 17.0 / 59.0 fast | 2.5 | agree | both strike and block at speed, seen from further off than on the Mac; a new rooftop, the push-in followed |
+| DGX Spark | Flow, no music | 206 s | 14.9 / 37.8 slow | 0 | agree | the slow hands of the reference, silent |
+| DGX Spark | Flow, with music | 207 s | 15.3 / 37.6 slow | 0 | agree | the slow hands under a slow plucked melody |
+
+What this does not do. **Impacts cannot make a slow reference fast**: with the video left out the clip keeps who is
+in it (from the picture) and the camera move (in words), and loses the reference's own place and blocking, which
+then come from the Scene text. A picture of the reference's first frame as a second picture was tried for the
+place and brought the reference's people back with it after the first second, so it is not used. Before the track
+is muted, a Flow clip asked for near silence was near silent on the Spark (-45 dBFS) and under music of the model's
+own on the Mac in two of three renders, which is why the track is muted and not left to the prompt. The thresholds
+were set on thirteen clips of two shots; they sort the clear cases and call the rest "moderate", which is not
+flagged. One seed each.
+
+**The mouth of a reference video.** A picture with a source clip of someone talking, in a clip where nobody speaks:
+the new face mouths the reference's words (a woman asked only to smile opens and closes her mouth through the last
+second, on both machines). The model copies the lip movement whatever is asked: the same clip came out with a
+prompt that says her lips stay together and that the mouth of `<Video 1>` is not followed, and at 20 passes without
+the Turbo adapter (761 s on the Spark). What removes it is taking the mouth out of the reference: **Keep the mouth
+of `<Video 1>` out of the clip** (on by default when the source clip itself goes in, the clip has no spoken lines and
+does not reuse the video's sound) smooths an ellipse over the mouth and jaw of the pose track's person before the
+video goes to the model (`soft_mouth()` in `app/motion.py`, ffmpeg and NumPy; `mouth: "soft"` on
+`/api/motion/reference`). With it she holds the smile to the end, on the Spark (202 s) and on the Mac (275 s); body,
+head and camera follow the reference as before. It needs *Analyse motion* (the pose track) and follows one person.
+
+**The woman who left the frame** (the first dummy-drill row above) was checked again by eye on the Mac through the
+app's own job path, the way the wizard runs it, at this release's code: 259 s, she stays in frame for the whole clip
+and strikes the dummy as the reference does (movement 28.8 fast, 2.3 hits a second, "agree"). The app goes through
+`scripts/video.sh`, so it picks up the fix (a reference video with the Turbo adapter runs without the int8
+kernels) with nothing to set.
 
 ## FastH3 (new in 1.8)
 
@@ -833,10 +1097,16 @@ aspect ratio.
 From the scripts, `TEXT_ENCODER` may be the path of another MiniMax H3 text encoder file (on a DGX Spark, the name
 of a file in ComfyUI's `text_encoders` folder); unset, it is MiniMax's own. On the Mac FastH3 then runs on the MLX
 engine, not the native one.
-The app offers any such file it finds in the `text_encoders` folder beside the model, by its file name.
+In the app, *Text encoder* is *Regular* (MiniMax H3's own), any file found in the `text_encoders` folder beside the
+model (by its file name), or *Your own*: the path of a MiniMax H3 text encoder file on your machine (on a DGX Spark,
+the name of a file in ComfyUI's `text_encoders` folder). The Studio ships MiniMax H3's own text encoder and no other;
+it does not provide, check or recommend the file you choose. That file, its license and what you make with it are
+your own choice and responsibility.
 
 In the app, *Resolution → Custom* takes a width and a height (multiples of 32, each side 256 to 1536, at most
-1344x768 pixels in all) and *Custom passes* a number of passes from 1 to 50; no time is estimated for either. From
+1344x768 pixels in all). A number of passes of your own, from 1 to 50, is the *Custom* card beside *20 passes* in each
+passes choice (FastH3's *Passes*, the reference choice, and MiniMax H3's *Quality*, where it follows the two
+20-pass recipes and keeps the one that was chosen); a number box opens under the cards. No time is estimated for either. From
 the scripts these are `WIDTH`, `HEIGHT` and `STEPS` (FastH3, and everything on a Spark) or `POINTS` (MiniMax H3 on
 the Mac: one more than the passes).
 
@@ -861,8 +1131,14 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
   without it: 1 min 28 s, 103 GiB peak while the adapter is merged. `QUALITY=high` runs the 20 passes with the fast
   recipe: 1 min 58 s. Two pictures (a person and a bicycle) took 4 min 5 s at 20 passes and 1 min 29 s with the adapter.
 - Not with `FIRST_FRAME`, and not with FastH3, which has no reference-trained weights.
+- **Your own number of passes:** `STEPS=12` (or `POINTS=13`, one more, which wins when both are set), and the
+  *Custom* card of the passes choice in the app. It applies to every kind of reference, and with `REF_TURBO=1` too: the adapter then runs the
+  number asked for instead of the 4 it was trained for, and the render says so. A reference render starts by naming
+  the passes it will run, and the app's job card shows them. Before this, `STEPS` was read for FastH3 only and a
+  reference render from the scripts ignored it; the app already converted its field.
 - In the app: **The clip starts from → Reference pictures**. Step 4 writes the prompt in the model's own reference
-  form (`subject_definitions`, `summary`, `retention_analysis`, `detailed_description`); edit it freely.
+  form (`subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, and from 2.6 the sound under
+  its own `overall_soundscape` heading); edit it freely.
 - **On a DGX Spark** the same `REF_IMAGES` and `REF_TURBO=1` work after `bash oneshot-setup-spark.sh --ref2va` (39 GB:
   the Ref2VA transformer for ComfyUI in bf16 and LightX2V's adapter). Measured on one Spark, 5 s at 864x480, one
   portrait: 20 steps 288 s, `REF_TURBO=1` (4 passes, the adapter's own sound) 107 s; the app's *Reference pictures*
@@ -871,8 +1147,226 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
   was tested there, not several.
 - Checked on one fictional portrait: the same face, hair and glasses in the clip, against a different person from the
   same prompt and seed without the reference, and the same identity as h3.c's `--ref-image` gives. The token layout
-  matches h3.c's to the last float32 bit. Not checked: reference videos and reference audio (not implemented), sound
-  by ear, lengths over 5 s.
+  matches h3.c's to the last float32 bit. Not checked: sound by ear, lengths over 5 s. Reference videos and
+  reference audio are the next section.
+- **What the text encoder sees of a picture (corrected after 2.5).** A first frame or a reference picture also goes
+  to the text encoder's vision tower. Up to 2.5 it was normalised there with the mean and deviation of the earlier
+  Qwen-VL models, which minimax-h3-mlx builds its image processor with; MiniMax H3's own processor
+  (`processor/preprocessor_config.json` in the checkpoint) uses 0.5 and 0.5, pixels to -1..1. The renderer now reads
+  that file (0.5 and 0.5 when it is absent). For one 864x480 picture the values handed to the tower were up to 1.12
+  away from MiniMax's processor before (0.39 on average, range -1.79..2.09) and are equal to it now, and to h3.c's
+  `x * 2 - 1`. The video VAE's view of the picture, which carries most of the likeness, was never affected. Same
+  prompt and seed, before and after, one first-frame clip (Turbo, 5 passes) and one reference-picture clip (20
+  passes), 5 s at 864x480: a different take each time, as any change to the conditioning gives, with the same
+  person, colours and sharpness; we could not see a gain or a loss. `EXTRA="--vision-stats mlx"` renders with the
+  old values. This covers MiniMax H3 and FastH3 on the Mac, both engines; the DGX Spark build encodes text in
+  ComfyUI, which already used 0.5 and 0.5. The sample clips and timings in this README from first frames and
+  reference pictures were made with the old values: the timings stand, the clips would come out as other takes.
+
+### Reference videos and reference audio (Ref2VA)
+
+The same Ref2VA transformer takes two more kinds of reference, as MiniMax's model card describes: videos, which
+carry a subject and how it moves, and audio clips, which carry a voice or music. **On a Mac, not in a released engine
+yet:** the passes need TensorFold's H3 family to pack these references and to hold reference audio rows, which is on
+the engine branch `ref-video-audio` and not in the engine build this release installs; with the installed engine the
+renderer stops with a message saying so. Reference pictures alone are unaffected. **On a DGX Spark** they run now,
+through ComfyUI's node: see [below](#reference-videos-audio-and-motion-on-a-dgx-spark).
+
+```bash
+REF_VIDEOS="baker.mp4" bash scripts/video.sh \
+  "<Subject 1> is the man in the green apron in <Video 1>. ... the bakery is replaced by a market stall ..." out.mp4
+REF_IMAGES="singer.png" REF_VIDEOS="baker.mp4" bash scripts/video.sh \
+  "<Subject 1> is the woman shown in <Picture 1>. <Video 1> is the motion reference. ..." out.mp4
+REF_IMAGES="singer.png" REF_AUDIOS="voice.wav" bash scripts/video.sh \
+  "<Subject 1> is the woman shown in <Picture 1>. <Audio 1> is the voice timbre reference for her voice. ..." out.mp4
+REF_VIDEOS="baker.mp4" REF_VIDEO_SOUND=1 bash scripts/video.sh "..." out.mp4   # the video's own sound is <Audio 1>
+```
+
+- **Limits (MiniMax's):** up to 9 pictures, 3 videos and 3 audio clips, 12 files in all; each video and each audio
+  clip 2 to 15 seconds, and 15 seconds in all per kind; audio never alone (it needs a picture or a video beside it).
+  The scripts and the app refuse a request outside these and say which file or count is wrong.
+- **Names in the prompt:** `<Picture N>`, `<Video N>`, `<Audio N>`, each numbered in the order given. The model is
+  always handed pictures first, then videos, then audio clips. With `REF_VIDEO_SOUND=1` every video's own soundtrack
+  is a reference as well and those sounds are numbered first: with one video, its sound is `<Audio 1>` and the first
+  `REF_AUDIOS` clip is `<Audio 2>`. Without it a video's sound is ignored. The render prints the name of every file.
+- **What is read:** a video at 24 fps up to the clip's own length, cut down to `17 n + 5` frames, at its own aspect
+  ratio and brought down to the clip's pixel area (`REF_VIDEO_SIZE=full` keeps the model's 768-pixel canvas; not
+  tested). Audio at 32 kHz stereo, cut to the clip's length. `ffmpeg` and `ffprobe` do the reading.
+- **Cost:** every reference latent rides through every pass. Measured on an M5 Ultra, 5 s at 864x480, 20 passes:
+  one 5 s reference video 12 min 32 s (34.9 s a pass over 33.2K rows), a picture and a 5 s video 13 min 36 s, a
+  picture and a 5 s audio clip 4 min 10 s (11.3 s a pass over 17.0K rows), against 4 min 6 s with that picture alone;
+  64 GiB peak in each. `REF_TURBO=1` with a picture and an audio clip: 1 min 35 s, 103 GiB peak. A shorter reference
+  video costs less; none was timed.
+- **In the app:** *The clip starts from → References*; step 2 takes pictures, videos and audio, shows each one's name,
+  and step 4 writes the prompt in the model's own form (`<Video 1> is the reference video for ...`,
+  `<Audio 1> is the voice timbre reference for ...`). No time is estimated when a video or an audio clip is used.
+- **On a DGX Spark** the same variables, limits and messages: see the next section.
+- **How it was checked.** The token layout (row order, positions, which rows are held) is equal to the last float32
+  bit to MiniMax's own `build_ref2va_packed_sequence` and to h3.c's `h3_layout_build`, on six mixed requests. The
+  prompt's token sequence equals MiniMax's `build_ref2va_presentation`; the frame sampling for the text encoder,
+  the frames kept for the video VAE and the frame size rule equal MiniMax's functions. Reference rows decode back to
+  what went in (video 38.7 dB PSNR, audio loudness envelope correlation 0.999). Two differences from MiniMax's
+  pipeline remain, both shared with the picture path: the video latent is the middle of the encoder's distribution,
+  not a draw from it, and a reference is not enlarged to the 768-pixel canvas.
+- **What the renders showed** (fictional people from earlier renders of this pack; 5 s, 864x480, 20 passes, one seed):
+  - *A reference video* (a baker lifting a loaf in a bakery), with a prompt that moves him to a market stall: the
+    same man, clothes and motion, second for second, in front of a market. The same prompt and seed without the
+    video gave another man holding the loaf up throughout.
+  - *A picture and a video* (a woman's still, the baker clip as motion reference): the woman, in the baker's
+    bakery, doing his motion second for second. Her mouth also moves as his does, though the prompt said nobody
+    speaks.
+  - *A video with its own sound* (`REF_VIDEO_SOUND=1`): the clip's sound follows the reference closely (pitch 120 Hz
+    against 122, spectrogram correlation 0.86 moment by moment, against 0.43 for the run without the sound). With
+    the app's prompt and a picture beside the video: 0.99 at 20 passes. **With `REF_TURBO=1` this was broken until
+    the engine's re-voice was corrected** (branch `ref-video-audio`, `a2b592f`): the sound made again after the
+    adapter's passes came out near silent, correlation 0.22, where the adapter's own sound had 0.98. The audio-only
+    re-voice kept the held rows beside the clip's finished audio; with reference audio in the sequence they are now
+    kept beside the starting noise: 0.98, same time. A voice clip as `<Audio 1>` through Turbo was not affected
+    (139 Hz and distance 6.7 after, 140 Hz and 6.6 before; 193 Hz and 13.8 without the clip).
+  - *A picture and an audio clip of the same kind of voice* (a woman's still, 6 s of a woman singing, the prompt
+    asks her to sing): median pitch 281 Hz, the reference's own 281, against 314 without the clip; closer in
+    timbre statistics as well (4.9 against 6.7).
+  - *A picture and a voice that does not fit it* (the woman's still, a man's voice as `<Audio 1>`): **it carries
+    when the prompt describes the voice, and not when the prompt is silent about it.** Measured against a clean
+    5.8 s male voice at 117 Hz (the macOS speech voice "Daniel"; distance = MFCC statistics to the reference, lower
+    is closer; 20 passes, one seed):
+
+    | prompt | with the clip | same prompt without it |
+    |---|---|---|
+    | says only "the voice timbre references `<Audio 1>`" | 225 Hz, distance 14.1 (no carry-over) | 182 Hz, 11.7 |
+    | also calls it a deep male voice (written by hand) | 137 Hz, 5.0 | 169 Hz, 11.6 |
+    | the app's prompt with *Voice* = "a deep male voice" | 130 to 134 Hz, 4.1 to 4.8 | 141 Hz, 10.1 |
+    | one plain sentence: "speaks with the voice in `<Audio 1>`, a deep male voice" | 132 Hz, 3.9 | not run |
+
+    The other way round (a man's still, a woman's voice at 180 Hz, the prompt silent about the voice) it carried
+    as well: 174 Hz and distance 4.3 with the clip, 143 Hz and 10.6 without. The first test of this pack found no
+    carry-over because its prompt did not describe the voice and its reference was a noisy clip with a voice in
+    a fifth of it; with the voice described, that same clip carries too (117 Hz against its own 122, distance 6.0
+    against 15.9 without). So: **describe the voice in the line's *Voice* field as it sounds in the clip, and use a
+    clean recording.** The pitch and the tone come close to the reference; none of this was judged by ear, and it
+    is not an exact copy of a voice.
+- **Not checked:** sound by ear (the figures above are measurements: pitch by autocorrelation, MFCC statistics,
+  spectrogram correlation), more than one reference video or audio clip in a request, two seeds, lengths over
+  5 s, references longer than the clip, `REF_VIDEO_SIZE=full`, `QUALITY=high` with a video, the app's screens by eye
+  in a browser (its checks and the prompt it writes were exercised through its API, two clips were rendered
+  through its queue, and the Create page's choosers and reference step were driven in a scripted DOM, not looked
+  at).
+
+### Reference videos, audio and motion on a DGX Spark
+
+`REF_VIDEOS`, `REF_AUDIOS`, `REF_VIDEO_SOUND=1` and `STEPS` work on the Spark as on the Mac, in the
+scripts and in the app, after `bash oneshot-setup-spark.sh --ref2va`: the same limits, checked before any model loads,
+with the same messages. `spark/spark_generate.py` reads each reference with `ffmpeg` (a video at 24 fps, up to the
+clip's own length, LANCZOS-scaled to its own aspect ratio and brought down to the clip's pixel area, stored without
+loss; sound at 32 kHz stereo, cut to the clip's length) and hands it to ComfyUI's `MiniMaxH3ReferenceToVideo` node
+(`ref_videos`, `ref_video_audios`, `ref_audios`), which numbers pictures, videos and audio clips as the Mac build
+does. The passes run on ComfyUI's own blocks in bf16. Scaling the video before the node sees it matters: left alone,
+the node takes a reference at up to 768 pixels on the short side whatever the clip being made, several times the
+rows; for that reason `REF_VIDEO_SIZE=full` is refused on a Spark. The reference files are taken out of ComfyUI's
+input folder again after the render. Nothing here needs the TensorFold engine change the Mac build is waiting for.
+
+Measured on one DGX Spark (GB10, 121 GB usable), 5 s at 864x480, seed 7, fictional people from earlier renders, a
+browser and the app open, each render under a watcher on free memory; "lowest free" is the lowest `MemAvailable`
+seen during the render:
+
+| Render | Passes | Time | Lowest free |
+|---|---|---|---|
+| One picture (as in 2.5, to see nothing changed) | Turbo 4 | 100 s | 39.8 GB |
+| A picture and a 2.3 s reference video | Turbo 4 | 147 s | 39.1 GB |
+| A picture and a 5 s reference video | Turbo 4 | 202 s | 38.3 GB |
+| A picture and a 5 s audio clip | Turbo 4 | 98 s | 39.1 GB |
+| Wizard through the API: a picture and the source clip, full scene | Turbo 4 | 208 s | 37.8 GB |
+| Wizard through the API: a picture and the skeleton layer | Turbo 4 | 187 s | 37.8 GB |
+| Wizard through the API: a picture and the depth layer, actor motion | Turbo 4 | 193 s | 15.4 GB (see below) |
+| A 5 s reference video alone (the 8-bit transformer) | 20 | 677 s | 57.1 GB |
+
+A 5 second reference video about doubles the time of a Turbo clip and costs under 2 GB more memory at this size; at
+20 passes a pass over the clip's and the video's rows took 30.7 s (613 s of passes), the reference's encoding 46 s.
+What the clips showed, besides the table: the 20-pass clip has the baker of the video, his clothes and his motion in
+front of a market stall, as on the Mac. With the Turbo adapter: the woman of the picture doing the
+baker's motion second for second in his bakery; the martial-arts shot repeated move for move with the woman of the
+picture in it; the skeleton layer steering the scale and the camera with no skeleton look in the clip. The audio
+clip (a man's spoken line beside a woman's picture) gave **no carry-over we could measure**, as on the Mac: her voice
+at 192 Hz with the clip and 195 Hz without, the reference near 110 Hz.
+
+The depth layer with a picture of the new person kept the stances and the punch toward the camera in a rooftop
+drawn afresh from the prompt, with no depth-map look.
+
+**Memory after a FastH3 clip.** The depth row, and a repeat of the source-clip row (210 s, 14.0 GB), ran right after
+a FastH3 clip: the server then still holds what ComfyUI's unloading does not give back (TensorFold's engine keeps its
+int8 weights), and the reference model loads on top. That is the 7 GB figure of 2.5 as well. A reference render
+that follows a FastH3 clip now restarts ComfyUI first ("a reference render starts from a server with nothing
+loaded"): the same picture and 5 s video then ran in 213 s, restart included, with 37.9 GB lowest free.
+
+**What a sound reference does (measured on the Spark, 2.6).** Same picture, prompt and seed with and without the
+reference, 5 s at 864x480, Turbo 4 passes unless said; pitch by autocorrelation, likeness as the correlation of the
+two spectrograms moment by moment (two unrelated spoken clips measure about 0.3), words by a speech-to-text pass:
+
+| Request | With the reference | Without it |
+|---|---|---|
+| A woman's picture, a recording of a woman's voice, the prompt's line is what the recording says | the recording itself: likeness 0.98, pitch 229 Hz (the recording's 229) | 188 Hz, likeness 0.28 |
+| The same picture, a man's recording, the prompt's line is what he says | the recording itself: likeness 0.98, pitch 113 Hz (his 122) | not run |
+| The same picture, the man's recording, another line | nothing carried: 188 Hz, likeness 0.11; the prompt's words | 188 Hz |
+| The same picture, the man's recording, another line, and the voice described too ("in the deep male voice of `<Audio 1>`") | pitch 122 Hz (his 122), timbre distance 8.5; the prompt's words | 156 Hz, distance 13.4 (the description alone) |
+| The same picture, the woman's recording, another line | pitch 229 Hz (the recording's), but the words came out garbled | 183 Hz, the words right |
+| A man's picture, his own recording, another line | pitch 130 Hz (his 122); the prompt's words | 147 Hz |
+| A video with its own sound (`REF_VIDEO_SOUND=1`) | likeness 0.81, loudness envelope 0.90, pitch 115 Hz (the video's 122); the prompt's words | likeness 0.34, envelope 0.48, 131 Hz |
+| A picture, a video with its own sound, and a voice recording (`<Audio 2>`) | her voice at 216 Hz (the recording's 229), the prompt's words; neither sound reproduced | not run |
+
+So a reference audio clip is a **performance to repeat** more than a voice to borrow: when the spoken line is what the
+recording says, the clip plays the recording back with the mouth moving in time with it (mouth movement against
+speech, from face landmarks: r 0.55 to 0.59, as for clips with the model's own voice), whoever is in the picture.
+With other words, the voice comes across when the prompt describes it as well as naming the clip (the pitch went to
+the recording's); named without a description, a voice unlike the pictured person changed nothing, and with the
+Turbo adapter a voice of the same kind blurred the words. It is not voice cloning, and the app says so where the clip is added. A video's own sound carries
+as on the Mac. *The videos' own sound* stays **off** by default in the app: the box swaps the sound written in step 3
+for the video's own, which has to be a choice.
+
+**A voice nobody asked for.** Up to this change the app wrote the soundscape on the end of the shot description of
+a reference prompt. With some pictures the model then read it out: a clip of a woman drinking coffee, whose prompt
+says that nobody speaks, had a voice talking nonsense in 41 % of its frames (63 % on a second seed, 49 % at 20
+passes), not in time with her mouth. With the same words under an `overall_soundscape:` heading, as text-to-video
+prompts have always had, the voice is gone (0 % on both seeds, the room tone at -40 dBFS), and a spoken line is still
+spoken as written. The app now writes the heading. Guidance was tried as well (ComfyUI's CFG at 5 with an empty
+negative): it also removes the voice but burns the picture with the 4-step adapter and doubles the time, and at 2 it
+does nothing; the reference model is run without guidance, as MiniMax ships it.
+
+**The sound of every clip on a Spark** is now made from a lossless copy of the decoder's output (it used to be
+ComfyUI's own AAC track at about 130 kb/s): 256 kb/s, cut to the picture's length, and limited to -1 dBFS when the
+decoded peak is higher (it usually is: speech comes out of the decoder touching full scale, and the lossy track
+then overshot it, 31 samples over full scale in one test clip). The render says what it found
+(`[tensorfold] sound: peak -0.5 dBFS as decoded, limited to -1 dBFS`); `AUDIO_EQ=off` keeps ComfyUI's track. Every
+clip of this section was checked for sample rate (32 kHz stereo), length against the picture (within one frame),
+start offset (0), silence, channel balance (within 0.6 dB), clicks at the ends, and full-scale samples (none after
+the change).
+
+More of the 2.6 surface, on the same machine (Turbo 4 passes, 864x480):
+
+| Render | Time | Lowest free |
+|---|---|---|
+| Two 5 s reference videos (a man from one, a street and its camera from the other) | 373 s | 33.8 GB |
+| An 8 s clip from a picture and an 8 s source shot, full scene, through the app | 345 s | 30.3 GB |
+| A picture, a 5 s video with its own sound and an audio clip | 229 s | 33.2 GB |
+| The 8 s clip again with the shot's own sound as a reference: the clip's sound is the shot's, likeness 0.96 (0.02 without) | 344 s | 33.4 GB |
+| Object motion: the depth layer of a ball rolling over a table, no picture, a prompt for an apple on marble | 208 s | 38.1 GB |
+| Camera only: the depth layer of a street shot, no picture, a prompt for an empty canyon | 198 s | 36.9 GB |
+
+The object-motion clip has the apple on the ball's path over a table of the same shape in a new kitchen; the
+camera-only clip has a canyon with the street's layout and no person, with a boulder where the figure stood (a depth
+layer shows the figure, so "camera only" keeps its place filled). The same request with the 4-step adapter at 4, 3
+and 2 passes (*Custom*; a picture and a 5 s reference video) took 219, 191 and 156 s; the three clips are the same
+shot to the eye, equally sharp (median Laplacian variance 70, 73, 84) and equally close to the reference's motion
+(pose distance 1.1 % of the frame width in each), so 2 or 3 passes are worth trying for drafts; one request, one seed.
+
+**The shared motion test** (two fast martial-arts shots, each as *Full scene* with the source clip and as *Actor
+motion* with the depth layer and a new setting; Turbo 4 passes, seed 7, the wizard's own prompts, the same on both
+builds): on the Spark 202 to 216 s a clip and 29.9 GB lowest free. Pose distance from the source, as a share of the
+frame width: 2.9 % median (7.7 % at the 90th percentile), 3.2 % (8.1 %) and 3.2 % (7.6 %) for the first three; the
+fourth, two fighters in a new courtyard, follows by eye, and the checker, which tracks one person, picked the other
+fighter (its 28 % is not a measure of that clip).
+
+Not tested on the Spark: larger sizes than 864x480 with a reference video, clips over 8 s with one, three reference
+videos at once, and sound by ear (the figures above are measurements).
 
 ### GHCR prebuilt carrier
 

@@ -2,6 +2,7 @@
 
     spark_generate.py video --prompt "..." -o clip.mp4 [--first-frame photo.jpg] [--steps 8] [--frames 124]
     spark_generate.py video --prompt "Use <Picture 1> as the person. ..." --ref face.png -o clip.mp4
+    spark_generate.py video --prompt "<Picture 1> moves as in <Video 1>. ..." --ref face.png --ref-video move.mp4 -o clip.mp4
     spark_generate.py image --prompt "..." -o picture.png [--seeds 1,2,3] [--base --steps 40]
 
 It talks to a ComfyUI server that it starts on first use (spark/comfy.sh) and leaves running with the models
@@ -13,9 +14,12 @@ Qwen-Image-2.1-Turbo, ComfyUI for the runtime.
 import argparse
 import asyncio
 import json
+import math
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -88,10 +92,11 @@ def ensure_server(kind: str) -> None:
 
 
 def upload(image: str) -> str:
-    """Put an image in ComfyUI's input folder; returns the name LoadImage wants."""
+    """Put an image (or a video or a sound file) in ComfyUI's input folder; returns the name its loader wants."""
 
     path = Path(image)
     name = f"studio_{uuid.uuid4().hex[:10]}{path.suffix.lower() or '.png'}"
+    UPLOADED.append(name)
     boundary = uuid.uuid4().hex
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{name}\"\r\n"
             f"Content-Type: application/octet-stream\r\n\r\n").encode() + path.read_bytes() + (
@@ -158,12 +163,80 @@ def render(workflow: dict, sampler: str) -> tuple[dict, float]:
         errors = [m[1] for m in record["status"].get("messages", []) if m[0] == "execution_error"]
         detail = errors[0].get("exception_message", "").strip() if errors else json.dumps(record["status"])[:600]
         sys.exit(f"ComfyUI failed: {detail} (log: {PREFIX}/comfy.log)")
-    for output in record["outputs"].values():
-        for items in output.values():
-            for item in items if isinstance(items, list) else []:
-                if isinstance(item, dict) and item.get("filename"):
-                    return item, time.time() - started
-    sys.exit("ComfyUI finished without writing a file")
+    # the files the save nodes wrote: a loader of a reference video or sound lists its input file among the outputs too
+    found = [item for output in record["outputs"].values() for items in output.values()
+             for item in (items if isinstance(items, list) else []) if isinstance(item, dict) and item.get("filename")
+             and item.get("type", "output") == "output"]
+    # the clip or the picture first, then the lossless sound track (save_sound) when the workflow has one
+    found.sort(key=lambda item: item["filename"].endswith(".flac"))
+    if not found or found[0]["filename"].endswith(".flac"):
+        sys.exit("ComfyUI finished without writing a file")
+    return Saved(found[0], next((item for item in found if item["filename"].endswith(".flac")), None)), time.time() - started
+
+
+class Saved(dict):
+    """The record of the clip or picture a workflow saved; ``sound`` is the record of its lossless sound track."""
+
+    def __init__(self, item: dict, sound: dict | None = None):
+        super().__init__(item)
+        self.sound = sound
+
+
+# ComfyUI levels the audio decoder's output to an RMS of -14 dBFS at most and leaves the peaks alone: speech comes out
+# touching full scale (measured: -0.6 to +0.2 dBFS between the samples), and the AAC track ComfyUI writes at about
+# 130 kb/s then overshoots it (31 samples over full scale in one test clip), which a player clips. So the sound also
+# leaves the workflow as a lossless track, HEADROOM_DB down so that nothing is cut off on the way, and the clip's
+# sound is made again from that track: brought back up, with a limiter when a peak would pass PEAK_DBFS, at the bit
+# rate the Mac build uses. AUDIO_EQ=off keeps ComfyUI's own track.
+HEADROOM_DB, PEAK_DBFS, SOUND_BITRATE = 12, -1.0, "256k"
+
+
+def save_sound(workflow: dict, audio: list, prefix: str) -> None:
+    """Add the lossless copy of the decoded sound to a workflow (nodes 17 and 18)."""
+
+    if os.environ.get("AUDIO_EQ", "on") == "off":
+        return
+    workflow["17"] = {"class_type": "AudioAdjustVolume", "inputs": {"audio": audio, "volume": -HEADROOM_DB}}
+    workflow["18"] = {"class_type": "SaveAudio", "inputs": {"audio": ["17", 0], "filename_prefix": prefix}}
+
+
+def finish_sound(item, target: Path, frames: int) -> None:
+    """Make the clip's sound again from the lossless track: full level, no peak over PEAK_DBFS, cut to the picture's
+    length. The picture is not encoded again. Says what it found."""
+
+    sound = getattr(item, "sound", None)
+    if sound is None or shutil.which("ffmpeg") is None:
+        return
+    import numpy as np
+
+    track = target.with_suffix(".sound.flac")
+    fetch(sound, track)
+    try:
+        # the peak between the samples too: measured at four times the rate
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(track), "-ar", str(4 * AUDIO_RATE), "-f", "f32le", "pipe:1"],
+                             capture_output=True).stdout
+        wave = np.frombuffer(raw, np.float32)
+        if not len(wave) or not float(np.abs(wave).max()):
+            print("[tensorfold] sound: the decoded track is silent", flush=True)
+            return
+        peak = 20 * math.log10(float(np.abs(wave).max())) + HEADROOM_DB
+        chain = f"volume={HEADROOM_DB}dB"
+        if peak > PEAK_DBFS:
+            chain += f",alimiter=limit={10 ** (PEAK_DBFS / 20):.4f}:level=disabled:attack=2:release=40,aresample={AUDIO_RATE}"
+        out = target.with_suffix(".sound.mp4")
+        done = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(target), "-i", str(track), "-map", "0:v:0", "-map", "1:a:0",
+                               "-c:v", "copy", "-af", chain, "-c:a", "aac", "-b:a", SOUND_BITRATE, "-ar", str(AUDIO_RATE),
+                               "-t", f"{frames / FPS:.6f}", "-movflags", "+faststart", str(out)], capture_output=True, text=True)
+        if done.returncode or not out.is_file() or not out.stat().st_size:
+            out.unlink(missing_ok=True)
+            print(f"[tensorfold] sound: left as ComfyUI wrote it ({done.stderr.strip()[-200:]})", flush=True)
+            return
+        out.replace(target)
+        print(f"[tensorfold] sound: peak {peak:+.1f} dBFS as decoded, " + (f"limited to {PEAK_DBFS:g} dBFS" if peak > PEAK_DBFS
+              else "left at its level"), flush=True)
+    finally:
+        track.unlink(missing_ok=True)
+        (PREFIX / "ComfyUI" / "output" / sound.get("subfolder", "") / sound["filename"]).unlink(missing_ok=True)
 
 
 def fetch(item: dict, target: Path) -> None:
@@ -181,13 +254,175 @@ def installed(kind: str, name: str) -> bool:
     return name in call(f"/object_info/{loader}")[loader]["input"]["required"][field][0]
 
 
-def reference(args) -> None:
-    """A clip from reference pictures (MiniMax H3 Ref2VA): `<Picture 1>` in the prompt is the first --ref."""
+# MiniMax's limits for one Ref2VA request, the same as on the Mac (h3_generate.py)
+PICTURE_LIMIT, VIDEO_LIMIT, AUDIO_LIMIT, TOTAL_LIMIT = 9, 3, 3, 12
+CLIP_SECONDS, TOTAL_SECONDS, CLIP_TOLERANCE = (2.0, 15.0), 15.0, 0.05
+ASPECT_LIMIT = 4.0  # a reference video is between 1:4 and 4:1
+MODEL_SHORT_EDGE, MODEL_MAX_PIXELS, REFERENCE_MULTIPLE = 768, 768 * 1344, 32
+FPS, AUDIO_RATE = 24, 32000
+UPLOADED: list[str] = []  # what this run put in ComfyUI's input folder
 
-    if len(args.ref) > 9:
-        sys.exit("at most 9 reference pictures")
+
+def _tool(name: str) -> str:
+    path = shutil.which(name)
+    if path is None:
+        sys.exit(f"{name} is not on the PATH: reference videos and audio are read with it (sudo apt install ffmpeg)")
+    return path
+
+
+def probe_media(path) -> dict:
+    """What a media file holds: ``video`` (its displayed width and height) or None, ``audio`` (its channel count) or
+    None, and ``seconds``."""
+
+    done = subprocess.run([_tool("ffprobe"), "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
+                          capture_output=True, text=True)
+    if done.returncode:
+        sys.exit(f"cannot read {path}: {done.stderr.strip() or 'not a media file'}")
+    data = json.loads(done.stdout)
+    found = {"video": None, "audio": None, "seconds": 0.0}
+    for stream in data.get("streams", []):
+        kind = stream.get("codec_type")
+        if kind == "video" and found["video"] is None and not stream.get("disposition", {}).get("attached_pic"):
+            width, height = int(stream["width"]), int(stream["height"])
+            num, _, den = str(stream.get("sample_aspect_ratio", "1:1")).partition(":")
+            if num.isdigit() and den.isdigit() and int(num) > 0 and int(den) > 0:
+                width = round(width * int(num) / int(den))
+            turn = [side.get("rotation") for side in stream.get("side_data_list", []) if "rotation" in side]
+            turn = float(turn[0]) if turn else float(stream.get("tags", {}).get("rotate", 0) or 0)
+            if round(turn / 90.0) % 2:  # ffmpeg shows a rotated clip upright, so its sides swap
+                width, height = height, width
+            found["video"] = (width, height)
+            found["seconds"] = max(found["seconds"], float(stream.get("duration") or 0.0))
+        elif kind == "audio" and found["audio"] is None:
+            found["audio"] = int(stream.get("channels") or 0)
+            found["audio_seconds"] = float(stream.get("duration") or 0.0)
+    found["seconds"] = found["seconds"] or float(data.get("format", {}).get("duration") or 0.0)
+    found["audio_seconds"] = found.get("audio_seconds") or found["seconds"]
+    return found
+
+
+def check_clip_lengths(kind: str, lengths) -> None:
+    """The model card's limits for reference videos or audio clips: each 2 to 15 s, 15 s in all."""
+
+    low, high = CLIP_SECONDS
+    for path, seconds in lengths:
+        if not low - CLIP_TOLERANCE <= seconds <= high + CLIP_TOLERANCE:
+            sys.exit(f"a reference {kind} is {low:g} to {high:g} seconds long, and {path} is {seconds:.1f} s")
+    total = sum(seconds for _, seconds in lengths)
+    if total > TOTAL_SECONDS + CLIP_TOLERANCE:
+        sys.exit(f"the reference {kind}s are at most {TOTAL_SECONDS:g} seconds in all, got {total:.1f} s")
+
+
+def reference_video_size(width: int, height: int, canvas_width: int, canvas_height: int, mode: str = "match") -> tuple[int, int]:
+    """The size a reference video is encoded at, each side a multiple of 32, its own aspect ratio kept: the model's
+    canvas for that ratio (768 on the short side, at most 768x1344 pixels), never enlarged, and with ``match`` also
+    brought down to the clip's pixel area. Every latent of a reference rides through every pass, so a 5 s reference
+    at the full canvas more than triples the rows of an 864x480 clip."""
+
+    ratio = width / height
+    if not 1.0 / ASPECT_LIMIT <= ratio <= ASPECT_LIMIT:
+        sys.exit(f"a reference video is between 1:4 and 4:1, got {width}x{height}")
+    wide, tall = (MODEL_SHORT_EDGE * ratio, float(MODEL_SHORT_EDGE)) if ratio >= 1.0 else (float(MODEL_SHORT_EDGE), MODEL_SHORT_EDGE / ratio)
+    if wide * tall > MODEL_MAX_PIXELS:
+        scale = math.sqrt(MODEL_MAX_PIXELS / (wide * tall))
+        wide, tall = wide * scale, tall * scale
+    if width * height < wide * tall:
+        wide, tall = float(width), float(height)
+    if mode == "match" and wide * tall > canvas_width * canvas_height:
+        scale = math.sqrt(canvas_width * canvas_height / (wide * tall))
+        wide, tall = wide * scale, tall * scale
+    return (max(REFERENCE_MULTIPLE, round(wide / REFERENCE_MULTIPLE) * REFERENCE_MULTIPLE),
+            max(REFERENCE_MULTIPLE, round(tall / REFERENCE_MULTIPLE) * REFERENCE_MULTIPLE))
+
+
+def prepared_video(path, size: tuple[int, int], limit: int, folder: Path) -> tuple[Path, int]:
+    """A reference video as ComfyUI's node is to read it: 24 fps, LANCZOS-scaled to ``size``, at most ``limit``
+    frames, no sound, stored without loss (RGB H.264). Returns (file, frames). The node itself would take the clip
+    at up to 768 pixels on the short side whatever the clip being made; scaling here is what keeps the rows, and
+    the memory, in hand."""
+
+    target = folder / f"video_{uuid.uuid4().hex[:8]}.mp4"
+    done = subprocess.run([_tool("ffmpeg"), "-v", "error", "-y", "-i", str(path), "-map", "0:v:0", "-an", "-vf",
+                           f"fps={FPS},scale={size[0]}:{size[1]}:flags=lanczos,setsar=1", "-frames:v", str(limit),
+                           "-c:v", "libx264rgb", "-qp", "0", "-preset", "veryfast", "-pix_fmt", "rgb24", str(target)],
+                          capture_output=True, text=True)
+    if done.returncode or not target.is_file():
+        sys.exit(f"cannot read frames from {path}: {done.stderr.strip()}")
+    count = subprocess.run([_tool("ffprobe"), "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries",
+                            "stream=nb_read_frames", "-of", "csv=p=0", str(target)], capture_output=True, text=True).stdout.strip()
+    frames = int(count) if count.isdigit() else 0
+    if frames < 22:
+        sys.exit(f"cannot read frames from {path}: {frames} frames at {FPS} a second, and a reference video needs 22")
+    return target, frames
+
+
+def prepared_sound(path, seconds: float, folder: Path) -> Path:
+    """The first ``seconds`` of a file's sound as a stereo wav at the audio decoder's rate (mono is repeated)."""
+
+    target = folder / f"sound_{uuid.uuid4().hex[:8]}.wav"
+    done = subprocess.run([_tool("ffmpeg"), "-v", "error", "-y", "-i", str(path), "-map", "0:a:0", "-vn", "-ac", "2", "-ar",
+                           str(AUDIO_RATE), "-t", f"{seconds:.6f}", "-c:a", "pcm_f32le", str(target)], capture_output=True, text=True)
+    if done.returncode or not target.is_file() or target.stat().st_size < 1024:
+        sys.exit(f"cannot read sound from {path}: {done.stderr.strip()}")
+    return target
+
+
+def forget_uploads() -> None:
+    """Take this run's reference videos and sounds out of ComfyUI's input folder again (pictures are small and stay,
+    as before)."""
+
+    for name in UPLOADED:
+        if name.endswith((".mp4", ".wav")):
+            (PREFIX / "ComfyUI" / "input" / name).unlink(missing_ok=True)
+
+
+def reference(args) -> None:
+    """A clip from references (MiniMax H3 Ref2VA): `<Picture 1>` in the prompt is the first --ref, `<Video 1>` the
+    first --ref-video, `<Audio 1>` the first --ref-audio (after the videos' own sound with --ref-video-sound)."""
+
+    pictures, videos, audios = args.ref, args.ref_video, args.ref_audio
+    for kind, limit, files in (("pictures", PICTURE_LIMIT, pictures), ("videos", VIDEO_LIMIT, videos), ("audio clips", AUDIO_LIMIT, audios)):
+        if len(files) > limit:
+            sys.exit(f"at most {limit} reference {kind}, got {len(files)}")
+    if len(pictures) + len(videos) + len(audios) > TOTAL_LIMIT:
+        sys.exit(f"at most {TOTAL_LIMIT} references in all, got {len(pictures) + len(videos) + len(audios)}")
+    if audios and not (pictures or videos):
+        sys.exit("a reference audio clip needs a reference picture or video beside it: the model does not take sound alone")
     if args.first_frame:
-        sys.exit("--ref and --first-frame do not combine: the reference model has no first-frame input")
+        sys.exit("references and --first-frame do not combine: the reference model has no first-frame input")
+    for kind, files in (("picture", pictures), ("video", videos), ("audio clip", audios)):
+        for path in files:
+            if not Path(path).is_file() or not Path(path).stat().st_size:
+                sys.exit(f"no reference {kind} at {path}")
+    # each video and each audio clip is 2 to 15 seconds, and 15 seconds in all per kind: measured before any model loads
+    probes = [(path, probe_media(path)) for path in videos]
+    for path, probe in probes:
+        if probe["video"] is None:
+            sys.exit(f"{path} has no picture: a reference video is a video file")
+    check_clip_lengths("video", [(path, probe["seconds"]) for path, probe in probes])
+    sounds = [(path, probe_media(path)) for path in audios]
+    for path, probe in sounds:
+        if not probe["audio"]:
+            sys.exit(f"{path} has no sound: a reference audio clip is an audio file (or a video with sound)")
+    check_clip_lengths("audio clip", [(path, probe["audio_seconds"]) for path, probe in sounds])
+    sizes = [reference_video_size(*probe["video"], args.width, args.height, args.ref_video_size) for _, probe in probes]
+    last = STATE.read_text().strip() if STATE.exists() else ""
+    if up() and last.startswith("video"):
+        # After a FastH3 clip the server still holds what ComfyUI's own unloading does not give back (TensorFold's
+        # engine keeps its int8 weights): measured, a reference render that followed one ran with 14 GB free
+        # instead of 38. A server with nothing loaded is the safe start; it costs the load again.
+        print("[tensorfold] restarting ComfyUI: a reference render starts from a server with nothing loaded", flush=True)
+        subprocess.run(["bash", str(HERE / "comfy.sh"), "stop"], check=False)
+        for _ in range(60):
+            if not up():
+                break
+            time.sleep(1)
+        for _ in range(90):  # the memory comes back a little after the process is gone
+            with open("/proc/meminfo") as handle:
+                free = next(int(line.split()[1]) for line in handle if line.startswith("MemAvailable")) // 1024
+            if free > 70000:
+                break
+            time.sleep(1)
     ensure_server("ref2va")
     mode = args.ref_mode
     name = REF2VA["bf16"] if mode == "turbo" or not installed("unet", REF2VA["int8"]) else REF2VA["int8"]
@@ -197,9 +432,12 @@ def reference(args) -> None:
     # the bf16 and the 8-bit transformer never stay loaded together
     ensure_server("ref2va-" + name)
     steps = args.steps if args.steps is not None else (4 if mode == "turbo" else 20)
+    if mode == "turbo" and steps != 4:
+        print(f"[tensorfold] the Ref2VA Turbo adapter was trained for 4 passes; running {steps} as asked", flush=True)
     prompt = prompt_of(args)
-    if "<Picture" not in prompt:
-        prompt = "Use " + " and ".join(f"<Picture {i + 1}>" for i in range(len(args.ref))) + " as the subject. " + prompt
+    if not any(tag in prompt for tag in ("<Picture", "<Video")):
+        named = [f"<Picture {i + 1}>" for i in range(len(pictures))] or [f"<Video {i + 1}>" for i in range(len(videos))]
+        prompt = "Use " + " and ".join(named) + " as the subject. " + prompt
     model = ["1", 0]
     w = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": name, "weight_dtype": "default"}},
@@ -218,26 +456,64 @@ def reference(args) -> None:
         "16": {"class_type": "SaveVideo", "inputs": {"video": ["15", 0], "filename_prefix": f"studio/ref_{uuid.uuid4().hex[:8]}",
                                                      "format": "auto", "codec": "auto"}},
     }
-    for i, picture in enumerate(args.ref):
+    for i, picture in enumerate(pictures):
         w[str(30 + i)] = {"class_type": "LoadImage", "inputs": {"image": upload(picture)}}
         w["6"]["inputs"][f"ref_images.ref_image_{i}"] = [str(30 + i), 0]
+    seconds, said = args.frames / FPS, []
+    with tempfile.TemporaryDirectory(prefix="studio-ref-") as scratch:
+        # ComfyUI's node numbers them as the Mac build does: pictures, then videos (a video's own sound is the
+        # <Audio j> right before it), then the audio clips
+        for i, ((path, probe), size) in enumerate(zip(probes, sizes)):
+            clip, frames = prepared_video(path, size, args.frames, Path(scratch))
+            w[str(40 + i)] = {"class_type": "LoadVideo", "inputs": {"file": upload(str(clip))}}
+            w[str(50 + i)] = {"class_type": "GetVideoComponents", "inputs": {"video": [str(40 + i), 0]}}
+            w["6"]["inputs"][f"ref_videos.ref_video_{i}"] = [str(50 + i), 0]
+            used = frames - (frames - 5) % 17  # the node cuts the count down to 17n + 5
+            said.append(f"<Video {i + 1}> {size[0]}x{size[1]}, {used} frames ({used / FPS:.1f} s)")
+            if args.ref_video_sound:
+                if not probe["audio"]:
+                    sys.exit(f"{path} has no sound: leave --ref-video-sound out, or give videos that have sound")
+                sound = prepared_sound(path, min(seconds, frames / FPS), Path(scratch))
+                w[str(60 + i)] = {"class_type": "LoadAudio", "inputs": {"audio": upload(str(sound))}}
+                w["6"]["inputs"][f"ref_video_audios.ref_video_audio_{i}"] = [str(60 + i), 0]
+        for i, (path, probe) in enumerate(sounds):
+            sound = prepared_sound(path, seconds, Path(scratch))
+            w[str(70 + i)] = {"class_type": "LoadAudio", "inputs": {"audio": upload(str(sound))}}
+            w["6"]["inputs"][f"ref_audios.ref_audio_{i}"] = [str(70 + i), 0]
     if mode == "turbo":
         w["2"] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": model, "lora_name": REF2VA_TURBO, "strength_model": 1.0}}
         model = ["2", 0]
     w["10"] = {"class_type": "BasicScheduler", "inputs": {"model": model, "scheduler": "simple", "steps": steps, "denoise": 1.0}}
     w["11"] = {"class_type": "BasicGuider", "inputs": {"model": model, "conditioning": ["6", 0]}}
+    guidance = float(os.environ.get("SPARK_REF_CFG") or 1.0)
+    if guidance > 1.0:
+        # an experiment, not a setting: the checkpoint is guidance-distilled and MiniMax runs it without a negative
+        # branch. This runs every pass twice (the prompt, and the same references with an empty prompt).
+        w["7"] = {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["6", 0]}}
+        w["11"] = {"class_type": "CFGGuider", "inputs": {"model": model, "positive": ["6", 0], "negative": ["7", 0], "cfg": guidance}}
+        print(f"[tensorfold] guidance {guidance:g} (experimental: two forwards a pass)", flush=True)
     w["12"] = {"class_type": "SamplerCustomAdvanced",
                "inputs": {"noise": ["8", 0], "guider": ["11", 0], "sampler": ["9", 0], "sigmas": ["10", 0],
                           "latent_image": ["6", 1]}}
+    save_sound(w, ["14", 0], w["16"]["inputs"]["filename_prefix"] + "_sound")
     kind = "Ref2VA with the Turbo adapter" if mode == "turbo" else "Ref2VA"
+    count = (f"{len(pictures)} reference picture(s)" + (f", {len(videos)} video(s)" if videos else "")
+             + (f", {len(audios)} audio clip(s)" if audios else "") + (", the videos' own sound" if videos and args.ref_video_sound else ""))
     print(f"[tensorfold] engine: cuda (ComfyUI, MiniMax H3 {kind}, {name.split('pruned_')[1].split('.')[0]}), "
-          f"{len(args.ref)} reference picture(s), generating {args.width}x{args.height}, {args.frames} frames", flush=True)
-    item, seconds = render(w, "12")
+          f"{count}, {steps} passes, generating {args.width}x{args.height}, {args.frames} frames", flush=True)
+    for line in said:
+        print(f"[tensorfold] reference {line}", flush=True)
+    try:
+        item, seconds_taken = render(w, "12")
+    finally:
+        forget_uploads()
     target = Path(args.output)
     fetch(item, target)
+    finish_sound(item, target, args.frames)
     print("[tensorfold] " + json.dumps({"output": str(target), "engine": "cuda", "model": "ref2va", "mode": mode,
-                                        "forwards": steps, "total_s": round(seconds, 1), "frames": args.frames,
-                                        "size": [args.width, args.height], "references": len(args.ref)}), flush=True)
+                                        "forwards": steps, "total_s": round(seconds_taken, 1), "frames": args.frames,
+                                        "size": [args.width, args.height], "references": len(pictures),
+                                        "reference_videos": len(videos), "reference_audios": len(audios)}), flush=True)
 
 
 def prompt_of(args) -> str:
@@ -253,7 +529,7 @@ def video(args) -> None:
             sys.exit(f"--{name} must be a multiple of {step}, got {value}")
     if (args.frames - 5) % 17:
         sys.exit(f"--frames must be 17n + 5 (124, 192, 243, 362), got {args.frames}")
-    if args.ref:
+    if args.ref or args.ref_video or args.ref_audio:
         return reference(args)
     if args.steps is None:
         args.steps = 8
@@ -347,6 +623,7 @@ def video(args) -> None:
                                                           "denoise": 1.0}}
     w["11"] = {"class_type": "CFGGuider", "inputs": {"model": model, "positive": ["6", 0], "negative": ["7", 0],
                                                      "cfg": 1.0}}
+    save_sound(w, ["14", 0], w["16"]["inputs"]["filename_prefix"] + "_sound")
     attention = f"sparse attention {sparsity}" if sparsity > 0 else "dense attention"
     runs = "TensorFold int8 blocks in ComfyUI" if args.engine == "tensorfold" else f"ComfyUI, FastH3 {args.weights}"
     print(f"[tensorfold] engine: cuda ({runs}, {attention}), generating "
@@ -354,6 +631,7 @@ def video(args) -> None:
     item, seconds = render(w, "12")
     target = Path(args.output)
     fetch(item, target)
+    finish_sound(item, target, args.frames)
     if args.crop:
         width, height = args.crop.lower().split("x")
         cropped = target.with_suffix(".crop.mp4")
@@ -420,6 +698,16 @@ def main() -> None:
                    "with --ref, 4 with the Turbo adapter and 20 without")
     v.add_argument("--ref", action="append", default=[], help="a reference picture (repeat for up to 9): the clip "
                    "comes from MiniMax H3 Ref2VA and `<Picture 1>` in the prompt is the first one")
+    v.add_argument("--ref-video", action="append", default=[], help="a reference video (repeat for up to 3, each 2 to "
+                   "15 s, 15 s in all): `<Video 1>`, ... in the prompt; a subject and how it moves")
+    v.add_argument("--ref-audio", action="append", default=[], help="a reference audio clip (repeat for up to 3, each 2 "
+                   "to 15 s, 15 s in all): `<Audio 1>`, ...; only beside a picture or a video")
+    v.add_argument("--ref-video-sound", action="store_true", help="each reference video's own sound is a reference "
+                   "too, numbered `<Audio 1>`, ... ahead of the --ref-audio clips")
+    v.add_argument("--ref-video-size", choices=("match",), default="match",
+                   help="a reference video is brought down to the clip's pixel area. The model's own 768-pixel canvas "
+                        "(REF_VIDEO_SIZE=full on the Mac) is several times the rows and the memory and is not offered "
+                        "on a Spark")
     v.add_argument("--ref-mode", choices=("turbo", "full"), default="full",
                    help="full: 20 steps; turbo: the bf16 model with LightX2V's 4-pass adapter")
     v.add_argument("--ref-size", choices=("match", "max"), default="match",
@@ -454,7 +742,26 @@ def main() -> None:
         ensure_server("video")
         if H3_TEXT not in call("/object_info/CLIPLoader")["CLIPLoader"]["input"]["required"]["clip_name"][0]:
             sys.exit(f"ComfyUI does not list the text encoder {H3_TEXT}")
-    args.run(args)
+    try:
+        args.run(args)
+    except Exception as error:  # noqa: BLE001 - the server went away under the render: say why, not a traceback
+        if not isinstance(error, (OSError, ConnectionError)) and type(error).__module__.split(".")[0] != "aiohttp":
+            raise
+        sys.exit(stopped() or f"ComfyUI stopped answering during the render: {error} (log: {PREFIX}/comfy.log)")
+
+
+def stopped() -> str:
+    """Why the ComfyUI server ended, when its own log says so: spark/comfy.sh stops it when free memory runs low."""
+
+    try:
+        tail = (PREFIX / "comfy.log").read_text(errors="replace")[-4000:].splitlines()
+    except OSError:
+        return ""
+    for line in reversed(tail):
+        if "free memory is" in line and "stopping ComfyUI" in line:
+            return ("the render was stopped to protect the machine: " + line.split("] ", 1)[-1].strip()
+                    + ". Use a shorter clip, a shorter or fewer reference videos, or a smaller size.")
+    return ""
 
 
 if __name__ == "__main__":

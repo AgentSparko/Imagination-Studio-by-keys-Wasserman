@@ -114,6 +114,10 @@ it in **Production** instead.
   last frame of the one before. One button renders all that are not done.
 - **Editor:** put clips in order, trim them, preview, export one file.
 - **Library:** everything you have made. *use* turns an image into a first frame; *+ timeline* sends a clip to the editor.
+  Tick files and press **Delete selected** to delete several; **Restore last deletion** puts them back; **Empty trash**
+  erases what the trash holds and frees the space.
+- **Clearing:** every prompt form has **Clear** (with **Undo**). In the queue, 🗑 deletes a finished job and what it
+  made, and **Clear failed** / **Delete all finished** tidy the list. Deleted files go to `~/TensorFoldStudio/trash`.
 
 ## 9. Without the app
 

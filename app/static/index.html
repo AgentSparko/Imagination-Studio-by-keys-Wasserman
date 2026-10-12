@@ -143,8 +143,13 @@ button.small.on { border-color:rgba(255,205,110,.8); color:#ffe9b8; background:r
 #coach .say { flex:1; min-width:220px; } #coach .say small { display:block; color:var(--accent); font:600 10.5px var(--mono); letter-spacing:.1em; text-transform:uppercase; } #coach .say span { color:var(--dim); font-size:12.5px; }
 @media (max-width:1000px) { .tut { grid-template-columns:1fr; } .tut > :last-child { order:-1; } nav { flex-wrap:wrap; } }
 @media (prefers-reduced-motion:reduce) { .spot { animation:none; } }
-@media (max-width:1000px) { main { grid-template-columns:1fr; padding:14px 16px 30px; } aside { position:static; max-height:none; } header { flex-wrap:wrap; padding:10px 16px; } }
+@media (max-width:1000px) { main { grid-template-columns:minmax(0,1fr); padding:14px 16px 30px; } .summary .chip, .pill { white-space:normal; } .mgrid { grid-template-columns:minmax(0,1fr) !important; } aside { position:static; max-height:none; } header { flex-wrap:wrap; padding:10px 16px; } }
 @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+/* a tick box with its sentence: plain text, not a field's caption */
+/* on a narrow screen a passes chooser is two cards a row, so Custom stays beside 20 passes */
+@media (max-width:640px) { .choice.passes { grid-template-columns:repeat(2,minmax(0,1fr)); } .choice.passes.odd > :first-child { grid-column:1 / -1; } }
+label.check { display:flex; gap:9px; align-items:flex-start; text-transform:none; letter-spacing:0; font-size:12.5px; font-weight:400; color:var(--dim); margin:10px 0 0; cursor:pointer; } label.check input { margin-top:3px; flex:none; } label.check.off { opacity:.55; cursor:default; }
+.mgrid { display:grid; grid-template-columns:minmax(180px,260px) minmax(0,1fr); gap:14px; align-items:start; margin-top:12px; }
 </style>
 </head>
 <body>
@@ -159,10 +164,12 @@ button.small.on { border-color:rgba(255,205,110,.8); color:#ffe9b8; background:r
   <aside>
     <h2>Queue</h2>
     <div class="note">One job at a time, in order. Renders are written under <span id="home"></span>.</div>
+    <div id="jobtools" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
     <div id="jobs" style="margin-top:10px"></div>
   </aside>
 </main>
 <script src="slate.js"></script>
+<script src="motion.js"></script>
 <script>
 "use strict";
 if (location.search.includes("shot")) document.write('<img src="/api/wait?ms=4000" style="display:none">');
@@ -177,10 +184,37 @@ const api = async (path, body, method) => { const r = await fetch(path, body ===
 const file = path => "/files/" + path.split("/").map(encodeURIComponent).join("/");
 const mmss = s => s == null ? "" : s >= 3600 ? Math.floor(s / 3600) + " h " + Math.round(s % 3600 / 60) + " min" : (s >= 60 ? Math.floor(s / 60) + " min " : "") + Math.round(s % 60) + " s";
 const put = (node, ...kids) => node.append(...kids.flat().filter(k => k != null && k !== false));
-const toast = text => { const n = el("div", { style: "position:fixed;bottom:18px;left:18px;background:#2b3050;border:1px solid var(--accent);padding:9px 14px;border-radius:8px;z-index:9" }, text); document.body.append(n); setTimeout(() => n.remove(), 3500); };
+const toast = (text, ms = 3500) => { for (const old of document.querySelectorAll(".toast")) old.remove(); const n = el("div", { class: "toast", style: "position:fixed;bottom:18px;left:18px;background:#2b3050;border:1px solid var(--accent);padding:9px 14px;border-radius:8px;z-index:9" }, text); document.body.append(n); setTimeout(() => n.remove(), ms); };
+// Clear and Undo for a form's text. A form is a node marked data-clear="key"; fields under data-keep stay as they
+// are, and data-clear-to names what a field goes back to. The last clear is kept until the page is left.
+let CLEARED = null;
+const keep = node => { node.setAttribute("data-keep", ""); return node; };
+const clearFields = root => [...root.querySelectorAll("textarea, input:not([type]), input[type=text]")].filter(n => !n.disabled && !n.closest("[data-keep]"));
+const fill = (n, v) => { n.value = v; n.dispatchEvent(new Event("input", { bubbles: true })); };
+function undoClear() { const c = CLEARED; if (!c) return; CLEARED = null;
+  if (c.model) { c.model(); render(); return toast("Put back"); }
+  const root = document.querySelector('[data-clear="' + c.key + '"]'), f = root ? clearFields(root) : [];
+  if (f.length !== c.values.length) { CLEARED = c; return toast("Open the form that was cleared to put its text back"); }
+  f.forEach((n, i) => fill(n, c.values[i])); render(); toast("Put back"); }
+const undoToast = text => toast(el("span", {}, text + " ", el("button", { class: "small", onclick: e => { e.target.closest(".toast").remove(); undoClear(); } }, "Undo")), 12000);
+function clearForm(key) { const root = document.querySelector('[data-clear="' + key + '"]'); if (!root) return; const f = clearFields(root);
+  if (!f.some(n => n.value !== (n.dataset.clearTo || ""))) return toast("Nothing to clear here");
+  CLEARED = { key, values: f.map(n => n.value) }; f.forEach(n => fill(n, n.dataset.clearTo || "")); render(); undoToast("Cleared."); }
+const clearButton = (key, label = "Clear", title = "Empty the text fields of this form (Undo puts them back)") => [el("button", { class: "small fit", title, onclick: () => clearForm(key) }, label),
+  CLEARED && CLEARED.key === key ? el("button", { class: "small fit on", onclick: undoClear }, "Undo clear") : null];
+// Deleting: jobs leave the queue list and their files go to the studio's trash folder (app/clear.py); the last deletion can be put back
+const PICK = new Set(), LIBPICK = new Set();
+const sizeText = b => b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : b >= 1e6 ? Math.round(b / 1e6) + " MB" : Math.max(1, Math.round(b / 1e3)) + " kB";
+const count = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+async function restoreLast() { try { const r = await api("/api/trash/restore", {}); toast("Put back " + count(r.files, "file") + (r.jobs ? " and " + count(r.jobs, "job card") : "") + (r.missing.length ? " · " + r.missing.length + " could not be put back" : "")); } catch (e) { toast(e.message); } await poll(); render(); }
+async function clearOut(body, ask) { if (ask && !confirm(ask + "\nFiles are moved to the trash folder inside " + S.home + ", not erased. “Restore last deletion” in the Library puts them back.")) return;
+  try { const r = await api("/api/clear", body); PICK.clear(); LIBPICK.clear();
+    toast(el("span", {}, (r.jobs ? count(r.jobs, "job") + " and " : "") + count(r.files, "file") + " moved to the trash" + (r.skipped.length ? " · " + r.skipped.length + " kept: " + r.skipped[0].why : "") + " ",
+      r.files || r.jobs ? el("button", { class: "small", onclick: e => { e.target.closest(".toast").remove(); restoreLast(); } }, "Undo") : null), 12000);
+  } catch (e) { toast(e.message); } await poll(); render(); }
 
 let S = null, jobs = [], tab = "Create", project = null;
-const TABS = ["Create", "Production", "Editor", "Library", "Tutorial"];
+const TABS = ["Create", "Production", "Motion Previs", "Editor", "Library", "Tutorial"];
 const C = { step: 0, mode: "scout", preset: "draft", quality: "standard", seconds: 5, seed: 1, scene: "", action: "", camera: "",
   dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", loras: [], textEncoder: "" };
 let LORAS = [];  // the LoRA hub's recipes, with whether each is installed here
@@ -191,13 +225,45 @@ const select = (obj, key, options, after) => { const n = el("select", {}, Object
 const media = (path, attrs = {}) => /\.(mp4|mov)$/i.test(path) ? el("video", { src: file(path), controls: true, preload: "metadata", ...attrs }) : el("img", { src: file(path), loading: "lazy", ...attrs });
 
 const IMAGE_SIZES = { "1344x768": "1344x768 (16:9)", "1664x928": "1664x928 (16:9, larger)", "1024x1024": "1024x1024 (square)", "768x1344": "768x1344 (9:16)" };
-Object.assign(C, { goes: "video", start: "text", engine: "fasth3", passes: "8", h3quality: "standard", res: "480p", up: false, refs: [], subjects: [], refPasses: "20" });
+Object.assign(C, { goes: "video", start: "text", engine: "fasth3", passes: "8", h3quality: "standard", res: "480p", up: false, h3passes: "preset", refs: [], subjects: [], refPasses: "20", refVideos: [], video_subjects: [], refAudios: [], audio_notes: [], video_sound: false, motion: null });
 const ENGINES = { fasth3: "FastH3 (FastVideo, sparse attention): fastest", h3: "MiniMax H3 (Turbo adapter or full 20 steps)" };
 const RESOLUTIONS = { "480p": "480p · 864x480", "720p": "720p · 1280x720", draft: "Draft · 1344x768, generated at 672x384 with the 2x decoder",
   "2k": "2K · 2048x1152, generated at 1024x576 with the 2x decoder", native: "Native · 1344x768" };
 const UPSCALED = { "480p": ["p960", "1728x960"], "720p": ["qhd", "2560x1440 (2K)"] };
-// reference to video (MiniMax H3 Ref2VA): pictures that fix how someone or something looks, not frames of the clip
+// reference to video (MiniMax H3 Ref2VA): pictures, videos and audio clips that fix how someone or something looks,
+// moves or sounds; none of them is a frame of the clip. S.ref_media: videos and audio are offered (Ref2VA is installed).
 const isRef = () => C.mode === "r2v";
+const refMedia = () => isRef() && (C.refVideos.length > 0 || C.refAudios.length > 0);
+const refCount = () => C.refs.length + C.refVideos.length + C.refAudios.length;
+// What the page knows of each reference clip (/api/probe: its length, whether it has sound), and what it last said
+// about a file it turned away, per kind.
+const REF_META = {}, REF_SAID = { pictures: "", videos: "", audios: "" };
+const refMeta = async path => REF_META[path] || (REF_META[path] = await api("/api/probe?path=" + encodeURIComponent(path)).catch(() => ({})));
+const REF_KINDS = { pictures: ["pictures", () => S.reference_limit], videos: ["videos", () => S.reference_video_limit], audios: ["audio clips", () => S.reference_audio_limit] };
+// why one more file of a kind cannot be added ("" when it can): MiniMax's limits for one request
+const refFull = (kind, list) => list.length >= REF_KINDS[kind][1]() ? "at most " + REF_KINDS[kind][1]() + " " + REF_KINDS[kind][0] : S.ref_media && refCount() >= S.reference_total ? "at most " + S.reference_total + " references in all" : "";
+// why a measured clip is not a reference the model takes ("" when it is): 2 to 15 seconds each, 15 seconds a kind
+function refWrong(kind, list, meta) { const word = kind === "videos" ? "video" : "audio clip", d = Number(meta.duration) || 0;
+  if (kind === "videos" && !meta.width) return "not a video the app can read";
+  if (kind === "audios" && meta.sound === false) return "it has no sound";
+  if (!d) return "";  // not measured (no ffprobe): the renderer measures again
+  if (d < 1.95 || d > 15.05) return "it is " + d.toFixed(1) + " s long, and a reference " + word + " is 2 to 15 seconds";
+  const all = list.reduce((sum, p) => sum + ((REF_META[p] || {}).duration || 0), 0) + d;
+  return all > 15.05 ? "with it the reference " + word + "s would be " + all.toFixed(1) + " s, and they are at most 15 seconds in all" : ""; }
+// reference videos known to have no sound, by number
+// What the Studio says about sound references, and whether a video's own sound starts ticked: from measurements on
+// both builds (README, "What a sound reference does").
+const REF_SOUND_DEFAULT = false;
+const VIDEO_SOUND_SAYS = "Off, the clip's sound comes from what you write in step 3. On, it stays close to the video's own sound instead, voice and timing (measured on both builds), at no extra time.";
+const AUDIO_SAYS = "What it does, by measurement: when the spoken line in step 3 is what the recording says, the clip performs that recording, the mouth moving in time with it. With other words, describe the voice in the line's Voice box as well (“a deep male voice”): the pitch then went to the recording's, where a recording with no description changed nothing when the voice was unlike the pictured person. It is not voice cloning.";
+// how many subjects the prompt will define: one per picture, and one per video that is said to show someone
+const refPeople = () => C.refs.length + (motionFields() ? 0 : C.refVideos.filter((p, i) => (C.video_subjects[i] || "").trim() || (!C.refs.length && i === 0)).length);
+const soundless = () => C.refVideos.map((p, i) => REF_META[p] && REF_META[p].sound === false ? i + 1 : 0).filter(Boolean);
+// the model numbers a video's own sound ahead of the audio clips
+const audioName = i => "<Audio " + ((C.video_sound ? C.refVideos.length : 0) + i + 1) + ">";
+// the passes a reference clip runs: a custom count wins over both cards; the adapter was trained for 4
+const refPassText = () => String(C.steps).trim() ? (C.refPasses === "4" ? "Turbo adapter, " : "") + C.steps + " passes (custom)" : C.refPasses === "4" ? "Turbo 4 passes" : "20 passes";
+const refWord = () => S && S.ref_media ? "References" : "Reference pictures";
 const noFrame = () => C.mode === "t2v" || isRef();
 const isLong = () => Number(C.seconds) > 15;
 // the explicit controls decide the mode, the quality and the output preset the server understands
@@ -206,6 +272,10 @@ function sync() {
   C.mode = C.goes === "image" ? "image" : { text: "t2v", scout: "scout", own: "i2v", refs: "r2v" }[C.start];
   if (isRef() && isLong()) C.seconds = 15;
   if (!(S && S.ref2va_turbo)) C.refPasses = "20";
+  // a custom count belongs to the chooser it was typed in: it does not follow into or out of reference clips
+  if (C.wasRef !== undefined && C.wasRef !== isRef()) C.steps = "";
+  C.wasRef = isRef();
+  if (C.video_sound && (!C.refVideos.length || soundless().length)) C.video_sound = false;
   if (C.res === "sharp" && !(S && S.sharp)) C.res = "480p";
   C.quality = C.engine === "fasth3" ? "fh" + C.passes : C.h3quality;
   if (!UPSCALED[C.res]) C.up = false;
@@ -219,8 +289,27 @@ function changed() { sync(); C.prompt = ""; render(); }
 // one decision shown as cards: options are value -> [title, detail]
 const choice = (obj, key, options, after, tight) => el("div", { class: "choice" + (tight ? " tight" : ""), role: "radiogroup" }, Object.entries(options).map(([v, [title, sub]]) =>
   el("button", { type: "button", role: "radio", "aria-checked": String(obj[key]) === v ? "true" : "false", class: String(obj[key]) === v ? "on" : "", onclick: () => { obj[key] = v; if (after) after(); } }, el("b", {}, title), sub ? el("span", {}, sub) : null)));
+// A number of passes of your own is the Custom card of each passes chooser, right after its 20-pass card. C.steps
+// holds it ("" when a preset card is chosen), so the request, a ?steps= link and the Sharp preset's test for an empty
+// count work as before.
+const customOn = () => String(C.steps).trim() !== "";
+// the cards of one chooser with Custom beside the 20-pass card (after the last card that runs 20), and under the row
+// the number box while Custom is chosen. ``start`` is the count the box opens with (the preset that was chosen);
+// ``more`` is added to the note. The preset stays chosen underneath: Custom changes the count, not the recipe.
+function passChooser(key, options, start, after, more) {
+  const card = (on, title, sub, pick) => el("button", { type: "button", role: "radio", "aria-checked": on ? "true" : "false", class: on ? "on" : "", onclick: pick }, el("b", {}, title), sub ? el("span", {}, sub) : null);
+  const [low, high] = S.custom.steps;
+  const cards = Object.entries(options).map(([v, [title, sub]]) => [/^20\b/.test(title), card(!customOn() && String(C[key]) === v, title, sub, () => { C[key] = v; C.steps = ""; changed(); })]);
+  const at = cards.map(c => c[0]).lastIndexOf(true), nodes = cards.map(c => c[1]);
+  nodes.splice(at < 0 ? nodes.length : at + 1, 0, card(customOn(), "Custom", "your own number of passes", () => { if (!customOn()) C.steps = String(start()); changed(); }));
+  return [el("div", { class: "choice tight passes" + (nodes.length % 2 ? " odd" : ""), role: "radiogroup" }, nodes),
+    customOn() ? el("div", { class: "row" }, el("div", { class: "fit", style: "width:150px" }, el("label", {}, "Number of passes"), bind(C, "steps", el("input", { type: "number", min: low, max: high, step: 1 }), after)),
+      el("div", { class: "note" }, "From " + low + " to " + high + ". No time estimate for a custom count." + (more ? " " + more : ""))) : null];
+}
+// MiniMax H3's qualities are recipes (which adapter, which sound), not counts: a custom count runs inside the chosen one
+const H3_PASSES = { standard: 5, fast: 3, high: 20, full: 20 };
 const PASSES = { 4: ["4 passes", "fastest, a little softer"], 8: ["8 passes", "what FastH3 was trained for"], 20: ["20 passes", "for prompts with several actions"] };
-const H3Q = { standard: ["Turbo 5 + base sound", "the standard"], fast: ["Turbo 3", "quickest, adapter sound"], high: ["20 steps, fast recipe", "higher quality"], full: ["20 steps, plain", "slowest"] };
+const H3Q = { standard: ["Turbo 5 + base sound", "the standard"], fast: ["Turbo 3", "quickest, adapter sound"], high: ["20 passes, fast recipe", "higher quality"], full: ["20 passes, plain", "slowest"] };
 const RES = { "480p": ["480p", "864 × 480"], "720p": ["720p", "1280 × 720"], draft: ["Draft", "1344 × 768 via 2x"], "2k": ["2K", "2048 × 1152 via 2x"], native: ["Native", "1344 × 768"], sharp: ["Wasserman Sharp", "1376 × 768"], custom: ["Custom", "your own size"] };
 // Sam Wasserman's locked recipe (S.sharp): one click sets every setting it fixes, so each clip is made the same way
 const sharpButton = (on, apply) => el("button", { type: "button", class: "fit sharp" + (on ? " on" : ""), title: "Sam Wasserman's locked recipe: 1376 × 768, FastH3 at 8 passes, seed 42, 8 or 10 seconds, one pass with no upscale", onclick: apply },
@@ -231,8 +320,8 @@ function sharpCreate() { if (isRef()) C.start = "text";
 /* ---------- Keys and Wasserman LoRA Hub ---------- */
 // what a job carries: the picked LoRAs that are installed on this machine
 // another text encoder file found on this machine, picked by its file name ("" is the model's own)
-const encoderOf = () => (S && (S.text_encoders || []).includes(C.textEncoder)) ? C.textEncoder : "";
-const encoderName = f => /uncensored/i.test(f) ? "Uncensored" : f.replace(/\.safetensors$/, "").replace(/^qwen3vl_32b_minimax_h3_/, "").replace(/[_-]+/g, " ");
+const encoderOf = () => C.textEncoder === "__own" ? String(C.textEncoderPath || "").trim() : (S && (S.text_encoders || []).includes(C.textEncoder)) ? C.textEncoder : "";
+const encoderName = f => f.split("/").pop().replace(/\.safetensors$/, "").replace(/^qwen3vl_32b_minimax_h3_/, "").replace(/[_-]+/g, " ");
 const lorasOf = obj => (obj.loras || []).filter(p => LORAS.some(r => r.id === p.id && r.installed));
 async function loadLoras() { try { LORAS = await api("/api/loras"); } catch { LORAS = []; } }
 const HUB = { open: false, form: { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" }, timer: null };
@@ -277,29 +366,32 @@ function videoControls(after) {
       : "Sam Wasserman's locked recipe in one click: 1376 × 768, FastH3 8 passes, seed 42, 8 or 10 seconds, then his QA gate on each clip.")) : null,
     // MiniMax H3 Turbo is an optional part of the install; without it FastH3 is the engine
     isRef() ? el("label", {}, "Reference to video · MiniMax H3 Ref2VA") : null,
-    isRef() ? (S.ref2va_turbo ? choice(C, "refPasses", { 20: ["20 passes", "the model as released, its own sound"], 4: ["Turbo 4 passes", "LightX2V adapter, then base-model sound: about 2.5x faster"] }, changed, true)
-      : el("div", { class: "note" }, "20 plain passes with the model's own sound.")) : null,
+    isRef() ? passChooser("refPasses", S.ref2va_turbo ? { 20: ["20 passes", "the model as released, its own sound"], 4: ["Turbo 4 passes", S.platform === "spark" ? "LightX2V adapter and its own sound: about 3x faster" : "LightX2V adapter, then base-model sound: about 2.5x faster"] } : { 20: ["20 passes", "the model as released, its own sound"] },
+      () => C.refPasses, after, C.refPasses === "4" ? "With the Turbo adapter, which was trained for 4 passes; pick 20 passes first for a count without it." : "Without the Turbo adapter.") : null,
     isRef() ? null :
     S.turbo ? el("label", {}, "Video engine") : null, isRef() ? null : S.turbo ? choice(C, "engine", { fasth3: ["FastH3", S.zig ? "FastVideo's distilled H3 on the native Zig engine: fastest" : "FastVideo's distilled H3 on the sparse tile kernel: fastest"], h3: ["MiniMax H3", "Turbo adapter with base-model sound, or the full 20 steps"] }, changed) : null,
-    isRef() ? null : el("label", {}, C.engine === "fasth3" ? "Passes" : "Quality"), isRef() ? null : C.engine === "fasth3" ? choice(C, "passes", PASSES, changed, true) : choice(C, "h3quality", H3Q, changed, true),
+    isRef() ? null : el("label", {}, C.engine === "fasth3" ? "Passes" : "Quality"), isRef() ? null : C.engine === "fasth3" ? passChooser("passes", PASSES, () => C.passes, after)
+      // a quality of MiniMax H3 is a recipe: Custom keeps the one that was chosen and changes only its count
+      : passChooser("h3quality", H3Q, () => H3_PASSES[C.h3quality], after, "Inside “" + H3Q[C.h3quality][0] + "”, the quality that was chosen: it keeps its adapter and its sound, and only the number of passes changes."),
     el("label", {}, "Resolution"), choice(C, "res", Object.fromEntries(Object.entries(RES).filter(([k]) => (S.x2 || !["draft", "2k"].includes(k)) && (k !== "sharp" || S.sharp))), changed, true),
     C.res === "custom" ? el("div", { class: "row" }, el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Width"), bind(C, "cw", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
       el("div", { class: "fit", style: "width:130px" }, el("label", {}, "Height"), bind(C, "ch", el("input", { type: "number", step: 32, min: S.custom.sides[0], max: S.custom.sides[1] }), after)),
       el("div", { class: "note" }, "Multiples of 32, each side " + S.custom.sides[0] + " to " + S.custom.sides[1] + ", at most 1344 × 768 pixels in all. No time estimate for a custom size.")) : null,
     isRef() ? null : loraHub(C, () => { C.prompt = ""; }),
-    (S.text_encoders || []).length ? el("label", {}, "Text encoder") : null,
-    (S.text_encoders || []).length ? choice(C, "textEncoder", { "": ["Regular", "MiniMax H3's own"], ...Object.fromEntries(S.text_encoders.map(f => [f, [encoderName(f), /uncensored/i.test(f) ? "community build on this machine; personal, non-commercial use" : "a file in this machine's text_encoders folder"]])) }, changed, true) : null,
+    el("label", {}, "Text encoder"),
+    choice(C, "textEncoder", { "": ["Regular", "MiniMax H3's own"], ...Object.fromEntries((S.text_encoders || []).map(f => [f, [encoderName(f), "a file in this machine's text_encoders folder"]])), "__own": ["Your own", "a text encoder file you choose"] }, changed, true),
+    C.textEncoder === "__own" ? el("div", {}, bind(C, "textEncoderPath", el("input", { placeholder: S.platform === "spark" ? "name of a .safetensors file in ComfyUI's text_encoders folder" : "/path/to/your-text-encoder.safetensors" })),
+      el("div", { class: "note" }, "Any MiniMax H3 text encoder file on this machine. The Studio does not provide, check or recommend it: the file, its license and what you make with it are your own choice and responsibility.")) : null,
     el("div", { class: "row" },
       !S.x2 ? null : el("div", {}, el("label", {}, "Upscale"), el("label", { class: "switch" }, two, el("span", {}, "2x upscale", el("small", {}, UPSCALED[C.res] ? "2x decoder → " + UPSCALED[C.res][1] + ", about 10 s more" : "already part of this output")))),
       el("div", { class: "fit", style: "width:250px" }, el("label", {}, "Length"), select(C, "seconds", { ...Object.fromEntries(Object.keys(S.durations).map(k => [k, k + " s · " + S.durations[k] + " frames"])),
         ...(isRef() ? {} : Object.fromEntries(Object.entries(S.long).map(([k, v]) => [k, v + " · " + Math.ceil(k / 15) + " clips chained"]))) }, after)),
-      el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Seed"), bind(C, "seed", el("input", { type: "number", min: 0 }))),
-      el("div", { class: "fit", style: "width:150px" }, el("label", {}, "Custom passes"), bind(C, "steps", el("input", { type: "number", min: S.custom.steps[0], max: S.custom.steps[1], placeholder: "auto" }), after))));
+      el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Seed"), bind(C, "seed", el("input", { type: "number", min: 0 })))));
 }
 function summary(est) {
-  const size = output().size, hand = String(C.steps).trim() ? " · " + C.steps + " passes by hand" : "", engine = isRef() ? "MiniMax H3 Ref2VA · " + (C.refPasses === "4" ? "Turbo 4 passes" : "20 passes") : C.engine === "fasth3" ? "FastH3 · " + C.passes + " passes · " + S.engine : "MiniMax H3 · " + H3Q[C.h3quality][0];
+  const size = output().size, hand = String(C.steps).trim() && !isRef() && C.engine !== "fasth3" ? " · " + C.steps + " passes (custom)" : "", engine = isRef() ? "MiniMax H3 Ref2VA · " + refPassText() : C.engine === "fasth3" ? "FastH3 · " + (String(C.steps).trim() ? C.steps + " passes (custom)" : C.passes + " passes") + " · " + S.engine : "MiniMax H3 · " + H3Q[C.h3quality][0];
   return el("div", { class: "summary" }, el("span", { class: "chip k" }, { t2v: "TEXT → VIDEO", scout: "QWEN IMAGE → VIDEO", i2v: "IMAGE → VIDEO", r2v: "REFERENCES → VIDEO" }[C.mode]),
-    el("span", { class: "chip" }, engine + hand), encoderOf() ? el("span", { class: "chip" }, "text encoder: " + encoderName(encoderOf())) : null, el("span", { class: "chip" }, size[0] + " × " + size[1]), el("span", { class: "chip" }, isLong() ? S.long[C.seconds] + " · " + Math.ceil(C.seconds / 15) + " × 15 s" : C.seconds + " s · " + S.durations[C.seconds] + " f"), est);
+    el("span", { class: "chip" }, engine + hand), encoderOf() ? el("span", { class: "chip" }, "text encoder: " + (C.textEncoder === "__own" ? "your own" : encoderName(encoderOf()))) : null, el("span", { class: "chip" }, size[0] + " × " + size[1]), el("span", { class: "chip" }, isLong() ? S.long[C.seconds] + " · " + Math.ceil(C.seconds / 15) + " × 15 s" : C.seconds + " s · " + S.durations[C.seconds] + " f"), est);
 }
 function settingsRow(obj, after, keep = {}) {
   const presets = Object.entries(S.presets).filter(([k]) => !keep.presets || keep.presets(k));
@@ -310,16 +402,132 @@ function settingsRow(obj, after, keep = {}) {
     field("Quality", select(obj, "quality", qualities, after)),
     el("div", { class: "fit", style: "width:110px" }, el("label", {}, "Seed"), bind(obj, "seed", el("input", { type: "number", min: 0 }))));
 }
-async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, seconds: Number(obj.seconds), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_turbo: obj === C && isRef() && C.refPasses === "4", ...(obj === C ? { steps: String(C.steps).trim() } : {}), loras: obj === C && isRef() ? [] : lorasOf(obj) });
+async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, seconds: Number(obj.seconds), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_media: obj === C && refMedia(), ref_turbo: obj === C && isRef() && C.refPasses === "4", ...(obj === C ? { steps: String(C.steps).trim() } : {}), loras: obj === C && isRef() ? [] : lorasOf(obj) });
   node.textContent = r.seconds ? "≈ " + mmss(r.seconds) + (S.platform === "spark" ? " on a DGX Spark, models loaded" : " on an M5 Ultra") : ""; } catch { node.textContent = ""; } }
+
+/* ---------- Motion reference: Motion Previs on <Video 1> of a reference clip ---------- */
+// C.motion: the analysis of the first reference video (a Motion Previs pack), what to carry over of it, and which
+// layer of the pack goes to the model as <Video 1>. ``made`` is the layer C.refVideos[0] already is: "reference" for
+// a clip the user added here, the chosen layer for a hand-off from the Motion Previs tab. Without an analysis the
+// video is a plain reference, as before.
+const MOTION_MODES = { "full-scene": ["Full scene", "the same place and motion, a new person"], "actor-motion": ["Actor motion", "the body motion and the camera, in a new place"],
+  "object-motion": ["Object motion", "an object's path and the camera"], "camera-only": ["Camera only", "just the camera move and its timing"] };
+const MOTION_LAYERS = { reference: ["Source clip", "the video itself: the tested route", "reference.mp4"], openpose: ["Skeleton", "OpenPose joints on black, one person only: the loosest hold", "openpose_pose.mp4"],
+  "ai-depth": ["Depth", "Depth-Anything: for a new place, or the camera alone", "ai_depth.mp4"], depth: ["Depth proxy", "made by ffmpeg: brighter is nearer", "depth.mp4"], edges: ["Edges", "outlines on black", "edges.mp4"] };
+// what goes in by default for each choice, by measurement (motion.py, SUGGESTED): the same place with a new person
+// takes the source clip; a new place, an object's path or the camera alone takes depth; the skeleton is never a default
+const motionDefault = m => m.mode === "full-scene" ? (m.made === "reference" || m.layers.includes("reference") ? "reference" : m.made) : (["ai-depth", "depth"].find(l => l === m.made || m.layers.includes(l)) || m.made);
+const MA = { state: null, job: null, timer: null }, PACE_FAST = 24;
+const maBusy = () => !!MA.job && ["queued", "running"].includes(MA.job.status);
+const maSay = () => { const j = MA.job; if (!j) return ""; const now = (j.stages || {})[j.stage] || {}; return j.status === "queued" ? "Waiting for its turn…" : "Analysing: " + (j.stage || "starting") + (now.of > 1 ? " " + now.at + "/" + now.of : "") + (j.elapsed != null ? " · " + mmss(j.elapsed) : ""); };
+const motionControl = () => !!C.motion && C.refVideos.length > 0 && C.motion.layer !== "reference";
+// what the prompt composer is told: nothing without an analysis or without a video for it
+const motionFields = () => C.motion && C.refVideos.length ? { layer: C.motion.layer, mode: C.motion.mode, camera: C.motion.useCamera ? C.motion.camera : "", people: Number(C.motion.people) || 1, pace: C.motion.pace || "auto", measured: C.motion.measured || null, free: motionFree() } : null;
+// Sound and movement of a motion reference agree (app/pace.py): Impacts is fast strikes with their sound, Flow is slow
+// movement that is silent or under music; Automatic reads the reference and never lays hits over slow movement.
+const PACES = { auto: ["Automatic", "no hits over a slow reference"], impacts: ["Impacts", "fast strikes and blocks, with their sound"], flow: ["Flow", "slow sticky hands, silent or with music"] };
+// Impacts over a reference that is not fast: the model follows the video's own speed whatever the prompt says, so the
+// video is left out and the picture and the prompt carry the fight (the camera move stays, in words). Needs a picture.
+const paceSlowRef = m => !!m && paceOf(m) === "impacts" && !!m.measured && ["slow", "moderate"].includes(m.measured.motion);
+const motionFree = () => paceSlowRef(C.motion) && C.motion.free !== false && C.refs.length > 0 && C.refVideos.length === 1;
+// Automatic changes one case only: a soundscape that names hits, over a reference that moves slowly, becomes Flow
+const IMPACT_WORDS = ["slap", "smack", "strike", "hit", "punch", "thud", "knock", "clap", "crack", "impact", "blow", "whack", "bang", "thwack", "pound", "slam", "kick", "stomp", "clash", "snap"];
+const namesHits = text => IMPACT_WORDS.some(w => (text || "").toLowerCase().includes(w));
+const musicNamed = () => !!(C.music || "").trim() && (C.music || "").trim().toUpperCase() !== "N/A";
+const paceOf = m => m.pace && m.pace !== "auto" ? m.pace : m.measured && m.measured.motion === "slow" && namesHits(C.soundscape) ? "flow" : "";
+function paceNote(m) { const d = m.measured, now = paceOf(m);
+  const read = !d || d.limbs == null ? "The speed of <Video 1> could not be measured on this machine: choose Impacts or Flow yourself." : "Measured in <Video 1>: the quickest movement is " + d.limbs + " percent of the frame width a second (" + d.motion + "; fast is " + PACE_FAST + " or more)" + (d.sound === "impacts" ? ", and its sound holds " + d.hits + " sharp hits a second." : d.sound === "silent" ? ", and it has no sound." : ", and its sound holds no hits.");
+  const auto = (m.pace || "auto") === "auto" ? (now === "flow" ? " The soundscape of step 3 names hits and this reference moves slowly, so Automatic makes this clip Flow." : " Automatic leaves the prompt as you write it, except that a soundscape naming hits over a slowly moving reference becomes Flow.") : "";
+  const does = auto + (now === "impacts" ? " Impacts: the prompt says that the arms attack and block at full speed and that every strike is heard as it lands." : now === "flow" ? " Flow: the prompt says that the movement is slow and continuous, the hits are taken out of the soundscape" + (d && d.sound === "impacts" ? ", the video's own sound is not reused" : "") + ", and the clip is " + (musicNamed() ? "under the music named in step 3." : "delivered silent: its sound track is muted after the render (name music in step 3 to have music instead).") : "");
+  const warn = paceSlowRef(m) ? el("div", { class: "tip", style: "margin-top:8px" }, el("b", {}, "This reference moves slowly"), "The model follows the movement of <Video 1> whatever the prompt says about speed, so the arms would stay as slow as they are in it and the hits would be heard over slow hands.",
+    C.refs.length ? el("label", { class: "switch", style: "margin-top:8px" }, el("input", { type: "checkbox", checked: m.free !== false, onchange: e => { m.free = e.target.checked; C.prompt = ""; render(); } }), el("span", {}, "Leave <Video 1> out and let the prompt carry the fight", el("small", {}, "The clip is made from <Picture 1> and the prompt; the camera move of <Video 1> stays, in words. Describe the place in Scene: it no longer comes from the video.")))
+      : el("div", { class: "note" }, "Add a picture of who is in the clip above, as <Picture 1>, and the video can be left out so that the prompt carries the fight; or choose Flow.")) : null;
+  return el("div", {}, el("div", { class: "note", style: "margin-top:0" }, read + does), warn); }
+function setMotion(pack, layer, made, mode) { const cam = pack.camera || {};
+  C.motion = { pack: pack.id, mode: mode || "full-scene", layer, made, layers: pack.layers || [], files: pack.files || {}, camera: cam.sentence || "", reliable: !!cam.reliable, confidence: cam.confidence || 0,
+    seconds: pack.range ? pack.range.duration : null, useCamera: !!cam.sentence, people: "1", pace: "auto", measured: pack.pace || null };
+  C.prompt = ""; }
+async function analyseMotion() {
+  const path = C.refVideos[0]; if (!path || maBusy()) return;
+  try { const meta = await api("/api/probe?path=" + encodeURIComponent(path));
+    MA.job = await api("/api/motion/jobs", { source: path, start: 0, end: Math.floor(Math.min(meta.duration, 15) * 100) / 100, mode: "full-scene", fps: 12, title: "Motion of " + path.split("/").pop() });
+  } catch (e) { toast(e.message); return; }
+  render(); clearInterval(MA.timer);
+  MA.timer = setInterval(async () => { try { MA.job = await api("/api/motion/jobs/" + MA.job.id); } catch { return; }
+    if (maBusy()) { const say = document.getElementById("ma-say"); if (say) say.textContent = maSay(); return; }
+    clearInterval(MA.timer); MA.timer = null;
+    if (MA.job.status === "done" && C.refVideos[0] === path) { try { setMotion(await api("/api/motion/packs/" + MA.job.pack), "reference", "reference"); if (typeof MO !== "undefined") MO.state = null; } catch (e) { toast(e.message); } }
+    if (tab === "Create") render(); }, 700);
+}
+// the clip that goes to the model as <Video 1>: the one in the list, or the chosen layer cut from the pack
+// Nobody speaks in the clip and the source clip itself goes in: its person's mouth is smoothed out of it first, or
+// the new face mouths that person's words (app/motion.py, soft_mouth). Needs the pose track of the analysis.
+const speaks = () => (C.dialogue || []).some(l => (l.text || "").trim());
+const softMouth = () => { const m = C.motion; return !!m && C.refVideos.length > 0 && m.layer === "reference" && m.made === "reference" && m.softMouth !== false && !C.video_sound && !speaks() && !motionFree() && (m.layers.includes("openpose") || m.layers.includes("pose")); };
+async function motionVideos() { const m = C.motion; if (motionFree()) return C.refVideos.slice(1);
+  if (softMouth()) { const size = output().size, r = await api("/api/motion/reference", { pack: m.pack, layer: "reference", mode: m.mode, seconds: Math.max(2, Math.min(Number(C.seconds), m.seconds || 15)), width: size[0], height: size[1], timing: "trim", keep: false, mouth: "soft" });
+    return [r.clip, ...C.refVideos.slice(1)]; }
+  if (!m || !C.refVideos.length || m.layer === m.made) return C.refVideos;
+  const size = output().size, r = await api("/api/motion/reference", { pack: m.pack, layer: m.layer, mode: m.mode, seconds: Math.max(2, Math.min(Number(C.seconds), m.seconds || 15)), width: size[0], height: size[1], timing: "trim", keep: false });
+  return [r.clip, ...C.refVideos.slice(1)]; }
+function motionPanel() {
+  if (!C.refVideos.length) return null;
+  if (!MA.state) { api("/api/motion/state").then(st => { MA.state = st; }, () => { MA.state = { available: {}, setup: "" }; }).then(() => { if (tab === "Create") render(); }); return null; }
+  const st = MA.state, can = st.available || {}, m = C.motion, box = el("div", { class: "group" }, el("h3", {}, "Motion of <Video 1>"));
+  if (!m) {
+    if (!(can.pose || can.camera || can.ai_depth)) return put(box, el("div", { class: "note" }, "<Video 1> is used as a plain reference. Motion analysis (the camera move in words, a pose skeleton, a depth layer) is not installed on this machine" + (st.setup ? ": " : "."), st.setup ? el("span", { style: "font-family:var(--mono)" }, st.setup) : null, st.setup ? " adds it." : null)), box;
+    return put(box, el("div", { class: "row" }, el("button", { type: "button", class: "fit primary", disabled: maBusy(), onclick: analyseMotion }, maBusy() ? "Analysing…" : "Analyse motion"),
+      el("div", { class: "note", id: "ma-say", style: "margin:0" }, maBusy() ? maSay() : MA.job && MA.job.status === "failed" ? "The analysis failed (" + (MA.job.error || "no reason given") + "). The video is still used as a plain reference."
+        : "Optional. Runs Motion Previs on <Video 1>, on the processor, in well under a minute: the camera move in words, a pose skeleton and a depth layer, then a choice of what the clip keeps of the video. Without it the video is a plain reference."))), box;
+  }
+  const again = () => { C.prompt = ""; render(); }, layers = Object.fromEntries(Object.entries(MOTION_LAYERS).filter(([k]) => k === "reference" ? (m.made === "reference" || m.layers.includes(k)) : m.layers.includes(k) && !(k === "depth" && m.layers.includes("ai-depth"))).map(([k, v]) => [k, [v[0], v[1]]]));
+  if (!layers[m.layer]) m.layer = layers[m.made] ? m.made : Object.keys(layers)[0];
+  const shown = m.layer === m.made ? C.refVideos[0] : m.files[MOTION_LAYERS[m.layer][2]];
+  put(box, el("label", {}, "What to carry over"), choice(m, "mode", MOTION_MODES, () => { m.layer = motionDefault(m); again(); }, true),
+    el("label", {}, "What goes to the model as <Video 1>"), choice(m, "layer", layers, again, true),
+    el("label", {}, "People in <Video 1>"), choice(m, "people", { 1: ["One", "or none"], 2: ["Two or more", "the prompt then speaks of its people"] }, again, true),
+    el("label", {}, "Sound and movement"), choice(m, "pace", PACES, () => { if (paceOf(m) === "flow" && m.measured && m.measured.sound === "impacts") C.video_sound = false; again(); }, true), paceNote(m),
+    el("div", { class: "mgrid" },
+      shown ? el("video", { src: file(shown) + "#t=0.1", controls: true, muted: true, loop: true, preload: "metadata", style: "width:100%;border-radius:10px;background:#000" }) : el("div", { class: "note" }, "No preview of this layer."),
+      el("div", {}, motionControl() ? el("div", { class: "tip", style: "margin-top:0" }, el("b", {}, "A control layer"), "The model is told that <Video 1> is a diagram of the shot (its structure, not its look) and that <Picture 1> is the first frame. " + (C.refs.length ? "" : "Add a picture of the opening frame above, as <Picture 1>: the look of the clip comes from it. ") + "Measured on one shot: depth with a picture kept the moves nearly as well as the source clip and takes the setting from the picture; the skeleton held them loosely (a kick was lost). Neither left a trace of its look in the clip.")
+          : el("div", { class: "note", style: "margin-top:0" }, "The source clip goes in as it is" + (C.refs.length ? ", with <Picture 1> as who replaces its person: the closest hold on the motion in our tests, in the clip's own place." : ".") + (m.mode !== "full-scene" ? " For a new place, depth is the better choice." : "")),
+        m.layer === "reference" && m.made === "reference" && (m.layers.includes("openpose") || m.layers.includes("pose")) && !motionFree() ? el("label", { class: "switch", style: "margin-top:10px" }, el("input", { type: "checkbox", checked: m.softMouth !== false, disabled: C.video_sound || speaks(), onchange: e => { m.softMouth = e.target.checked; render(); } }), el("span", {}, "Keep the mouth of <Video 1> out of the clip", el("small", {}, C.video_sound || speaks() ? "Off: this clip has spoken lines or reuses the video's own sound, so the mouth is followed." : "Nobody speaks in this clip: the mouth of the person in <Video 1> is smoothed over before the video goes to the model. Left in, the new face mouths that person's words."))) : null,
+        m.camera ? el("label", { class: "switch", style: "margin-top:10px" }, bind(m, "useCamera", el("input", { type: "checkbox" }), again), el("span", {}, "Add the camera move to the prompt", el("small", {}, m.camera))) : el("div", { class: "note" }, "No camera move was solved for this clip."),
+        m.camera && !m.reliable ? el("div", { class: "note" }, "Low solve confidence (" + Math.round(100 * m.confidence) + "%): check the sentence against the clip.") : null,
+        m.camera && m.useCamera && C.camera.trim() ? el("div", { class: "note" }, "The Camera field of step 1 has its own text, which is used instead.") : null,
+        el("button", { type: "button", class: "small", style: "margin-top:10px", onclick: () => { C.motion = null; MA.job = null; again(); } }, "Forget the analysis: a plain reference"))));
+  return box;
+}
+// "Use as motion reference" in the Motion Previs tab lands here: the wizard opens on its references screen with the
+// hand-off clip as <Video 1>, the mode and the layer chosen there, and the camera move ready for the prompt
+function useMotionReference(ref, pack) {
+  if (!ref) return;
+  if (!ref.clip) { if (ref.camera) C.camera = ref.camera; C.prompt = ""; C.goes = "video"; C.step = 0; tab = "Create"; history.replaceState(null, "", "#Create"); toast(ref.camera ? "The camera move is in the Camera field" : "This pack has no camera move in words"); sync(); render(); return; }
+  if (!S.ref_media) { toast("Stored. A reference video needs MiniMax H3 Ref2VA, which is not installed here (" + (S.platform === "spark" ? "oneshot-setup-spark.sh" : "oneshot-setup.sh") + " --ref2va)."); return; }
+  Object.assign(C, { goes: "video", start: "refs", refVideos: [ref.clip], video_subjects: [""], video_sound: false, step: 1, job: null });
+  setMotion(pack || { id: ref.pack, layers: [ref.layer], files: {}, camera: {} }, ref.layer, ref.layer, ref.mode);
+  Object.assign(C.motion, { camera: ref.camera || "", reliable: !!ref.camera_reliable, confidence: ref.camera_confidence || 0, useCamera: !!ref.camera, seconds: ref.seconds });
+  C.seconds = Object.keys(S.durations).map(Number).sort((a, b) => a - b).find(d => d >= ref.seconds - 0.01) || 15;
+  const named = { "864x480": "480p", "1280x736": "720p", "1344x768": "native" }[ref.width + "x" + ref.height], lim = S.custom;
+  if (named) C.res = named; else if (ref.width % 32 === 0 && ref.height % 32 === 0 && ref.width * ref.height <= lim.pixels && Math.min(ref.width, ref.height) >= lim.sides[0] && Math.max(ref.width, ref.height) <= lim.sides[1]) Object.assign(C, { res: "custom", cw: ref.width, ch: ref.height });
+  C.up = false; tab = "Create"; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); sync(); C.prompt = ""; render();
+  refMeta(ref.clip).then(() => { if (tab === "Create") render(); });
+}
 
 /* ---------- Create ---------- */
 const STEPS = ["1. Intent / Mode", "2. First frame", "3. Words / Sound", "4. Review prompt", "5. Render"];
+const C_TEXT = { scene: "", action: "", camera: "", dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", prompt: "", beats: "" }, C_NOTES = { subjects: "refs", video_subjects: "refVideos", audio_notes: "refAudios" };
+function clearAllCreate() { const keys = [...Object.keys(C_TEXT), ...Object.keys(C_NOTES)], was = JSON.parse(JSON.stringify(Object.fromEntries(keys.map(k => [k, C[k]]))));
+  const empty = { ...JSON.parse(JSON.stringify(C_TEXT)), ...Object.fromEntries(Object.entries(C_NOTES).map(([k, of]) => [k, C[of].map(() => "")])) };
+  if (JSON.stringify(was) === JSON.stringify(empty)) return toast("Nothing to clear here");
+  Object.assign(C, empty); CLEARED = { key: "create-all", model: () => Object.assign(C, was) }; render(); undoToast("Every prompt field of this clip is empty."); }
 function viewCreate() {
   const body = el("div");
-  const steps = el("div", { class: "steps" }, STEPS.map((name, i) => el("button", { class: i === C.step ? "on" : "", onclick: () => { C.step = i; render(); } }, i === 1 && isRef() ? "2. Reference pictures" : name)));
+  const steps = el("div", { class: "steps" }, STEPS.map((name, i) => el("button", { class: i === C.step ? "on" : "", onclick: () => { C.step = i; render(); } }, i === 1 && isRef() ? "2. " + refWord() : name)));
   const next = el("div", { class: "row", style: "margin-top:14px" }, el("button", { class: "fit", disabled: C.step === 0, onclick: () => { C.step--; render(); } }, "Back"),
-    el("span"), C.step < 4 ? el("button", { class: "primary fit", onclick: () => { C.step++; render(); } }, "Next") : null);
+    el("span"), C.step === 3 && C.mode !== "image" ? null : clearButton("create-" + C.step, "Clear this step"), el("button", { class: "small fit", title: "Empty every prompt field of this clip: scene, action, camera, lines, sound, and the composed prompt. Pictures, clips and settings stay.", onclick: clearAllCreate }, "Clear all"),
+    C.step < 4 ? el("button", { class: "primary fit", onclick: () => { C.step++; render(); } }, "Next") : null);
+  body.setAttribute("data-clear", "create-" + C.step);
   sync();
   const goes = el("div", {}, el("label", {}, "The prompt goes to"), choice(C, "goes", { video: ["Video with sound", S.turbo ? "FastH3 or MiniMax H3" : "FastH3"], image: ["Image only", "Qwen-Image-2.1"] }, changed));
   const picture = field("Describe the scene / condition where it takes place", bind(C, "scene", el("textarea", { placeholder: isRef() ? "The woman with red hair sits at a wooden desk in a small radio studio at night, medium close-up, a warm lamp on the left." : "A middle-aged baker in a cream shirt and green apron behind a wooden counter in a small bakery at dawn, warm window light from the left…" })));
@@ -346,8 +554,8 @@ function viewCreate() {
     const est = el("span", { class: "eta" });
     put(body, el("h2", {}, "What are you making?"), goes,
       el("label", {}, "The clip starts from"), choice(C, "start", { text: ["Text only", "no first frame"], scout: ["A Qwen scout image", "make several, pick one"], own: ["Your own image", "upload a picture"],
-        ...(S.ref2va ? { refs: ["Reference pictures", "keep a face or a thing, in a new scene"] } : {}) }, changed),
-      isRef() ? el("div", { class: "note", style: "margin:8px 0" }, "You add the pictures on the next screen: ", el("a", { href: "#", onclick: e => { e.preventDefault(); C.step = 1; render(); } }, "2. Reference pictures"), ".") : null,
+        ...(S.ref2va ? { refs: S.ref_media ? ["References", "pictures, videos or audio: keep a face, a motion or a voice"] : ["Reference pictures", "keep a face or a thing, in a new scene"] } : {}) }, changed),
+      isRef() ? el("div", { class: "note", style: "margin:8px 0" }, "You add them on the next screen: ", el("a", { href: "#", onclick: e => { e.preventDefault(); C.step = 1; render(); } }, "2. " + refWord()), ".") : null,
       videoControls(() => { render(); }), summary(est), picture,
       field("What happens to the characters inside the scene / clip", bind(C, "action", el("textarea", { placeholder: "He lifts the loaf with both hands, sets it down, looks at the camera and smiles." }))),
       field("Camera (optional)", bind(C, "camera", el("input", { placeholder: "The camera slowly pushes in throughout the single continuous shot." }))),
@@ -356,14 +564,48 @@ function viewCreate() {
     showEstimate(C, est);
   } else if (C.step === 1) {
     if (isRef()) {
-      const add = el("input", { type: "file", accept: "image/*", multiple: true, onchange: async () => { for (const one of add.files) { if (C.refs.length >= S.reference_limit) { toast("at most " + S.reference_limit + " pictures"); break; }
-        const data = new FormData(); data.append("file", one); const r = await fetch("/api/upload", { method: "POST", body: data }); const j = await r.json();
-        if (j.path) { C.refs.push(j.path); C.subjects.push(""); } else toast(j.error || "upload failed"); } C.prompt = ""; render(); } });
-      put(body, el("h2", {}, "Reference pictures"), el("div", { class: "note" }, "Up to " + S.reference_limit + " pictures of who or what must look the same in the clip. They are not frames of it: the scene comes from the prompt, which names them <Picture 1>, <Picture 2>, … in this order. A clear, front-facing picture works best; any aspect ratio."),
-        field("Add pictures", add),
+      for (const path of [...C.refVideos, ...C.refAudios]) if (!REF_META[path]) refMeta(path).then(() => { if (tab === "Create" && C.step === 1) render(); });
+      const send = async one => { const data = new FormData(); data.append("file", one); const r = await fetch("/api/upload", { method: "POST", body: data }); const j = await r.json().catch(() => ({})); if (!j.path) throw new Error(j.detail || j.error || "upload failed"); return j.path; };
+      const add = el("input", { type: "file", accept: "image/*", multiple: true, onchange: async () => { REF_SAID.pictures = "";
+        for (const one of add.files) { try { const full = refFull("pictures", C.refs); if (full) throw new Error(full); const path = await send(one); C.refs.push(path); C.subjects.push(""); } catch (e) { REF_SAID.pictures = one.name + ": " + e.message; break; } }
+        C.prompt = ""; render(); } });
+      // one uploader per kind; each list is numbered in the order its files were added. A clip is measured as it
+      // arrives, so a file the model would refuse (too short, too long, no sound) is turned away here with the reason.
+      const uploader = (accept, list, labels, kind) => { const input = el("input", { type: "file", accept, multiple: true, onchange: async () => { REF_SAID[kind] = "";
+        for (const one of input.files) { try { const full = refFull(kind, list); if (full) throw new Error(full);
+            const path = await send(one), meta = await refMeta(path), wrong = refWrong(kind, list, meta);
+            if (wrong) throw new Error(wrong);
+            list.push(path); labels.push("");
+          } catch (e) { REF_SAID[kind] = one.name + ": " + e.message; break; } }
+        if (kind === "videos" && C.refVideos.length === 1 && !C.motion) C.video_sound = REF_SOUND_DEFAULT && !soundless().length;
+        C.prompt = ""; render(); } }); return input; };
+      const said = kind => REF_SAID[kind] ? el("div", { class: "note", style: "color:var(--warn)" }, REF_SAID[kind]) : null;
+      const drop = (list, labels, i) => el("a", { href: "#", onclick: e => { e.preventDefault(); list.splice(i, 1); labels.splice(i, 1); if (list === C.refVideos && i === 0) { C.motion = null; MA.job = null; } if (!C.refVideos.length) C.video_sound = false; Object.assign(REF_SAID, { pictures: "", videos: "", audios: "" }); C.prompt = ""; render(); } }, "remove");
+      const length = path => REF_META[path] && REF_META[path].duration ? " · " + REF_META[path].duration.toFixed(1) + " s" : "";
+      const quiet = soundless();
+      put(body, el("h2", {}, refWord()), el("div", { class: "note" }, "Up to " + S.reference_limit + " pictures of who or what must look the same in the clip. They are not frames of it: the scene comes from the prompt, which names them <Picture 1>, <Picture 2>, … in this order. A clear, front-facing picture works best; any aspect ratio." + (S.ref_media ? " At most " + S.reference_total + " references of all kinds." : "")),
+        field("Add pictures", add), said("pictures"),
         C.refs.length ? el("div", { class: "grid", style: "margin-top:10px" }, C.refs.map((p, i) => el("div", { class: "tile on" }, media(p),
-          el("div", { class: "cap" }, "<Picture " + (i + 1) + ">", el("a", { href: "#", onclick: e => { e.preventDefault(); C.refs.splice(i, 1); C.subjects.splice(i, 1); C.prompt = ""; render(); } }, "remove")),
-          bind(C.subjects, i, el("input", { placeholder: "who or what this is: the woman with red hair" }), () => { C.prompt = ""; })))) : null);
+          el("div", { class: "cap" }, "<Picture " + (i + 1) + ">", drop(C.refs, C.subjects, i)),
+          bind(C.subjects, i, el("input", { placeholder: "who or what this is: the woman with red hair" }), () => { C.prompt = ""; })))) : null,
+        S.ref_media ? [
+          el("h3", { style: "margin-top:18px" }, "Reference videos"),
+          el("div", { class: "note" }, "Up to " + S.reference_video_limit + " clips (mp4 or mov), each 2 to 15 seconds and 15 seconds in all: <Video 1>, <Video 2>, … A video carries a subject and how it moves. It is read up to the clip's own length. Every second of it adds work to each pass: a 5 second reference about " + (S.platform === "spark" ? "doubles" : "triples") + " the time of a 5 second clip."),
+          field("Add videos", uploader("video/mp4,video/quicktime,.mp4,.mov", C.refVideos, C.video_subjects, "videos")), said("videos"),
+          C.refVideos.length ? el("div", { class: "grid", style: "margin-top:10px" }, C.refVideos.map((p, i) => el("div", { class: "tile on" }, media(p),
+            el("div", { class: "cap" }, el("span", {}, "<Video " + (i + 1) + ">" + length(p) + (i === 0 && C.motion && C.motion.layer !== C.motion.made ? " · sent as its " + MOTION_LAYERS[C.motion.layer][0].toLowerCase() + " layer" : "") + (C.video_sound ? " · its sound is <Audio " + (i + 1) + ">" : "")), drop(C.refVideos, C.video_subjects, i)),
+            bind(C.video_subjects, i, el("input", { placeholder: "who or what it shows (empty: only the motion is used)" }), () => { C.prompt = ""; })))) : null,
+          C.refVideos.length ? el("label", { class: "check" + (quiet.length ? " off" : "") }, el("input", { type: "checkbox", checked: C.video_sound && !quiet.length, disabled: quiet.length > 0, onchange: e => { C.video_sound = e.target.checked; C.prompt = ""; render(); } }),
+            el("span", {}, "Use the videos' own sound as a reference too. " + (quiet.length ? "Off: " + quiet.map(k => "<Video " + k + ">").join(" and ") + (quiet.length > 1 ? " have" : " has") + " no sound."
+              : VIDEO_SOUND_SAYS + (C.refAudios.length ? " The audio clips below are then numbered after the videos." : "")))) : null,
+          motionPanel(),
+          el("h3", { style: "margin-top:18px" }, "Reference audio"),
+          el("div", { class: "note" }, "Up to " + S.reference_audio_limit + " sound clips (wav, mp3, m4a, aac, flac, ogg), each 2 to 15 seconds and 15 seconds in all. Only beside a picture or a video: the model does not take sound alone. A clip longer than the video is cut to its length. " + AUDIO_SAYS),
+          field("Add audio", uploader("audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg", C.refAudios, C.audio_notes, "audios")), said("audios"),
+          C.refAudios.length ? el("div", { class: "grid", style: "margin-top:10px" }, C.refAudios.map((p, i) => el("div", { class: "tile on" }, el("audio", { src: file(p), controls: true, preload: "metadata", style: "width:100%" }),
+            el("div", { class: "cap" }, el("span", {}, audioName(i) + length(p)), drop(C.refAudios, C.audio_notes, i)),
+            bind(C.audio_notes, i, el("input", { placeholder: "what it is: the voice timbre reference for the woman's voice" }), () => { C.prompt = ""; })))) : null,
+          C.refAudios.length && !C.refs.length && !C.refVideos.length ? el("div", { class: "note", style: "color:var(--warn)" }, "Add a picture or a video too: audio cannot be the only reference.") : null ] : null);
     } else if (noFrame()) put(body, el("h2", {}, "First frame"), el("div", { class: "note" }, "Text to video has no first frame. Change “The clip starts from” in step 1 to start from an image."));
     else {
       const up = el("input", { type: "file", accept: "image/*", onchange: async () => { const data = new FormData(); data.append("file", up.files[0]);
@@ -387,32 +629,33 @@ function viewCreate() {
   } else if (C.step === 2) {
     put(body, el("h2", {}, "Words and sound"), el("div", { class: "note" }, "Spoken or sung lines are written into the prompt exactly. Leave empty for a clip with no speech."),
       C.dialogue.map((line, i) => el("div", { class: "seg" }, el("div", { class: "row" }, field("Voice", bind(line, "voice", el("input", { placeholder: "a calm, slightly raspy male voice" }))),
-        el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Language"), bind(line, "language", el("input"))),
-        el("label", { class: "fit" }, bind(line, "sung", el("input", { type: "checkbox" })), " sung"),
+        keep(el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Language"), bind(line, "language", el("input")))),
+        isRef() && refPeople() > 1 ? el("div", { class: "fit", style: "width:140px" }, el("label", {}, "Speaker"), select(line, "subject", Object.fromEntries(Array.from({ length: refPeople() }, (_, k) => [k + 1, "<Subject " + (k + 1) + ">"])), () => { C.prompt = ""; })) : null,
+        el("label", { class: "check fit" }, bind(line, "sung", el("input", { type: "checkbox" })), el("span", {}, "sung")),
         el("button", { class: "small fit", onclick: () => { C.dialogue.splice(i, 1); render(); } }, "Remove")), field("Line", bind(line, "text", el("textarea", { style: "min-height:54px" }))))),
       el("button", { onclick: () => { C.dialogue.push({ voice: "", language: "English", text: "", sung: false }); render(); } }, "+ Add a line"),
       field("Soundscape", bind(C, "soundscape", el("textarea", { placeholder: "Quiet bakery room tone and a low oven hum. A light ceramic tap as the loaf is set down." }))),
-      field("Music (N/A for none)", bind(C, "music", el("input"))));
+      field("Music (N/A for none)", bind(C, "music", el("input", { "data-clear-to": "N/A" }))));
   } else if (C.step === 3) {
     const area = bind(C, "prompt", el("textarea", { style: "min-height:260px;font-family:ui-monospace,monospace;font-size:12px" }));
-    const again = async () => { const r = await api("/api/compose", { fields: C, first_frame: !noFrame(), references: isRef() ? C.refs.length : 0 }); C.prompt = r.prompt; area.value = r.prompt; };
+    const again = async () => { const r = await api("/api/compose", { fields: { ...C, motion: isRef() ? motionFields() : null }, first_frame: !noFrame(), references: isRef() ? Math.max(C.refs.length, refMedia() ? 0 : 1) : 0, referenced: isRef() }); C.prompt = r.prompt; area.value = r.prompt; };
     if (!C.prompt) again();
     put(body, el("h2", {}, "Review the prompt"), el("div", { class: "note" }, "This is what the video model receives, in MiniMax H3's own three-part format. Edit it freely; “Rebuild” discards edits."), area,
       el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "fit", onclick: again }, "Rebuild from steps 1–3"), el("span")));
   } else {
     const est = el("div", { class: "note" }); showEstimate(C, est);
     const job = C.job && jobs.find(j => j.id === C.job);
-    const ready = C.prompt.trim() && (isRef() ? C.refs.length > 0 : noFrame() || C.image);
-    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() ? " · " + C.steps + " passes by hand" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + (C.refPasses === "4" ? "Turbo 4 passes, " : "20 passes, ") + C.refs.length + " reference picture" + (C.refs.length === 1 ? "" : "s") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
-      !ready ? el("div", { class: "note", style: "color:var(--warn)" }, C.prompt.trim() ? (isRef() ? "Add a reference picture in step 2." : "Pick or upload a first frame in step 2.") : "Open step 4 once to build the prompt.") : null,
+    const ready = C.prompt.trim() && (isRef() ? C.refs.length + C.refVideos.length > 0 : noFrame() || C.image);
+    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() && !isRef() ? " · " + C.steps + " passes (custom)" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + refPassText() + ", " + [[C.refs.length, "picture"], [C.refVideos.length, "video"], [C.refAudios.length, "audio clip"]].filter(k => k[0]).map(k => k[0] + " reference " + k[1] + (k[0] === 1 ? "" : "s")).join(", ") + (motionFields() ? ", motion: " + MOTION_MODES[C.motion.mode][0].toLowerCase() + " from the " + MOTION_LAYERS[C.motion.layer][0].toLowerCase() + (C.motion.layer === "reference" ? "" : " layer") : "") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
+      !ready ? el("div", { class: "note", style: "color:var(--warn)" }, C.prompt.trim() ? (isRef() ? (S.ref_media ? "Add a reference picture or video in step 2." : "Add a reference picture in step 2.") : "Pick or upload a first frame in step 2.") : "Open step 4 once to build the prompt.") : null,
       el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "hot fit", disabled: !ready, onclick: async () => { try {
-        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed, ...extras(), ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4" } : {}) };
+        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed, ...extras(), ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4", ...(refMedia() ? { reference_videos: await motionVideos(), reference_audios: C.refAudios, reference_video_sound: C.video_sound, ...(motionFields() ? { motion: { pack: C.motion.pack, layer: C.motion.layer, mode: C.motion.mode, measured: C.motion.measured || null, free: motionFree() }, pace: C.motion.pace || "auto", silent: paceOf(C.motion) === "flow" && !musicNamed() } : {}) } : {}) } : {}) };
         const j = await api("/api/jobs", isLong() ? { kind: "long", title: S.long[C.seconds] + ": " + (C.action || C.scene || "Video").slice(0, 40), params: { ...base, total_seconds: Number(C.seconds), beats: (C.beats || "").split("\n") } }
           : { kind: "video", title: (C.action || C.scene || "Clip").slice(0, 48), params: { ...base, seconds: Number(C.seconds) } });
         C.job = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, "Queue this clip"),
         // the way back to step 1 once a clip is queued: with the same settings, or with the words cleared
         el("button", { class: "fit", onclick: () => { C.step = 0; C.job = null; render(); } }, "Back to the start, keep this setup"),
-        el("button", { class: "fit", onclick: () => { Object.assign(C, { step: 0, job: null, prompt: "", scene: "", action: "", camera: "", dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, beats: "", refs: [], subjects: [] }); render(); } }, "Start a new clip"), el("span")));
+        el("button", { class: "fit", onclick: () => { Object.assign(C, { step: 0, job: null, prompt: "", scene: "", action: "", camera: "", dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, beats: "", refs: [], subjects: [], refVideos: [], video_subjects: [], refAudios: [], audio_notes: [], video_sound: false, motion: null }); MA.job = null; Object.assign(REF_SAID, { pictures: "", videos: "", audios: "" }); render(); } }, "Start a new clip"), el("span")));
     if (job) { put(body, el("h3", {}, "This clip"), jobCard(job));
       if (job.status === "done") put(body, el("video", { class: "main", src: file(job.outputs[0]), controls: true }),
         el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "fit", onclick: () => addToTimeline(job.outputs[0]) }, "Add to the editor timeline"), el("a", { class: "fit", href: file(job.outputs[0]), download: "" }, "Download"), el("span"))); }
@@ -435,6 +678,12 @@ async function generateSeg(index) { const seg = project.segments[index]; if (!se
 // two ways to plan a film: this board of segments, or the port of Sam Wasserman's Slate (slate.js)
 const productionSwitch = () => el("div", { class: "choice", role: "radiogroup", style: "margin-bottom:16px" }, [["board", "Production board", "segments one after another: the simple way"], ["slate", "Wasserman Slate AI Studio", "bible, casting, coverage and a First AD, straight to the render queue"]].map(([k, title, sub]) =>
   el("button", { type: "button", role: "radio", "aria-checked": String(SL.mode === k), class: SL.mode === k ? "on" : "", onclick: () => { SL.mode = k; try { localStorage.setItem("production-mode", k); } catch {} render(); } }, el("b", {}, title), el("span", {}, sub))));
+const SEG_TEXT = ["scene", "action", "voice", "line", "soundscape", "prompt"];
+function clearSegments() { const was = project.segments.map(s => Object.fromEntries(SEG_TEXT.map(k => [k, s[k] || ""]))), of = project.id;
+  if (!was.some(w => SEG_TEXT.some(k => k !== "prompt" && w[k]))) return toast("Nothing to clear here");
+  for (const s of project.segments) for (const k of SEG_TEXT) s[k] = "";
+  CLEARED = { key: "segments", model: () => { if (project && project.id === of) { project.segments.forEach((s, i) => was[i] && Object.assign(s, was[i])); saveProject(); } } };
+  saveProject(); render(); undoToast("The text of every segment is empty."); }
 function viewProduction() {
   if (SL.mode === "slate") return viewSlate(productionSwitch());
   const box = el("section", { class: "card" }, productionSwitch(), el("h2", {}, "Production"));
@@ -455,17 +704,19 @@ function viewProduction() {
         el("button", { class: "hot fit", disabled: !project.segments.length, onclick: async () => { try { for (let i = 0; i < project.segments.length; i++) if (!project.segments[i].output || segJob(project.segments[i])?.status === "failed") await generateSeg(i);
           await saveProject(); await poll(); render(); } catch (e) { toast(e.message); } } }, "Generate every segment not yet rendered"),
         el("button", { class: "fit", disabled: !project.segments.some(s => s.output), onclick: () => { project.timeline = project.segments.filter(s => s.output).map(s => ({ path: s.output, in: 0, out: 0, duration: Number(s.seconds) }));
-          saveProject(); tab = "Editor"; render(); } }, "Send rendered segments to the editor"), el("span")));
+          saveProject(); tab = "Editor"; render(); } }, "Send rendered segments to the editor"),
+        el("button", { class: "fit", disabled: !project.segments.length, title: "Empty the scene, action, voice, line and soundscape of every segment. Titles, lengths and rendered clips stay.", onclick: clearSegments }, "Clear every segment's text"),
+        CLEARED && CLEARED.key === "segments" ? el("button", { class: "fit", onclick: undoClear }, "Undo clear") : null, el("span")));
     project.segments.forEach((seg, i) => { const job = segJob(seg); const change = () => { seg.prompt = ""; saveProject(); };
-      put(box, el("div", { class: "seg" }, el("div", { class: "seghead" }, el("b", {}, "Segment " + (i + 1)), job ? el("span", { class: "pill " + job.status }, job.status) : el("span", { class: "pill queued" }, seg.output ? "rendered" : "draft"),
-          el("span", { style: "flex:1" }), el("button", { class: "small", onclick: async () => { try { await generateSeg(i); await saveProject(); await poll(); render(); } catch (e) { toast(e.message); } } }, seg.output ? "Render again" : "Render"),
+      put(box, el("div", { class: "seg", "data-clear": "segment-" + i }, el("div", { class: "seghead" }, el("b", {}, "Segment " + (i + 1)), job ? el("span", { class: "pill " + job.status }, job.status) : el("span", { class: "pill queued" }, seg.output ? "rendered" : "draft"),
+          el("span", { style: "flex:1" }), clearButton("segment-" + i), el("button", { class: "small", onclick: async () => { try { await generateSeg(i); await saveProject(); await poll(); render(); } catch (e) { toast(e.message); } } }, seg.output ? "Render again" : "Render"),
           el("button", { class: "small", disabled: i === 0, onclick: () => { project.segments.splice(i - 1, 0, project.segments.splice(i, 1)[0]); saveProject(); render(); } }, "↑"),
           el("button", { class: "small", onclick: () => { project.segments.splice(i, 1); saveProject(); render(); } }, "Remove")),
-        el("div", { class: "row" }, field("Title", bind(seg, "title", el("input"), saveProject)),
+        el("div", { class: "row" }, keep(field("Title", bind(seg, "title", el("input"), saveProject))),
           el("div", { class: "fit", style: "width:150px" }, el("label", {}, "Length"), select(seg, "seconds", Object.fromEntries(Object.keys(S.durations).map(s => [s, s + " s"])), saveProject)),
           field("Opens on", select(seg, "start", { text: "nothing (text to video)", previous: "the last frame of the segment before", image: "an image from the library" }, () => { change(); render(); })),
           el("div", { class: "fit", style: "width:90px" }, el("label", {}, "Seed"), bind(seg, "seed", el("input", { type: "number" }), saveProject))),
-        seg.start === "image" ? field("Image path (copy from the Library tab)", bind(seg, "image", el("input", { placeholder: "scouts/…/scout_s3.png" }), saveProject)) : null,
+        seg.start === "image" ? keep(field("Image path (copy from the Library tab)", bind(seg, "image", el("input", { placeholder: "scouts/…/scout_s3.png" }), saveProject))) : null,
         field("Describe the scene / condition where it takes place", bind(seg, "scene", el("textarea", { style: "min-height:54px" }), change)), field("What happens to the characters inside the scene / clip", bind(seg, "action", el("textarea", { style: "min-height:54px" }), change)),
         el("div", { class: "row" }, field("Voice", bind(seg, "voice", el("input", { placeholder: "a warm female voice" }), change)), field("Spoken line (optional)", bind(seg, "line", el("input"), change))),
         field("Soundscape", bind(seg, "soundscape", el("input"), change)),
@@ -514,12 +765,22 @@ function viewEditor() {
 
 /* ---------- Library ---------- */
 function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {}, "Library"));
-  api("/api/library").then(list => put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it. 🗑 moves a file to the trash folder."), el("div", { class: "grid", style: "margin-top:10px" }, list.map(m =>
-    el("div", { class: "tile" }, media(m.path), el("div", { class: "cap" }, el("span", { style: "cursor:pointer", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.slice(-26)),
+  Promise.all([api("/api/library"), api("/api/trash").catch(() => null)]).then(([list, bin]) => { for (const p of [...LIBPICK]) if (!list.some(m => m.path === p)) LIBPICK.delete(p);
+    const many = el("button", { class: "fit", onclick: () => clearOut({ paths: [...LIBPICK], films: true }, "Delete the " + count(LIBPICK.size, "selected file") + "?") });
+    const all = el("button", { class: "fit", onclick: () => { const every = LIBPICK.size === list.length; LIBPICK.clear(); if (!every) for (const m of list) LIBPICK.add(m.path); render(); } }, LIBPICK.size && LIBPICK.size === list.length ? "Select none" : "Select all");
+    const show = () => { many.textContent = "Delete selected (" + LIBPICK.size + ")"; many.disabled = !LIBPICK.size; }; show();
+    put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased."),
+      el("div", { class: "row", style: "margin-top:10px" }, all, many, el("span"),
+        bin ? el("span", { class: "note fit", id: "trashline" }, "Trash: " + (bin.files ? count(bin.files, "file") + " · " + sizeText(bin.bytes) : "empty")) : null,
+        bin && bin.last ? el("button", { class: "fit", title: "Puts the files of the last deletion back where they were, and its job cards back in the queue", onclick: restoreLast }, "Restore last deletion (" + count(bin.last.files, "file") + ")") : null,
+        bin && bin.files ? el("button", { class: "fit", title: "Erases the files in the trash folder for good", onclick: async () => { if (!confirm("Erase the " + count(bin.files, "file") + " (" + sizeText(bin.bytes) + ") in the trash folder for good?\n" + bin.folder + "\nThis cannot be undone.")) return;
+          try { const r = await api("/api/trash?confirm=erase", undefined, "DELETE"); toast("Erased " + count(r.files, "file") + ", " + sizeText(r.bytes) + " freed"); } catch (e) { toast(e.message); } render(); } }, "Empty trash") : null),
+      el("div", { class: "grid", style: "margin-top:10px" }, list.map(m =>
+    el("div", { class: "tile" }, media(m.path), el("div", { class: "cap" }, el("input", { type: "checkbox", title: "Select " + m.path, "aria-label": "Select " + m.path, checked: LIBPICK.has(m.path), style: "width:auto;flex:none", onchange: e => { if (e.target.checked) LIBPICK.add(m.path); else LIBPICK.delete(m.path); show(); } }),
+      el("span", { style: "cursor:pointer", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.slice(-26)),
       m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use"),
       // out of the library: the server moves the file to the studio's trash folder
-      el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: async () => { if (!confirm("Delete " + m.path.split("/").pop() + "?\nIt is moved to the trash folder inside " + S.home + ", not erased.")) return;
-        try { await api("/api/library?path=" + encodeURIComponent(m.path), undefined, "DELETE"); toast("Moved to the trash folder"); render(); } catch (e) { toast(e.message); } } }, "🗑")))))));
+      el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: () => clearOut({ paths: [m.path], films: true }, "Delete " + m.path.split("/").pop() + "?") }, "🗑")))))); });
   return box; }
 
 /* ---------- Tutorial ---------- */
@@ -548,7 +809,7 @@ function lessons() {
         "Custom lets you type a width and height: multiples of 32, each side " + S.custom.sides[0] + " to " + S.custom.sides[1] + ", and no more than 1344 × 768 pixels in total. Use it for portrait or square clips."], eg: "Portrait: 480 × 864.  Square: 768 × 768.", tip: "A custom size has no time estimate, so the queue cannot show the time left.", go: go(0, "Resolution") },
       { t: "Length", d: ["A single clip is 5, 8, 10 or 15 seconds. Longer choices chain several 15 second clips; the lesson “Videos longer than 15 seconds” covers them.", "Time and memory grow with length, so test at 5 seconds."], go: go(0, "Length") },
       { t: "Seed", d: ["The seed picks the variation. The same prompt, settings and seed give the same clip again; a different seed gives a different take on the same prompt."], tip: "When a clip is nearly right, keep the prompt and try seeds 2, 3 and 4 before rewriting anything.", go: go(0, "Seed") },
-      { t: "Custom passes", d: ["Leave this empty and the Passes choice above decides. A number from " + S.custom.steps[0] + " to " + S.custom.steps[1] + " overrides it, for counts the buttons do not offer, such as 6 or 12."], tip: "Like a custom size, this removes the time estimate.", go: go(0, "Custom passes") },
+      { t: "Custom passes", d: ["Custom is a card of the Passes choice, right beside 20 passes. Choose it and a number box opens under the cards, starting at the count you had; type any number from " + S.custom.steps[0] + " to " + S.custom.steps[1] + ", for counts the cards do not offer, such as 6 or 12. Choosing another card again drops the custom count.", "With MiniMax H3 the Quality cards are recipes, and Custom sits in the same row after the two 20-step ones: it keeps the quality you had chosen (the note under the row names it) and changes only the count."], tip: "Like a custom size, this removes the time estimate.", go: go(0, "Passes") },
       { t: "Read the summary strip", d: ["Under the settings a strip repeats your choices as chips: the mode, the engine and passes, the size and the length, with the time estimate on the right. Check it before you move on."], go: go(0, "Length") } ] },
     { id: "speech", track: "Create", title: "Speech, sound and music", sub: "lines that are spoken as written", steps: [
       { t: "Add a spoken line", d: ["In step 3 press “+ Add a line”. Voice describes how the speaker sounds; Line is the exact words. The words go into the prompt unchanged."], eg: "Voice: " + BAKER.dialogue[0].voice + "\nLine: " + BAKER.dialogue[0].text, go: go(2, "+ Add a line") },
@@ -565,6 +826,8 @@ function lessons() {
       { t: "Add the pictures", d: ["In step 2 add up to " + S.reference_limit + " pictures. A clear, front-facing, well-lit picture works best. They are numbered in the order you add them."], tip: "One good picture per person beats several mixed ones. Only use pictures you have the right to use.", go: go(1, "Add pictures", { start: "refs" }) },
       { t: "Label every picture", d: ["Under each picture type who or what it is. The label is how your scene text points at the picture, so make it something you will repeat word for word."], eg: "Picture 1: the woman with red hair\nPicture 2: the brown leather jacket", tip: "Unlabeled pictures are only called “the main subject”. With two or more, the model cannot tell which is which.", go: go(1, "Add pictures", { start: "refs" }) },
       { t: "Write the scene with the same labels", d: ["Back in step 1, describe the new scene and use the labels exactly as typed. Do not leave the scene boxes empty: the pictures say who, the boxes say where and what."], eg: "Scene: The woman with red hair sits at a wooden desk in a small radio studio at night, wearing the brown leather jacket.\nWhat happens: She leans to the microphone and speaks, then smiles.", go: go(0, "Describe the scene", { start: "refs" }) },
+      ...(S.ref_media ? [{ t: "Reference videos and audio", d: ["Step 2 also takes up to " + S.reference_video_limit + " videos and " + S.reference_audio_limit + " audio clips, each 2 to 15 seconds. A video carries a subject and its motion; an audio clip a voice or music. The prompt names them <Video 1> and <Audio 1>, and step 4 writes those names for you.", "Audio needs a picture or a video beside it. A reference video makes every pass slower, so start with a short one. A file that is too short, too long or silent is turned away as you add it, with the reason.", "To have someone say a recording, add it as audio and write its words as the spoken line in step 3: the clip then performs the recording. With other words, also describe the voice in the line's Voice box, or little of it comes across. A video's own sound can be a reference too: tick the box under the videos."], tip: "Under a video, say who it shows to keep that person; leave the box empty to borrow only the motion.", go: go(1, "Add videos", { start: "refs" }) },
+        { t: "Motion of a reference video", d: ["Under the first video, Analyse motion runs Motion Previs on it: the camera move in words, a pose skeleton and a depth layer. Then choose what the clip keeps of the video (the full scene, the actor's motion, an object's path or only the camera) and what the model is given as <Video 1>.", "The source clip is the tested route: with a picture of someone else, the clip repeats the shot with that person in it. For a new place choose depth, sent as a control video with a picture of the opening frame: it kept the moves nearly as well in our tests. The skeleton holds the motion most loosely.", "Sound and movement keeps the two in step: Impacts is fast strikes and blocks with their sound, Flow is slow movement that is silent or under music, and Automatic never lays hits over a reference that moves slowly. A reference is followed at its own speed, so Impacts over a slow one leaves the video out and lets the picture and the prompt carry the fight."], tip: "The camera sentence is added to the prompt unless the Camera field of step 1 has text of its own.", go: go(1, "Add videos", { start: "refs" }) }] : []),
       { t: "Passes and limits", d: [S.ref2va_turbo ? "20 passes is the model as released. Turbo 4 passes is about 2.5 times faster and good for trying ideas." : "Reference clips use 20 plain passes.", "Reference clips are at most 15 seconds and are slower than plain FastH3 clips."], tip: "Speech rules are the same as in “Speech, sound and music”: fit the line to the clip length.", go: go(0, "Reference to video", { start: "refs" }) } ] }] : []),
     { id: "long", track: "Create", title: "Videos longer than 15 seconds", sub: "chained clips and story beats", steps: [
       { t: "Pick a long length", d: ["The model makes at most 15 seconds at a time. Choose 30 seconds or more under Length and the app renders several 15 second clips, each opening on the last frame of the one before, then joins them."], tip: "Not available with reference pictures.", go: go(0, "Length", { start: "text" }) },
@@ -575,7 +838,8 @@ function lessons() {
       { t: "Make and use them", d: ["“Make image” queues the batch; seeds count up from the one you gave. Each result has “Download” and “animate this”, which takes the image to Create as the first frame of a video."], go: { tab: "Create", step: 0, spot: "Make image", set: { goes: "image" } } } ] },
     { id: "queue", track: "Create", title: "The queue", sub: "time left, cancel, logs", steps: [
       { t: "One job at a time", d: ["Everything you queue from any tab lands in the list on the right and runs in order. You can keep working and queue more while a job runs."], go: { tab: "Create", spot: "Queue" } },
-      { t: "Reading a job", d: ["A running job shows its stage and the time left. “Cancel” stops a queued or running job. “Log” shows what the engine printed, which is where to look when a job fails.", "A finished job shows how long it took."], tip: "The list lives in memory. It empties when the app restarts; the files stay in the Library." } ] },
+      { t: "Reading a job", d: ["A running job shows its stage and the time left. “Cancel” stops a queued or running job. “Log” shows what the engine printed, which is where to look when a job fails.", "A finished job shows how long it took."], tip: "The list lives in memory. It empties when the app restarts; the files stay in the Library." },
+      { t: "Clear the list", d: ["🗑 on a finished job deletes the job and what it made: its clip or stills, its check sheets and a first frame only it used. Tick several jobs and press “Delete selected”. “Clear failed” takes the failed jobs out of the list; “Delete all finished” takes every finished or cancelled job and its files.", "Nothing is erased: the files go to the trash folder, and “Undo” in the message, or “Restore last deletion” in the Library, puts the last deletion back. A clip that is in a film (a project's timeline, a Slate take) stays where it is."], tip: "A queued or running job cannot be deleted: cancel it first.", go: { tab: "Create", spot: "Delete all finished" } } ] },
     { id: "production", track: "Production", title: "A film in segments", sub: "plan, render and hand over to the editor", steps: [
       { t: "Projects", d: ["Production is for a film made of several clips. A project holds its segments and its editor timeline. Pick one, rename it, or press “New project”."], go: on("Production", "Project") },
       { t: "One output for all", d: ["“Output for every segment” and “Quality” apply to the whole project, so every segment has the same size and joins cleanly."], go: on("Production", "Output for every segment") },
@@ -618,7 +882,8 @@ function lessons() {
       { t: "What is in the Library", d: ["Every clip, scout, image and export the app has made, as files under " + S.home + ". They stay there when the app restarts."], go: on("Library", "Library") },
       { t: "Copy a path", d: ["Click the name under a file to copy its path. Paste it into a Production segment that opens on “an image from the library”."], go: on("Library", "Library") },
       { t: "Reuse a file", d: ["On a video, “+ timeline” adds it to the editor timeline. On an image, “use” takes it to Create as the first frame of a new clip."], go: on("Library", "Library") },
-      { t: "Delete a file", d: ["🗑 on a tile takes the file out of the Library after you confirm. It is moved to the “trash” folder inside " + S.home + ", so a mistake can be undone by moving it back; empty that folder yourself to free the disk space."], tip: "A file that a queued or running job needs cannot be deleted until the job is done.", go: on("Library", "Library") } ] } ]; }
+      { t: "Delete files", d: ["🗑 on a tile takes the file out of the Library after you confirm. To delete several, tick them (or “Select all”) and press “Delete selected”. Deleted files are moved to the “trash” folder inside " + S.home + ", not erased.", "“Restore last deletion” puts the files of the last deletion back where they were. “Empty trash” shows how much the trash holds and, after you confirm, erases it for good: that is the one step that cannot be undone, and the one that frees the disk space."], tip: "A file that a queued or running job needs cannot be deleted until the job is done.", go: on("Library", "Library") },
+      { t: "Clear what you typed", d: ["Every form has a Clear button: “Clear this step” and “Clear all” at the foot of the create wizard, “Clear” on a segment and “Clear every segment's text” on the production board, “Clear” above a Slate shot's prompt. It empties the text only; pictures, clips, titles and settings stay.", "“Undo” in the message, or the “Undo clear” button that appears beside Clear, puts the text back until you close or reload the page."], go: { tab: "Create", spot: "Clear all" } } ] } ]; }
 // outline the control a step talks about; Production and Editor draw themselves a moment after the tab opens, so look again
 function spot(text, tries = 14, again = false) { if (!text) return; const want = text.toLowerCase(); if (!again) T.spot = [text, Date.now() + 7000];
   const hit = [...document.querySelectorAll("#view label, #view h2, #view h3, #view button, aside h2")].find(n => n.textContent.trim().toLowerCase().startsWith(want));
@@ -669,32 +934,45 @@ function qaLines(job) { const q = job.qa; if (!q) return null; const mark = r =>
   return el("div", { class: "note" }, el("b", { style: "color:" + (q.passed ? "var(--ok)" : q.passed === false ? "var(--bad)" : "inherit") }, "Wasserman QA gate: " + (q.passed && q.takes.at(-1).audio.result === "skipped" && q.takes.at(-1).identity.result === "skipped" ? "not checked, both gates are missing their tool on this machine" : q.passed ? "passed" + (q.takes.at(-1).audio.result === "skipped" || q.takes.at(-1).identity.result === "skipped" ? " the one gate that could run" : "") : q.passed === false ? "failed on both takes, the last take is kept" : "could not run")), q.error ? " · " + q.error : "",
     q.takes.map(t => el("div", {}, "Take " + t.take + " · seed " + t.seed + " · speech " + mark(t.audio.result) + " " + (t.audio.heard ? "“" + t.audio.heard + "” · " : "") + t.audio.note + " · identity " + mark(t.identity.result) + " " + t.identity.note + (t.sharpness.length ? " · sharpness " + t.sharpness.join(" / ") : "") + " · ",
       el("a", { href: file(t.sheet), target: "_blank" }, "contact sheet")))); }
+// Sound against movement of a finished reference clip (app/pace.py): a flag beside the clip, never a failed job
+function paceLine(job) { const d = job.pace; if (!d) return null; const bad = d.verdict === "impact sound over slow motion";
+  return el("div", { class: "note" }, el("b", { style: "color:" + (bad ? "var(--bad)" : d.verdict === "agree" ? "var(--ok)" : "inherit") }, "Sound and movement: " + (bad ? "impact sound over slow motion" : d.verdict === "agree" ? "agree" : "not measured")), d.note ? " · " + d.note : ""); }
 function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != null ? job.elapsed : (job.started ? ((job.finished || Date.now() / 1000) - job.started) : null);
   // the bar follows the time against the estimate (a job has several stages, each with its own step count)
   const share = job.estimate && elapsed != null ? Math.min(99, Math.max(3, Math.round(100 * elapsed / job.estimate))) : (p ? Math.round(100 * p.at / p.of) : 3);
   const pre = el("pre", { class: "hide" }, job.log || "");
   return el("div", { class: "job" }, el("div", { class: "seghead" }, el("b", {}, job.title), el("span", { class: "pill " + job.status }, job.status), el("span", { style: "flex:1" }),
-      ["queued", "running"].includes(job.status) ? el("button", { class: "small", onclick: async () => { await api("/api/jobs/" + job.id + "/cancel", {}); poll(); } }, "Cancel") : null,
+      ["queued", "running"].includes(job.status) ? el("button", { class: "small", onclick: async () => { await api("/api/jobs/" + job.id + "/cancel", {}); poll(); } }, "Cancel")
+        : [el("input", { type: "checkbox", title: "Select this job", "aria-label": "Select " + job.title, checked: PICK.has(job.id), style: "width:auto;flex:none", onchange: e => { if (e.target.checked) PICK.add(job.id); else PICK.delete(job.id); jobTools(); } }),
+           el("button", { class: "small", title: "Delete this job and what it made (moved to the trash folder)", "aria-label": "Delete " + job.title, onclick: () => clearOut({ jobs: [job.id] }, "Delete “" + job.title + "” and the files it made?") }, "🗑")],
       el("button", { class: "small", onclick: () => pre.classList.toggle("hide") }, "Log")),
     job.status === "running" ? el("div", {}, el("div", { class: "bar" }, el("i", { style: "width:" + share + "%" })),
-      el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + (job.estimate && elapsed != null ? (job.estimate - elapsed > 5 ? "about " + mmss(job.estimate - elapsed) + " left" : "almost done") : "no time estimate for this setting") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : ""))) : null,
-    job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, qaLines(job), pre); }
+      el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + (job.estimate && elapsed != null ? (job.estimate - elapsed > 5 ? "about " + mmss(job.estimate - elapsed) + " left" : "almost done") : "no time estimate for this setting") + (job.passes ? " · " + job.passes + " passes" : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : job.engine === "cuda" ? "CUDA" : "MLX engine") : ""))) : null,
+    job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.passes ? " · " + job.passes + " passes" : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : job.engine === "cuda" ? "CUDA" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, qaLines(job), paceLine(job), pre); }
+function jobTools() { const done = jobs.filter(j => ["done", "cancelled"].includes(j.status)).length, failed = jobs.filter(j => j.status === "failed").length;
+  for (const id of [...PICK]) if (!jobs.some(j => j.id === id && !["queued", "running"].includes(j.status))) PICK.delete(id);
+  $("#jobtools").replaceChildren(...(done || failed ? [
+    el("button", { class: "small", disabled: !PICK.size, onclick: () => clearOut({ jobs: [...PICK] }, "Delete the " + count(PICK.size, "selected job") + " and the files they made?") }, "Delete selected (" + PICK.size + ")"),
+    el("button", { class: "small", disabled: !failed, title: "Take every failed job out of this list", onclick: () => clearOut({ failed: true }, "Clear the " + count(failed, "failed job") + " from the queue list?") }, "Clear failed (" + failed + ")"),
+    el("button", { class: "small", disabled: !done, title: "Every finished or cancelled job leaves this list and its clips, stills and check sheets go to the trash folder. A clip that is in a film (a project's timeline, a Slate take) stays.", onclick: () => clearOut({ finished: true }, "Delete all " + count(done, "finished job") + " and the files they made?\nA clip that is in a film (a project's timeline or a Slate take) stays where it is.") }, "Delete all finished (" + done + ")")] : [])); }
 let lastSig = "";
 async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
-  const box = $("#jobs"); box.replaceChildren(...(jobs.length ? jobs.slice(0, 30).map(jobCard) : [el("div", { class: "note" }, "Nothing queued yet.")]));
+  jobTools(); const box = $("#jobs"); box.replaceChildren(...(jobs.length ? jobs.slice(0, 30).map(jobCard) : [el("div", { class: "note" }, "Nothing queued yet.")]));
   // a timeline changed from another window or device shows here without a reload
   if (project && tab === "Editor" && !document.activeElement.matches("input,textarea,select")) { try { const fresh = await api("/api/projects/" + project.id);
     if (JSON.stringify(fresh.timeline) !== JSON.stringify(project.timeline)) { project = fresh; render(); } } catch {} }
   const sig = jobs.map(j => j.id + j.status).join(); if (sig !== lastSig) { const had = lastSig; lastSig = sig; if (had && !document.activeElement.matches("input,textarea,select")) render(); } }
 
 function render() { $("#tabs").replaceChildren(...TABS.map(t => el("button", { class: t === tab ? "on" : "", onclick: () => { tab = t; history.replaceState(null, "", "#" + t); render(); } }, t)));
-  $("#view").replaceChildren({ Create: viewCreate, Production: viewProduction, Editor: viewEditor, Library: viewLibrary, Tutorial: viewTutorial }[tab]()); coach();
+  $("#view").replaceChildren({ Create: viewCreate, Production: viewProduction, "Motion Previs": viewMotion, Editor: viewEditor, Library: viewLibrary, Tutorial: viewTutorial }[tab]()); coach();
   // a redraw (a job changed, a view finished loading) must not drop the outline a tutorial step just put on a control
   if (T.spot && Date.now() < T.spot[1]) spot(T.spot[0], 3, true); }
 (async () => { const want = decodeURIComponent(location.hash.slice(1)); if (TABS.includes(want)) tab = want;
   // links can preset the Create form: ?goes=image, ?engine=h3&res=720p&up=1&step=4 ...
   for (const [k, v] of new URLSearchParams(location.search)) if (k in C && k !== "mode") C[k] = k === "up" ? v === "1" : (k === "step" || k === "count" ? Number(v) : v);
-  S = await api("/api/state"); await loadLoras(); if (!S.turbo) C.engine = "fasth3"; sync(); $("#gohome").onclick = () => { tab = "Create"; C.step = 0; T.coach = false; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); render(); }; $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "Wasserman Slate AI Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000); })();
+  S = await api("/api/state"); await loadLoras(); if (!S.turbo) C.engine = "fasth3"; sync(); $("#gohome").onclick = () => { tab = "Create"; C.step = 0; T.coach = false; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); render(); }; $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "Wasserman Slate AI Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000);
+  // ?motionref opens the create wizard on the motion reference stored by the Motion Previs tab
+  if (new URLSearchParams(location.search).has("motionref")) { try { const r = (await api("/api/motion/handoff")).reference; if (r) useMotionReference(r, await api("/api/motion/packs/" + r.pack).catch(() => null)); } catch {} } })();
 </script>
 </body>
 </html>

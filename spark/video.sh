@@ -4,14 +4,23 @@
 #   FIRST_FRAME=photo.jpg bash scripts/video.sh "what happens next" out.mp4
 #   WIDTH=1344 HEIGHT=768 STEPS=8 FRAMES=124 SEED=3 bash scripts/video.sh "a prompt" out.mp4
 #   REF_IMAGES="face.png" bash scripts/video.sh "Use <Picture 1> as the person. She walks into a cafe." out.mp4
+#   REF_IMAGES="face.png" REF_VIDEOS="move.mp4" bash scripts/video.sh "<Picture 1> moves as in <Video 1>." out.mp4
 # REF_IMAGES (one to nine pictures, separated by spaces; one per line when a path has spaces) renders with MiniMax H3
 # Ref2VA (`oneshot-setup-spark.sh --ref2va`), which holds a face or a subject through the clip: 20 steps by default,
 # REF_TURBO=1 for LightX2V's 4-pass Ref2VA adapter (107 s against 321 s for 5 s at 864x480). REF_SIZE=match|max.
+# STEPS=N sets the passes of a reference clip by hand, with or without REF_TURBO=1.
+# REF_VIDEOS (one to three clips, each 2 to 15 s, 15 s in all: <Video 1>, ...) and REF_AUDIOS (one to three sound clips,
+# same lengths, only beside a picture or a video: <Audio 1>, ...) go to the same model through ComfyUI's node. A video
+# is read at 24 fps up to the clip's own length and brought down to the clip's pixel area (always: REF_VIDEO_SIZE=full,
+# the model's 768-pixel canvas, is several times the rows and the memory and is refused here); REF_VIDEO_SOUND=1 makes each video's own sound a
+# reference too, numbered ahead of the REF_AUDIOS clips. Every second of a reference video adds rows to every pass.
 # Environment: PREFIX, WIDTH, HEIGHT (multiples of 32, default 864x480), FRAMES (17n+5), SEED, STEPS (4, 8 or 20
 # passes), FIRST_FRAME, PROMPT_FILE, CROP=WxH, SPARK_WEIGHTS (bf16, the default, or int8: no faster on a Spark, 22 GB
 # less memory), SPARK_SPARSITY (0 is dense attention; unset picks by size), SPARK_ENGINE (tensorfold: the transformer's
 # blocks on TensorFold's CUDA engine in int8, the default once it is built; comfy: ComfyUI's own blocks in bf16).
 # TEXT_ENCODER names another MiniMax H3 text encoder file in ComfyUI's text_encoders folder; unset or regular is MiniMax's own.
+# The clip's sound is made from a lossless copy of the decoder's output: 256 kb/s, and limited to -1 dBFS when the
+# decoded peak is higher (the render says which). AUDIO_EQ=off keeps ComfyUI's own track.
 # Not on the Spark: MiniMax H3 Turbo (ENGINE=h3, QUALITY) and the 2x decoder (X2, TWOK, QHD).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,17 +31,39 @@ PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 PROMPT="${1:-}"; OUT="${2:-outputs/h3.mp4}"
 ARGS=(video -o "$OUT" --width "${WIDTH:-864}" --height "${HEIGHT:-480}" --frames "${FRAMES:-124}"
       --seed "${SEED:-0}")
-REFS=()
-if [ -n "${REF_IMAGES:-}" ]; then
-  case "$REF_IMAGES" in *$'\n'*) while IFS= read -r r; do [ -z "$r" ] || REFS+=("$r"); done <<<"$REF_IMAGES";;
-    *) read -r -a REFS <<<"$REF_IMAGES";; esac
-fi
-for r in ${REFS[@]+"${REFS[@]}"}; do [ -f "$r" ] || { echo "no reference picture at $r" >&2; exit 2; }; ARGS+=(--ref "$r"); done
-if [ ${#REFS[@]} -gt 0 ]; then
-  [ -z "${STEPS:-}" ] || ARGS+=(--steps "$STEPS")
-  if [ "${REF_TURBO:-0}" = 1 ]; then ARGS+=(--ref-mode turbo); else ARGS+=(--ref-mode full); fi
+# a list of files from the environment: separated by spaces, or one per line when a path has spaces
+ref_list() {
+  LIST=()
+  [ -n "$1" ] || return 0
+  case "$1" in *$'\n'*) while IFS= read -r REF; do [ -z "$REF" ] || LIST+=("$REF"); done <<<"$1";;
+    *) read -r -a LIST <<<"$1";; esac
+}
+ref_list "${REF_IMAGES:-}"; REFS=(${LIST[@]+"${LIST[@]}"})
+ref_list "${REF_VIDEOS:-}"; REF_CLIPS=(${LIST[@]+"${LIST[@]}"})
+ref_list "${REF_AUDIOS:-}"; REF_SOUNDS=(${LIST[@]+"${LIST[@]}"})
+REF_COUNT=$(( ${#REFS[@]} + ${#REF_CLIPS[@]} + ${#REF_SOUNDS[@]} ))
+if [ "$REF_COUNT" -gt 0 ]; then
+  [ -z "${FIRST_FRAME:-}" ] || { echo "references (REF_IMAGES, REF_VIDEOS, REF_AUDIOS) and FIRST_FRAME do not combine: a reference is not a frame of the clip" >&2; exit 2; }
+  # MiniMax's limits for one request: 9 pictures, 3 videos, 3 audio clips, 12 files in all
+  [ "${#REFS[@]}" -le 9 ] || { echo "at most 9 reference pictures, got ${#REFS[@]}" >&2; exit 2; }
+  [ "${#REF_CLIPS[@]}" -le 3 ] || { echo "at most 3 reference videos, got ${#REF_CLIPS[@]}" >&2; exit 2; }
+  [ "${#REF_SOUNDS[@]}" -le 3 ] || { echo "at most 3 reference audio clips, got ${#REF_SOUNDS[@]}" >&2; exit 2; }
+  [ "$REF_COUNT" -le 12 ] || { echo "at most 12 references in all, got $REF_COUNT" >&2; exit 2; }
+  [ "${#REF_SOUNDS[@]}" = 0 ] || [ $(( ${#REFS[@]} + ${#REF_CLIPS[@]} )) -gt 0 ] \
+    || { echo "REF_AUDIOS needs a reference picture or video beside it (REF_IMAGES or REF_VIDEOS): the model does not take sound alone" >&2; exit 2; }
+  for REF in ${REFS[@]+"${REFS[@]}"}; do [ -s "$REF" ] || { echo "no reference picture at $REF" >&2; exit 2; }; ARGS+=(--ref "$REF"); done
+  for REF in ${REF_CLIPS[@]+"${REF_CLIPS[@]}"}; do [ -s "$REF" ] || { echo "no reference video at $REF" >&2; exit 2; }; ARGS+=(--ref-video "$REF"); done
+  for REF in ${REF_SOUNDS[@]+"${REF_SOUNDS[@]}"}; do [ -s "$REF" ] || { echo "no reference audio clip at $REF" >&2; exit 2; }; ARGS+=(--ref-audio "$REF"); done
+  [ "${REF_VIDEO_SIZE:-match}" = match ] || { echo "REF_VIDEO_SIZE=$REF_VIDEO_SIZE is not offered on a DGX Spark: a reference video is always brought down to the clip's pixel area there (match), for memory" >&2; exit 2; }
+  [ "${#REF_CLIPS[@]}" = 0 ] || [ "${REF_VIDEO_SOUND:-0}" != 1 ] || ARGS+=(--ref-video-sound)
+  if [ -n "${STEPS:-}" ]; then
+    case "$STEPS" in *[!0-9]*|0) echo "STEPS must be a positive number of passes, got $STEPS" >&2; exit 2;; esac
+    ARGS+=(--steps "$STEPS")
+  fi
+  if [ "${REF_TURBO:-0}" = 1 ]; then ARGS+=(--ref-mode turbo); PASSES="${STEPS:-4}"; else ARGS+=(--ref-mode full); PASSES="${STEPS:-20}"; fi
   [ -z "${REF_SIZE:-}" ] || ARGS+=(--ref-size "$REF_SIZE")
-  KIND="MiniMax H3 Ref2VA, ${#REFS[@]} reference picture(s)"
+  echo "[tensorfold] reference to video: $PASSES passes$([ "${REF_TURBO:-0}" != 1 ] || echo " with the Ref2VA Turbo adapter"), ${#REFS[@]} picture(s), ${#REF_CLIPS[@]} video(s), ${#REF_SOUNDS[@]} audio clip(s)"
+  KIND="MiniMax H3 Ref2VA, ${#REFS[@]} picture(s), ${#REF_CLIPS[@]} video(s), ${#REF_SOUNDS[@]} audio clip(s), $PASSES passes"
 else
   ARGS+=(--steps "${STEPS:-8}"); KIND="FastH3 ${STEPS:-8} passes"
 fi
@@ -43,7 +74,7 @@ fi
 [ -z "${SPARK_ENGINE:-}" ] || ARGS+=(--engine "$SPARK_ENGINE")
 # style LoRAs from the hub, one PATH:STRENGTH per line (FastH3 clips; ComfyUI merges them into the bf16 weights)
 if [ -n "${LORA:-}" ]; then
-  [ ${#REFS[@]} = 0 ] || { echo "a LoRA from the hub is for FastH3 clips, not for reference to video" >&2; exit 2; }
+  [ "$REF_COUNT" = 0 ] || { echo "a LoRA from the hub is for FastH3 clips, not for reference to video" >&2; exit 2; }
   while IFS= read -r ONE; do [ -z "$ONE" ] || ARGS+=(--lora "$ONE"); done <<<"$LORA"
 fi
 if [ -n "${PROMPT_FILE:-}" ]; then ARGS+=(--prompt-file "$PROMPT_FILE"); else ARGS+=(--prompt "$PROMPT"); fi
