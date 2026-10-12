@@ -209,6 +209,17 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >   No weights are fetched and the studio folder is not touched. See *Upgrade from 2.5 or 2.6* under each install.
 > - **A Motion Previs tutorial:** a 13-step lesson in the app (*Tutorial → Motion Previs*) and
 >   [TUTORIAL.md, section 9](TUTORIAL.md#9-motion-previs-make-a-clip-that-moves-like-another), with two worked examples.
+>
+> **What was tested for 2.6.1** (2026-10-12). *Mac Studio M5 Ultra:* a fresh clone installed into an empty prefix
+> (weights already on the disk, engine from the public fork at `a2b592f`), then one reference-video clip (284 s) and
+> one picture-with-reference-audio clip (91 s) through that copy's app, Turbo 4 passes, 5 s at 864x480; a 2.6 install
+> (engine `a2068c0`, on which both requests stop with the message) moved up with `--upgrade` in 19 s, the same two
+> clips after it (288 s and 91 s), a second `--upgrade` in 3 s with nothing changed, the studio folder and the model
+> folders untouched. *DGX Spark:* `--upgrade` twice on the existing install (the first run added the QA gate's
+> speech-to-text packages, the second changed nothing), `--verify`, and one 5 second clip after it (109 s). The
+> tutorial's 13 steps were walked in headless Chromium on the Spark app: each link lands on its screen. Not tested:
+> an upgrade of an image-only install, of a Mac without tensor units, and a fresh DGX Spark install of 2.6.1 (its
+> installer's fresh path is 2.6's).
 
 > **2.6 (2026-10-12): reference videos and audio, Motion Previs, and the two joined in the create wizard.**
 > **What's new in 2.6:**
