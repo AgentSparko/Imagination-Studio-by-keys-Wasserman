@@ -100,6 +100,12 @@ def camera_words(folder: Path, seconds: float | None = None, until: float | None
         return {"sentence": "", "moves": [], "confidence": 0.0, "reliable": False}
 
 
+def has_sound(path: Path) -> bool:
+    out = subprocess.run([worker.tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_type",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+    return "audio" in out.stdout
+
+
 def motion_reference(pack, layer, mode, seconds, width, height, *, timing: str = "stretch", fit: str = "cover") -> dict:
     """The hand-off from Motion Previs to a render: one layer of a pack as a clip of the asked length and size, the
     camera move in words, and the reference mode.
@@ -138,6 +144,7 @@ def motion_reference(pack, layer, mode, seconds, width, height, *, timing: str =
     if timing not in ("stretch", "trim") or fit not in ("cover", "contain"):
         raise HTTPException(400, "timing is stretch or trim; fit is cover or contain")
     layer = None if layer in (None, "", "none") else layer
+    sound = False
     probe = worker.ffprobe(folder / "reference.mp4") if (folder / "reference.mp4").is_file() else {"duration": 0, "width": 0, "height": 0}
     clip = None
     if layer is not None:
@@ -161,11 +168,23 @@ def motion_reference(pack, layer, mode, seconds, width, height, *, timing: str =
                            "-movflags", "+faststart", str(clip)])
         except RuntimeError as error:
             raise HTTPException(500, str(error))
+        # The shot's own sound rides along at the shot's own speed, whatever the layer: a skeleton or a depth layer
+        # has none of its own, and the wizard can then offer the sound as a reference too. A retimed clip gets none.
+        origin = folder / "reference.mp4"
+        if timing == "trim" and origin.is_file() and has_sound(origin):
+            voiced = clip.with_suffix(".sound.mp4")
+            try:
+                worker.ffmpeg(["-i", str(clip), "-i", str(origin), "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
+                               "-b:a", "192k", "-t", f"{frames / FPS:.6f}", "-movflags", "+faststart", str(voiced)])
+                voiced.replace(clip)
+                sound = True
+            except RuntimeError:
+                voiced.unlink(missing_ok=True)
     length = float(probe["duration"] or seconds)
     said = camera_words(folder, seconds if timing == "stretch" else min(seconds, length), None if timing == "stretch" else seconds)
     return {"kind": "motion-reference", "schema": 1, "pack": folder.name, "layer": layer, "file": HANDOFF_LAYERS.get(layer), "mode": mode,
             "clip": relative(clip) if clip else None, "clip_path": str(clip) if clip else None, "seconds": seconds, "width": width,
-            "height": height, "fps": FPS, "frames": round(seconds * FPS) if clip else 0, "timing": timing, "fit": fit,
+            "height": height, "fps": FPS, "frames": round(seconds * FPS) if clip else 0, "timing": timing, "fit": fit, "sound": sound,
             "source": {"seconds": length, "width": probe["width"], "height": probe["height"],
                        "speed": round(length / seconds, 4) if timing == "stretch" else 1.0},
             "camera": said["sentence"], "camera_reliable": said["reliable"], "camera_confidence": said["confidence"],

@@ -260,8 +260,11 @@ def motion_template_one(motion: dict, pictures: int) -> dict:
                            "setting and light of the target. The appearance of <Subject 1> comes from <Picture 1>"
                            + ("." if mode == "camera-only" else ", the position and motion from <Video 1>."))
     definitions.append(f"Legend of <Video 1>: {MOTION_LEGENDS[layer]}. These colours are labels only, not the look of the target video.")
-    follow = (f"The position, scale and movement of {who.replace('The', 'the')} in every frame are those of the figure in <Video 1>, and the camera "
-              "follows the path of <Video 1>." if mode != "camera-only" else "The camera follows the path of <Video 1> frame by frame.")
+    follow = ("The camera follows the path of <Video 1> frame by frame." if mode == "camera-only"
+              else "The main object is where the main object of <Video 1> is in every frame and moves along the same path, and the camera "
+                   "follows the path of <Video 1>." if mode == "object-motion" and not pictures
+              else f"The position, scale and movement of {who.replace('The', 'the')} in every frame are those of the "
+                   f"{'main object' if mode == 'object-motion' else 'figure'} in <Video 1>, and the camera follows the path of <Video 1>.")
     look = ", continuing the look of <Picture 1>" if pictures else ""
     return {"lead": "A photorealistic video that follows the structure of <Video 1> frame by frame"
                     + (" and has the look of <Picture 1>, with <Subject 1>." if pictures else "."),
@@ -389,7 +392,10 @@ def compose_references(fields: dict, count: int) -> str:
                else "A new video that follows its video reference. ")
             + (scene or "A new scene.")
             + "\n\nretention_analysis:\n" + "\n".join(kept)
-            + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()} {sound}")
+            # the sound under its own heading, as in the text-to-video form: written on the end of the shot, the model
+            # read it as something to say (measured on a DGX Spark: a voice in 41 % and 63 % of the frames of a
+            # clip that asks for no speech, on two seeds, and in none with the heading)
+            + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()}\n\noverall_soundscape:\n{sound}")
 
 
 def compose(fields: dict, first_frame: bool) -> str:
@@ -791,7 +797,9 @@ def run(job: dict, command: list[str], env: dict, label: str = "") -> bool:
     if job["status"] == "cancelled":
         return False
     if code:
-        raise RuntimeError(f"the script exited with status {code}")
+        # the script's own last words say why: a file out of range, a model not installed, memory
+        said = [line.strip() for line in job["log"].splitlines() if line.strip() and not STEP.search(line)]
+        raise RuntimeError((said[-1][-400:] if said else "the script stopped") + f" (status {code})")
     return True
 
 
@@ -1079,13 +1087,16 @@ def discard(path: str) -> dict:
 @app.get("/api/probe")
 def probe(path: str) -> dict:
     target = inside(path)
-    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                          "stream=width,height,nb_frames:format=duration", "-of", "json", str(target)],
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                          "stream=codec_type,width,height,nb_frames:format=duration", "-of", "json", str(target)],
                          capture_output=True, text=True, env=environment({}))
     data = json.loads(out.stdout or "{}")
-    stream = (data.get("streams") or [{}])[0]
+    streams = data.get("streams") or []
+    stream = next((one for one in streams if one.get("codec_type") == "video"), {})
+    # sound: whether the file has an audio track (a reference video's own sound, a reference audio clip)
     return {"width": stream.get("width"), "height": stream.get("height"), "frames": stream.get("nb_frames"),
-            "duration": float((data.get("format") or {}).get("duration") or 0)}
+            "duration": float((data.get("format") or {}).get("duration") or 0),
+            "sound": any(one.get("codec_type") == "audio" for one in streams)}
 
 
 def project_file(project_id: str) -> Path:
@@ -1098,7 +1109,11 @@ def project_file(project_id: str) -> Path:
 def projects() -> list[dict]:
     out = []
     for file in sorted((HOME / "projects").glob("*/project.json"), key=lambda f: -f.stat().st_mtime):
-        data = json.loads(file.read_text())
+        try:
+            data = json.loads(file.read_text())
+            data["id"]
+        except (ValueError, KeyError, TypeError):
+            continue  # a file that was cut off while being written must not take the Production tab down
         out.append({"id": data["id"], "name": data.get("name", data["id"]), "segments": len(data.get("segments", [])),
                     "modified": file.stat().st_mtime})
     return out
@@ -1111,7 +1126,9 @@ def new_project(body: dict) -> dict:
             "segments": [], "timeline": []}
     file = project_file(project_id)
     file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(json.dumps(data, indent=1))
+    fresh = file.with_suffix(".json.new")
+    fresh.write_text(json.dumps(data, indent=1))
+    fresh.replace(file)
     return data
 
 
@@ -1129,7 +1146,9 @@ def save_project(project_id: str, body: dict) -> dict:
     if not file.is_file():
         raise HTTPException(404, "no such project")
     body["id"] = project_id
-    file.write_text(json.dumps(body, indent=1))
+    fresh = file.with_suffix(".json.new")  # written beside it and swapped in: a reader never sees half a file
+    fresh.write_text(json.dumps(body, indent=1))
+    fresh.replace(file)
     return body
 
 
