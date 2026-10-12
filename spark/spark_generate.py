@@ -28,7 +28,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PREFIX = Path(os.environ.get("PREFIX", Path.home() / ".local/opt/tensorfold-studio"))
-URL = os.environ.get("SPARK_COMFY_URL", "http://127.0.0.1:8190")
+URL = os.environ.get("SPARK_COMFY_URL", "http://127.0.0.1:" + os.environ.get("SPARK_COMFY_PORT", "8190"))  # the port spark/comfy.sh starts it on
 STATE = PREFIX / "comfy.kind"
 ENGINE_LIB = PREFIX / "tf-h3" / "libtf_h3.so"
 MODELS = Path(os.environ.get("SPARK_MODELS", Path.home() / "spark-studio-models"))

@@ -25,7 +25,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.6.1** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.6.2** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -199,6 +199,17 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 
 ## What changed
 
+> **2.6.2 (2026-10-12): a fresh DGX Spark install, checked from a clean clone.**
+> - **Tested:** a clone of the `v2.6.1` tag installed into an empty prefix on a DGX Spark with
+>   `oneshot-setup-spark.sh --ref2va --motion` (the weights already on the disk, so no weight was downloaded; every
+>   weight address the installer fetches answers without a login, and so do the carrier image and the engine's
+>   commits on the fork), then the installer's own test clip from that copy: 5 s at 864x480 in 116 s on TensorFold's
+>   CUDA engine, with picture and speech. Not tested: the weight downloads themselves from an empty disk.
+> - **`SPARK_COMFY_PORT` now reaches the renderer too.** `spark/comfy.sh` started ComfyUI on that port while the
+>   renderer still asked on 8190 (only a second install beside a running one hit this; `SPARK_COMFY_URL` still wins).
+> - **`spark/build-engine.sh` reads the prebuilt Spark engine from the `2.6.1` carrier image** (the same engine build
+>   as the `2.5` one it read before).
+>
 > **2.6.1 (2026-10-12): reference videos and audio on a freshly installed Mac.**
 > - **The Mac installer installs the engine that reference videos and audio need** (TensorFold fork branch
 >   `ref-video-audio`, pinned to `a2b592f`; carrier image `ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1`). 2.6
@@ -218,8 +229,7 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 > folders untouched. *DGX Spark:* `--upgrade` twice on the existing install (the first run added the QA gate's
 > speech-to-text packages, the second changed nothing), `--verify`, and one 5 second clip after it (109 s). The
 > tutorial's 13 steps were walked in headless Chromium on the Spark app: each link lands on its screen. Not tested:
-> an upgrade of an image-only install, of a Mac without tensor units, and a fresh DGX Spark install of 2.6.1 (its
-> installer's fresh path is 2.6's).
+> an upgrade of an image-only install and of a Mac without tensor units (a fresh DGX Spark install: see 2.6.2).
 
 > **2.6 (2026-10-12): reference videos and audio, Motion Previs, and the two joined in the create wizard.**
 > **What's new in 2.6:**
