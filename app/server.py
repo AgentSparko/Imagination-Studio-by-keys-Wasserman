@@ -224,8 +224,11 @@ def motion_template(motion: dict, pictures: int) -> dict:
                            "setting and light of the target. The appearance of <Subject 1> comes from <Picture 1>"
                            + ("." if mode == "camera-only" else ", the position and motion from <Video 1>."))
     definitions.append(f"Legend of <Video 1>: {MOTION_LEGENDS[layer]}. These colours are labels only, not the look of the target video.")
-    follow = (f"The position, scale and movement of {who.replace('The', 'the')} in every frame are those of the figure in <Video 1>, and the camera "
-              "follows the path of <Video 1>." if mode != "camera-only" else "The camera follows the path of <Video 1> frame by frame.")
+    follow = ("The camera follows the path of <Video 1> frame by frame." if mode == "camera-only"
+              else "The main object is where the main object of <Video 1> is in every frame and moves along the same path, and the camera "
+                   "follows the path of <Video 1>." if mode == "object-motion" and not pictures
+              else f"The position, scale and movement of {who.replace('The', 'the')} in every frame are those of the "
+                   f"{'main object' if mode == 'object-motion' else 'figure'} in <Video 1>, and the camera follows the path of <Video 1>.")
     look = ", continuing the look of <Picture 1>" if pictures else ""
     return {"lead": "A photorealistic video that follows the structure of <Video 1> frame by frame"
                     + (" and has the look of <Picture 1>, with <Subject 1>." if pictures else "."),
@@ -744,7 +747,9 @@ def run(job: dict, command: list[str], env: dict, label: str = "") -> bool:
     if job["status"] == "cancelled":
         return False
     if code:
-        raise RuntimeError(f"the script exited with status {code}")
+        # the script's own last words say why: a file out of range, a model not installed, memory
+        said = [line.strip() for line in job["log"].splitlines() if line.strip() and not STEP.search(line)]
+        raise RuntimeError((said[-1][-400:] if said else "the script stopped") + f" (status {code})")
     return True
 
 
@@ -1032,13 +1037,16 @@ def discard(path: str) -> dict:
 @app.get("/api/probe")
 def probe(path: str) -> dict:
     target = inside(path)
-    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                          "stream=width,height,nb_frames:format=duration", "-of", "json", str(target)],
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                          "stream=codec_type,width,height,nb_frames:format=duration", "-of", "json", str(target)],
                          capture_output=True, text=True, env=environment({}))
     data = json.loads(out.stdout or "{}")
-    stream = (data.get("streams") or [{}])[0]
+    streams = data.get("streams") or []
+    stream = next((one for one in streams if one.get("codec_type") == "video"), {})
+    # sound: whether the file has an audio track (a reference video's own sound, a reference audio clip)
     return {"width": stream.get("width"), "height": stream.get("height"), "frames": stream.get("nb_frames"),
-            "duration": float((data.get("format") or {}).get("duration") or 0)}
+            "duration": float((data.get("format") or {}).get("duration") or 0),
+            "sound": any(one.get("codec_type") == "audio" for one in streams)}
 
 
 def project_file(project_id: str) -> Path:
