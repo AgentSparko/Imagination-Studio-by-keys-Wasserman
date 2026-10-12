@@ -14,7 +14,8 @@ it here. Qwen-Image-2.1-Turbo images and MiniMax H3 / FastH3 video with sound, o
 
 **Sam Wasserman shaped the production side of this studio: the AI film workflow and the ideas behind it.** Slate, his
 prompt studio for AI filmmaking, is the workflow inside the Wasserman Slate AI Studio tab. The Wasserman Sharp Spec,
-the QA gate that follows it, and the 80s Horror LoRA that opens the Keys and Wasserman LoRA Hub are his too. The aim
+the QA gate that follows it, and the 80s Horror LoRA that opens the Keys and Wasserman LoRA Hub are his too. The Motion Previs tab's analysis is a
+Python port of his [Motion Previs Studio](https://github.com/wassermanproductions/motion-previs-studio). The aim
 we share is the best AI film studio there is, and this pack is where his planning tools meet a render engine. See
 [CREDITS.md](CREDITS.md).
 
@@ -508,6 +509,38 @@ The app drives the same scripts as the command line, one job at a time, and keep
 under `~/TensorFoldStudio`. What it is not: the editor has one video track with trims and ordering only (no
 transforms, text, transitions or audio mixing), and there is no assisted prompt writing. The workflow is modelled
 on rookiestar28's ComfyUI-MiniMaxH3-Studio, which does far more; no code is shared with it.
+
+## Motion Previs: a shot into control layers and a camera move
+
+The **Motion Previs** tab takes a clip (one you upload, or an earlier render or upload), a range of 2 to 15 seconds
+and one of four reference modes (camera only, actor motion, object motion, full scene), and writes a production pack
+under `~/TensorFoldStudio/motion/<id>/` with a ZIP beside it: the trimmed reference clip, a pose track
+(`pose_landmarks.json`), an OpenPose BODY_25 skeleton video and `openpose_keypoints.json`, a subject-masked camera
+solve (`camera_motion.json`), depth (Depth-Anything-small, and an ffmpeg proxy), edges, line art, a motion mask, a
+contact sheet, a shot bible and a prompt pack. The tab shows the reference, skeleton, depth and edges side by side
+and says the camera move in a sentence ("The camera pushes in while it slowly tilts up ..."). Stages report their own
+progress and Cancel stops the job and keeps nothing. A pack ZIP exported by Motion Previs Studio can be uploaded in
+place of an analysis.
+
+**The analysis is a Python port, modified, of [Motion Previs Studio](https://github.com/wassermanproductions/motion-previs-studio)
+by Sam Wasserman** (Apache-2.0, Copyright 2026 Sam Wasserman). Packs use his file names and manifest layout, so they
+are interchangeable with his app's. His NOTICE is at `LICENSES/Motion-Previs-Studio-NOTICE`; what was changed and the
+notices for MediaPipe, Depth Anything, OpenCV and ONNX Runtime are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+```bash
+bash oneshot-setup.sh --motion      # or: bash scripts/setup-motion.sh   (0.5 GB, an environment of its own)
+```
+
+`--motion` is an option, not part of the default install: MediaPipe brings its own OpenCV build, which must not replace
+the Studio's, so the analysis has its own environment (`$PREFIX/motion-venv`, 433 MB, and `$PREFIX/motion-models`,
+70 MB). Without it the tab still trims the shot and makes the ffmpeg layers, and on a Mac the camera solve; pose and
+AI depth say that they are not available on this machine. Measured on a Mac Studio M5 Ultra, a 5 second 864x480 shot
+with every layer at 12 samples a second: 6.6 s in all (prepare 0.2, pose 1.3, camera 0.1, depth 3.4, encode 0.9,
+pack 0.1), 0.5 GB of memory at its peak, on the processor. **The DGX Spark build of this tab is untested.**
+
+**Use as motion reference** stores a hand-off for the create wizard: one layer of the pack resampled to the length
+and size of the clip to be made, the camera move in words, and the reference mode (`motion_reference()` in
+`app/motion.py`). The render that reads it, the clip as `<Video 1>` for MiniMax H3 Ref2VA, is not part of this yet.
 
 ## FastH3 (new in 1.8)
 
