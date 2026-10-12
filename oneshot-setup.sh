@@ -42,11 +42,11 @@ H3_MODEL_DIR="${H3_MODEL_DIR:-$HOME/h3-models/MiniMax-H3}"
 QWEN_MODEL_DIR="${QWEN_MODEL_DIR:-$HOME/qwen-models/Qwen-Image-2.1-Turbo}"
 FASTH3_DIR="${FASTH3_DIR:-$HOME/h3-models/FastH3-8-Step-V2}"
 FASTH3_REPO="FastVideo/FastVideo-FastH3-8-Step-V2"
-IMAGE="${IMAGE:-ghcr.io/drowzeys/keys-tensorfold-studio:2.5}"
+IMAGE="${IMAGE:-ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1}"
 # the carrier under its name up to 2.2, with the same Mac payload
 IMAGE_BEFORE="ghcr.io/drowzeys/keys-mac-tensorfold-studio:2.2"
 TF_REPO="https://github.com/drowzeys/TensorFold.git"
-TF_COMMIT="a2068c031e08109a0ec14c26b1ca655cf50ac34c"
+TF_COMMIT="a2b592fef5366bf16d4729651b6549094981d3fe"
 REF_REPO="https://github.com/mrbizarro/minimax-h3-mlx.git"
 REF_COMMIT="79190205258454b43e6c9e50e577de234222419c"
 # the native engine for FastH3: TensorFold 1.0.4's Zig + Metal runtime with the H3 family, from the same fork
@@ -121,7 +121,7 @@ fetch_ghcr() {
 }
 
 step "TensorFold 0.6.5 + H3 and Qwen-Image families @ ${TF_COMMIT:0:8}, mflux @ ${MFLUX_COMMIT:0:8} (own venv at $PREFIX)"
-HAS_ENGINE='import inspect, tensorfold.families.qwen_image.sampler, mflux.models.qwen21.qwen21_initializer; from tensorfold.families.h3.vae_video import load_video_decoder as d; assert "upscale_decoder" in inspect.signature(d).parameters; from tensorfold.families.h3.sampler import denoise as n; assert "audio_shift" in inspect.signature(n).parameters; from tensorfold.families.h3.sampler import revoice, default_gates; import tensorfold.kernels.minimax.h3.v1.attention_tiles_int8'
+HAS_ENGINE='import inspect, tensorfold.families.qwen_image.sampler, mflux.models.qwen21.qwen21_initializer; from tensorfold.families.h3.vae_video import load_video_decoder as d; assert "upscale_decoder" in inspect.signature(d).parameters; from tensorfold.families.h3.sampler import denoise as n; assert "audio_shift" in inspect.signature(n).parameters; from tensorfold.families.h3.sampler import revoice, default_gates; import tensorfold.kernels.minimax.h3.v1.attention_tiles_int8; from tensorfold.families.h3 import packing; assert hasattr(packing, "reference_layout")'
 if [ ! -x "$PREFIX/venv/bin/python" ] || ! "$PREFIX/venv/bin/python" -c "$HAS_ENGINE" 2>/dev/null; then
   [ "$MODE" = "--verify" ] && die "TensorFold with the H3 and Qwen-Image families is not installed at $PREFIX"
   mkdir -p "$HERE/payload" "$PREFIX"

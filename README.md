@@ -25,7 +25,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.6** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.6.1** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -184,6 +184,13 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 
 ## What changed
 
+> **2.6.1 (2026-10-12): reference videos and audio on a freshly installed Mac.**
+> - **The Mac installer installs the engine that reference videos and audio need** (TensorFold fork branch
+>   `ref-video-audio`, pinned to `a2b592f`; carrier image `ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1`). 2.6
+>   installed the engine before it, so on a new Mac those two kinds of reference stopped with a message. Running
+>   `oneshot-setup.sh` again on an existing install replaces the engine. The DGX Spark build is unchanged.
+> - **Library tiles have two rows:** the file name, then the buttons. A long name pushed *+ timeline* out of the tile.
+
 > **2.6 (2026-10-12): reference videos and audio, Motion Previs, and the two joined in the create wizard.**
 > **What's new in 2.6:**
 > - **Reference videos and reference audio** for MiniMax H3 Ref2VA beside reference pictures (`REF_VIDEOS`,
@@ -225,8 +232,8 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >
 > **What was tested where.** *Mac Studio M5 Ultra:* reference videos, reference audio, `STEPS`, the normalisation fix
 > and the Motion Previs analysis, as their sections say; the source clip, a depth layer and a skeleton as
-> `<Video 1>` with a picture, measured against the source shot (the figures are in the Motion Previs section). The Mac renders need the TensorFold engine branch
-> `ref-video-audio`, which the engine build this release installs does not have yet. *DGX Spark (GB10):* everything in
+> `<Video 1>` with a picture, measured against the source shot (the figures are in the Motion Previs section). The Mac renders run on the TensorFold engine branch
+> `ref-video-audio`, which the installer has installed since 2.6.1. *DGX Spark (GB10):* everything in
 > [On a DGX Spark](#reference-videos-audio-and-motion-on-a-dgx-spark): reference videos and audio through ComfyUI's
 > node, the Motion Previs analysis on Linux, and the wizard's flow (upload, analyse, choose, compose, render) driven
 > through the app's HTTP API with the source clip and with the skeleton layer.
@@ -1166,10 +1173,10 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
 ### Reference videos and reference audio (Ref2VA)
 
 The same Ref2VA transformer takes two more kinds of reference, as MiniMax's model card describes: videos, which
-carry a subject and how it moves, and audio clips, which carry a voice or music. **On a Mac, not in a released engine
-yet:** the passes need TensorFold's H3 family to pack these references and to hold reference audio rows, which is on
-the engine branch `ref-video-audio` and not in the engine build this release installs; with the installed engine the
-renderer stops with a message saying so. Reference pictures alone are unaffected. **On a DGX Spark** they run now,
+carry a subject and how it moves, and audio clips, which carry a voice or music. **On a Mac** the passes need TensorFold's H3 family to pack these references and to hold reference audio rows, which is on
+the engine branch `ref-video-audio` of the fork this pack installs from (pinned to `a2b592f` since 2.6.1). An install
+made with 2.6 or earlier has the older engine, with which the renderer stops with a message saying so: run
+`oneshot-setup.sh` again and it replaces the engine. Reference pictures alone are unaffected. **On a DGX Spark** they run now,
 through ComfyUI's node: see [below](#reference-videos-audio-and-motion-on-a-dgx-spark).
 
 ```bash
@@ -1371,9 +1378,9 @@ videos at once, and sound by ear (the figures above are measurements).
 ### GHCR prebuilt carrier
 
 ```bash
-docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.5
+docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1
 # index digest: sha256:6d27fa35d57cae1f66a5ad4bb002c15086207cb1eab8ecec0544a3367b9466bc (linux/arm64 + linux/amd64)
-docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.5 cp -a /payload/. /out/payload/
+docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1 cp -a /payload/. /out/payload/
 ```
 
 One image for both builds. For a Mac it holds the TensorFold wheel, `requirements.lock`, the render scripts, the
