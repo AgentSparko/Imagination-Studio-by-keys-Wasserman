@@ -777,7 +777,9 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
           try { const r = await api("/api/trash?confirm=erase", undefined, "DELETE"); toast("Erased " + count(r.files, "file") + ", " + sizeText(r.bytes) + " freed"); } catch (e) { toast(e.message); } render(); } }, "Empty trash") : null),
       el("div", { class: "grid", style: "margin-top:10px" }, list.map(m =>
     el("div", { class: "tile" }, media(m.path), el("div", { class: "cap" }, el("input", { type: "checkbox", title: "Select " + m.path, "aria-label": "Select " + m.path, checked: LIBPICK.has(m.path), style: "width:auto;flex:none", onchange: e => { if (e.target.checked) LIBPICK.add(m.path); else LIBPICK.delete(m.path); show(); } }),
-      el("span", { style: "cursor:pointer", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.slice(-26)),
+      el("span", { style: "cursor:pointer;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.split("/").pop())),
+      // the buttons on a row of their own: a long file name no longer pushes them out of the tile
+      el("div", { class: "cap", style: "padding-top:0;justify-content:flex-end" },
       m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use"),
       // out of the library: the server moves the file to the studio's trash folder
       el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: () => clearOut({ paths: [m.path], films: true }, "Delete " + m.path.split("/").pop() + "?") }, "🗑")))))); });
