@@ -1062,7 +1062,11 @@ def project_file(project_id: str) -> Path:
 def projects() -> list[dict]:
     out = []
     for file in sorted((HOME / "projects").glob("*/project.json"), key=lambda f: -f.stat().st_mtime):
-        data = json.loads(file.read_text())
+        try:
+            data = json.loads(file.read_text())
+            data["id"]
+        except (ValueError, KeyError, TypeError):
+            continue  # a file that was cut off while being written must not take the Production tab down
         out.append({"id": data["id"], "name": data.get("name", data["id"]), "segments": len(data.get("segments", [])),
                     "modified": file.stat().st_mtime})
     return out
@@ -1075,7 +1079,9 @@ def new_project(body: dict) -> dict:
             "segments": [], "timeline": []}
     file = project_file(project_id)
     file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(json.dumps(data, indent=1))
+    fresh = file.with_suffix(".json.new")
+    fresh.write_text(json.dumps(data, indent=1))
+    fresh.replace(file)
     return data
 
 
@@ -1093,7 +1099,9 @@ def save_project(project_id: str, body: dict) -> dict:
     if not file.is_file():
         raise HTTPException(404, "no such project")
     body["id"] = project_id
-    file.write_text(json.dumps(body, indent=1))
+    fresh = file.with_suffix(".json.new")  # written beside it and swapped in: a reader never sees half a file
+    fresh.write_text(json.dumps(body, indent=1))
+    fresh.replace(file)
     return body
 
 
