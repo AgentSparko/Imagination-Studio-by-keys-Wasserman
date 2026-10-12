@@ -1097,7 +1097,13 @@ REF_VIDEOS="baker.mp4" REF_VIDEO_SOUND=1 bash scripts/video.sh "..." out.mp4   #
     bakery, doing his motion second for second. Her mouth also moves as his does, though the prompt said nobody
     speaks.
   - *A video with its own sound* (`REF_VIDEO_SOUND=1`): the clip's sound follows the reference closely (pitch 120 Hz
-    against 122, spectrogram correlation 0.86 moment by moment, against 0.43 for the run without the sound).
+    against 122, spectrogram correlation 0.86 moment by moment, against 0.43 for the run without the sound). With
+    the app's prompt and a picture beside the video: 0.99 at 20 passes. **With `REF_TURBO=1` this was broken until
+    the engine's re-voice was corrected** (branch `ref-video-audio`, `a2b592f`): the sound made again after the
+    adapter's passes came out near silent, correlation 0.22, where the adapter's own sound had 0.98. The audio-only
+    re-voice kept the held rows beside the clip's finished audio; with reference audio in the sequence they are now
+    kept beside the starting noise: 0.98, same time. A voice clip as `<Audio 1>` through Turbo was not affected
+    (139 Hz and distance 6.7 after, 140 Hz and 6.6 before; 193 Hz and 13.8 without the clip).
   - *A picture and an audio clip of the same kind of voice* (a woman's still, 6 s of a woman singing, the prompt
     asks her to sing): median pitch 281 Hz, the reference's own 281, against 314 without the clip; closer in
     timbre statistics as well (4.9 against 6.7).
