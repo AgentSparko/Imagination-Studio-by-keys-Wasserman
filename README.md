@@ -25,7 +25,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.5** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.6** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -183,6 +183,42 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 (the files were already on the test machine), any GPU other than the GB10, and two Sparks working on one clip.
 
 ## What changed
+
+> **2.6 (2026-10-12): reference videos and audio, Motion Previs, and the two joined in the create wizard.**
+> **What's new in 2.6:**
+> - **Reference videos and reference audio** for MiniMax H3 Ref2VA beside reference pictures (`REF_VIDEOS`,
+>   `REF_AUDIOS`; *The clip starts from → References* in the app): a video carries a subject and how it moves, an
+>   audio clip a voice or music. See [Reference videos and reference audio](#reference-videos-and-reference-audio-ref2va).
+> - **Motion Previs**, a new tab: a Python port, modified, of the analysis of Sam Wasserman's Motion Previs Studio.
+>   A shot becomes a pose skeleton, depth, edges, a camera move in words and a production pack. See
+>   [Motion Previs](#motion-previs-a-shot-into-control-layers-and-a-camera-move). Installed with `--motion`.
+> - **The two joined.** On the references screen of the create wizard, *Analyse motion* runs Motion Previs on
+>   `<Video 1>` and offers what to carry over (camera only, actor motion, object motion, full scene) and what goes to
+>   the model as `<Video 1>`: the source clip (the default for the same place with a new person), the depth layer
+>   as a control video (the default for a new place or the camera alone), or the skeleton (offered, the loosest);
+>   the camera move is added to the prompt. *Use as motion reference* in the Motion
+>   Previs tab opens the wizard filled in the same way. Without the motion environment a reference video is a plain
+>   reference, as before.
+> - `STEPS` sets the passes of a reference clip; *Custom* is a card of each passes chooser; a first frame or a
+>   reference picture reaches the Mac's text encoder with the checkpoint's own normalisation (the DGX Spark build
+>   never had that fault: ComfyUI's encoder already used the checkpoint's values).
+>
+> **What was tested where.** *Mac Studio M5 Ultra:* reference videos, reference audio, `STEPS`, the normalisation fix
+> and the Motion Previs analysis, as their sections say; the source clip, a depth layer and a skeleton as
+> `<Video 1>` with a picture, measured against the source shot (the figures are in the Motion Previs section). The Mac renders need the TensorFold engine branch
+> `ref-video-audio`, which the engine build this release installs does not have yet. *DGX Spark (GB10):* everything in
+> [On a DGX Spark](#reference-videos-audio-and-motion-on-a-dgx-spark): reference videos and audio through ComfyUI's
+> node, the Motion Previs analysis on Linux, and the wizard's flow (upload, analyse, choose, compose, render) driven
+> through the app's HTTP API with the source clip and with the skeleton layer.
+> **Not tested on either machine:** the new screens by hand in a browser (on the Spark the wizard's motion panel and
+> the Motion Previs tab were opened in a headless Firefox and their screenshots looked at, and the flow behind them
+> was driven through the API; nobody has clicked through them); the motion figures on more than one shot or seed;
+> the object-motion and camera-only modes in a render; voice cloning (not promised: a video's own sound and a voice
+> that fits the pictured person carried over by measurement, a voice that does not fit did not); more than one
+> reference video or audio clip in a request; references with clips longer than 5 seconds; a real Motion Previs
+> Studio export ZIP; `REF_VIDEO_SIZE=full` (refused on the Spark, for memory). Not tested on the Spark:
+> `REF_VIDEO_SOUND=1`. Not tested on the Mac: the join after the merge (the Mac tests were made on the two branches
+> before they were joined).
 
 > **2.5 (2026-10-11): Wasserman Slate AI Studio, the Wasserman Sharp Spec with its QA gate, and the Keys and
 > Wasserman LoRA Hub.** On both machines, with Sam Wasserman (wassermanproductions.com). **Wasserman Slate AI
@@ -536,11 +572,55 @@ the Studio's, so the analysis has its own environment (`$PREFIX/motion-venv`, 43
 70 MB). Without it the tab still trims the shot and makes the ffmpeg layers, and on a Mac the camera solve; pose and
 AI depth say that they are not available on this machine. Measured on a Mac Studio M5 Ultra, a 5 second 864x480 shot
 with every layer at 12 samples a second: 6.6 s in all (prepare 0.2, pose 1.3, camera 0.1, depth 3.4, encode 0.9,
-pack 0.1), 0.5 GB of memory at its peak, on the processor. **The DGX Spark build of this tab is untested.**
+pack 0.1), 0.5 GB of memory at its peak, on the processor. On a DGX Spark (`bash oneshot-setup-spark.sh --motion`;
+MediaPipe 1.1.0, OpenCV 5.0.0 and ONNX Runtime 1.31.0 all installed from their Linux aarch64 wheels) the same kind of
+shot with every layer took 12.6 to 17.6 s (prepare 0.4, pose 3.3, camera 0.2, depth 5.8, encode 1.9, pack 0.4 in the
+quicker run), 0.4 to 0.5 GB at its peak, with the same camera sentence the Mac gave for that clip. On the Spark the
+tab was driven through its API and a screenshot of it from a headless Firefox was looked at; it has not been used by
+hand in a browser on either machine. `?motionref=1` in the app's address opens the create wizard on the stored motion
+reference.
 
-**Use as motion reference** stores a hand-off for the create wizard: one layer of the pack resampled to the length
-and size of the clip to be made, the camera move in words, and the reference mode (`motion_reference()` in
-`app/motion.py`). The render that reads it, the clip as `<Video 1>` for MiniMax H3 Ref2VA, is not part of this yet.
+**Use as motion reference** makes a hand-off (one layer of the pack resampled to the length and size of the clip to
+be made, the camera move in words, and the reference mode: `motion_reference()` in `app/motion.py`) and opens the
+create wizard on its references screen with that layer as `<Video 1>` of a MiniMax H3 Ref2VA clip.
+
+### Motion as a reference in the create wizard
+
+*The clip starts from → References*, add a reference video, then **Analyse motion** under it (offered when the
+motion environment is installed; without it the video is a plain reference). The analysis runs on the processor in
+well under a minute and gives two choices:
+
+- **What to carry over:** *Full scene* (the same place and motion with a new person: its person is replaced by
+  `<Picture 1>`), *Actor motion* (the body motion and the camera, in a new place), *Object motion* (an object's path
+  and the camera) or *Camera only*.
+- **What goes to the model as `<Video 1>`:** the **source clip** (the default for *Full scene*), the **depth** layer
+  as a control video (the default for the other three), or the **skeleton** (offered, never the default) or edges.
+
+The camera move in words goes into the prompt in every case (a switch; text of your own in the Camera field wins).
+With the source clip and a picture, step 4 writes "The target video is `<Video 1>` with its person replaced by
+`<Subject 1>`"; calling the picture a first-frame anchor there made the picture's layout override the video. For a
+control layer it writes the control-video form: `<Video 1>` is declared the structural template (layout, silhouettes,
+positions, movement and camera path frame by frame), `<Picture 1>` the first-frame anchor, with a legend of the layer
+(a skeleton's coloured lines are joints and limbs on black; in a depth map brighter is nearer), "These colours are
+labels only, not the look of the target video", and the closing "no skeleton lines, no flat-coloured, depth-map or
+segmentation-map look". Give a picture of the opening frame as `<Picture 1>` with a control layer: the look and the
+setting come from it.
+
+Where the defaults come from: one shot measured on the Mac (a martial-arts sequence with a kick and a punch toward
+the camera, fictional people, 5 s at 864x480; the distance of the body's keypoints from the source's, in percent of
+the frame width, lower is closer):
+
+| `<Video 1>` | Distance | What it kept |
+|---|---|---|
+| Source clip, with a picture of another person | 0.6 to 2.2 | the shot move for move, in its own place, with the new person |
+| Depth, with a first-frame picture | 1.3 to 2.9 | the kick and the punch toward the camera; the setting is the picture's |
+| Depth, with a picture of another setting | 2.7 to 5.5 | the new place with no leak of the source's; the punch, not the kick |
+| Skeleton, with a first-frame picture | 2.0 to 4.5 | the scale and the camera; the kick was lost |
+| The picture alone | 5.0 to 9.8 | |
+
+No control layer left a trace of its look in a clip. One shot: read the table as an order, not as figures to promise.
+On the DGX Spark the same routes were rendered through the wizard's own API calls with the Turbo adapter and looked
+at, not measured: see [the Spark's table](#reference-videos-audio-and-motion-on-a-dgx-spark).
 
 ## FastH3 (new in 1.8)
 
@@ -931,13 +1011,14 @@ REF_TURBO=1 REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the 
   ComfyUI, which already used 0.5 and 0.5. The sample clips and timings in this README from first frames and
   reference pictures were made with the old values: the timings stand, the clips would come out as other takes.
 
-### Reference videos and reference audio (Ref2VA, Mac only for now)
+### Reference videos and reference audio (Ref2VA)
 
 The same Ref2VA transformer takes two more kinds of reference, as MiniMax's model card describes: videos, which
-carry a subject and how it moves, and audio clips, which carry a voice or music. **Not in a release yet:** the passes
-need TensorFold's H3 family to pack these references and to hold reference audio rows, which is on the engine branch
-`ref-video-audio` and not in the engine build 2.5 installs; with the installed engine the renderer stops with a
-message saying so. Reference pictures alone are unaffected.
+carry a subject and how it moves, and audio clips, which carry a voice or music. **On a Mac, not in a released engine
+yet:** the passes need TensorFold's H3 family to pack these references and to hold reference audio rows, which is on
+the engine branch `ref-video-audio` and not in the engine build this release installs; with the installed engine the
+renderer stops with a message saying so. Reference pictures alone are unaffected. **On a DGX Spark** they run now,
+through ComfyUI's node: see [below](#reference-videos-audio-and-motion-on-a-dgx-spark).
 
 ```bash
 REF_VIDEOS="baker.mp4" bash scripts/video.sh \
@@ -967,9 +1048,7 @@ REF_VIDEOS="baker.mp4" REF_VIDEO_SOUND=1 bash scripts/video.sh "..." out.mp4   #
 - **In the app:** *The clip starts from → References*; step 2 takes pictures, videos and audio, shows each one's name,
   and step 4 writes the prompt in the model's own form (`<Video 1> is the reference video for ...`,
   `<Audio 1> is the voice timbre reference for ...`). No time is estimated when a video or an audio clip is used.
-- **On a DGX Spark** `REF_VIDEOS` and `REF_AUDIOS` are refused with "Mac only for now", in the scripts and in the
-  app. ComfyUI's `MiniMaxH3ReferenceToVideo` node does take them; this pack's workflow does not feed them yet, and
-  nothing of it was run on a Spark.
+- **On a DGX Spark** the same variables, limits and messages: see the next section.
 - **How it was checked.** The token layout (row order, positions, which rows are held) is equal to the last float32
   bit to MiniMax's own `build_ref2va_packed_sequence` and to h3.c's `h3_layout_build`, on six mixed requests. The
   prompt's token sequence equals MiniMax's `build_ref2va_presentation`; the frame sampling for the text encoder,
@@ -997,6 +1076,55 @@ REF_VIDEOS="baker.mp4" REF_VIDEO_SOUND=1 bash scripts/video.sh "..." out.mp4   #
   in a browser (its checks and the prompt it writes were exercised through its API, two clips were rendered
   through its queue, and the Create page's choosers and reference step were driven in a scripted DOM, not looked
   at).
+
+### Reference videos, audio and motion on a DGX Spark
+
+`REF_VIDEOS`, `REF_AUDIOS`, `REF_VIDEO_SOUND=1` and `STEPS` work on the Spark as on the Mac, in the
+scripts and in the app, after `bash oneshot-setup-spark.sh --ref2va`: the same limits, checked before any model loads,
+with the same messages. `spark/spark_generate.py` reads each reference with `ffmpeg` (a video at 24 fps, up to the
+clip's own length, LANCZOS-scaled to its own aspect ratio and brought down to the clip's pixel area, stored without
+loss; sound at 32 kHz stereo, cut to the clip's length) and hands it to ComfyUI's `MiniMaxH3ReferenceToVideo` node
+(`ref_videos`, `ref_video_audios`, `ref_audios`), which numbers pictures, videos and audio clips as the Mac build
+does. The passes run on ComfyUI's own blocks in bf16. Scaling the video before the node sees it matters: left alone,
+the node takes a reference at up to 768 pixels on the short side whatever the clip being made, several times the
+rows; for that reason `REF_VIDEO_SIZE=full` is refused on a Spark. The reference files are taken out of ComfyUI's
+input folder again after the render. Nothing here needs the TensorFold engine change the Mac build is waiting for.
+
+Measured on one DGX Spark (GB10, 121 GB usable), 5 s at 864x480, seed 7, fictional people from earlier renders, a
+browser and the app open, each render under a watcher on free memory; "lowest free" is the lowest `MemAvailable`
+seen during the render:
+
+| Render | Passes | Time | Lowest free |
+|---|---|---|---|
+| One picture (as in 2.5, to see nothing changed) | Turbo 4 | 100 s | 39.8 GB |
+| A picture and a 2.3 s reference video | Turbo 4 | 147 s | 39.1 GB |
+| A picture and a 5 s reference video | Turbo 4 | 202 s | 38.3 GB |
+| A picture and a 5 s audio clip | Turbo 4 | 98 s | 39.1 GB |
+| Wizard through the API: a picture and the source clip, full scene | Turbo 4 | 208 s | 37.8 GB |
+| Wizard through the API: a picture and the skeleton layer | Turbo 4 | 187 s | 37.8 GB |
+| Wizard through the API: a picture and the depth layer, actor motion | Turbo 4 | 193 s | 15.4 GB (see below) |
+| A 5 s reference video alone (the 8-bit transformer) | 20 | 677 s | 57.1 GB |
+
+A 5 second reference video about doubles the time of a Turbo clip and costs under 2 GB more memory at this size; at
+20 passes a pass over the clip's and the video's rows took 30.7 s (613 s of passes), the reference's encoding 46 s.
+What the clips showed, besides the table: the 20-pass clip has the baker of the video, his clothes and his motion in
+front of a market stall, as on the Mac. With the Turbo adapter: the woman of the picture doing the
+baker's motion second for second in his bakery; the martial-arts shot repeated move for move with the woman of the
+picture in it; the skeleton layer steering the scale and the camera with no skeleton look in the clip. The audio
+clip (a man's spoken line beside a woman's picture) gave **no carry-over we could measure**, as on the Mac: her voice
+at 192 Hz with the clip and 195 Hz without, the reference near 110 Hz.
+
+The depth layer with a picture of the new person kept the stances and the punch toward the camera in a rooftop
+drawn afresh from the prompt, with no depth-map look.
+
+**Memory after a FastH3 clip.** The depth row, and a repeat of the source-clip row (210 s, 14.0 GB), ran right after
+a FastH3 clip: the server then still holds what ComfyUI's unloading does not give back (TensorFold's engine keeps its
+int8 weights), and the reference model loads on top. That is the 7 GB figure of 2.5 as well. A reference render
+that follows a FastH3 clip now restarts ComfyUI first ("a reference render starts from a server with nothing
+loaded"): the same picture and 5 s video then ran in 213 s, restart included, with 37.9 GB lowest free.
+
+Not tested on the Spark: `REF_VIDEO_SOUND=1`, more than one video or audio clip, a matching voice as the audio reference, clips longer than 5 s with a reference
+video, larger sizes than 864x480 with one, and sound by ear.
 
 ### GHCR prebuilt carrier
 

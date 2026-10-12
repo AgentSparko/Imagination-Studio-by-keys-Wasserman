@@ -80,13 +80,23 @@ Rules:
   transformer. `Ref2VA/` holds only the transformer; its text encoder, tokenizer, processor and decoders are links
   to `FL2VA/`: do not download them twice.
 - Reference videos (`REF_VIDEOS`, up to 3) and reference audio (`REF_AUDIOS`, up to 3) are the same model's other
-  references, on the Mac only: each clip 2 to 15 s, 15 s in all per kind, 12 references of all kinds, audio never
+  references: each clip 2 to 15 s, 15 s in all per kind, 12 references of all kinds, audio never
   alone. Named `<Video N>` and `<Audio N>` in the prompt; with `REF_VIDEO_SOUND=1` each video's own sound is a
   reference numbered ahead of the `REF_AUDIOS` clips. They need a TensorFold whose H3 family has
-  `packing.reference_layout` (engine branch `ref-video-audio`); the renderer says so when it is missing. A 5 s
+  `packing.reference_layout` on a Mac (engine branch `ref-video-audio`); the renderer says so when it is missing. A 5 s
   reference video about triples the time of a 5 s clip. Do not promise that a voice carries over: a matching voice
   moved the pitch to the reference's, a man's voice on a woman's picture changed nothing measurable. On a DGX Spark
-  they are refused ("Mac only for now").
+  the same variables go through ComfyUI's `MiniMaxH3ReferenceToVideo` (`spark_generate.py video --ref-video /
+  --ref-audio`), which needs no engine change; the video is scaled to the clip's pixel area before the node sees it,
+  and must stay so (`REF_VIDEO_SIZE=full` multiplies the rows and the memory and is refused on a Spark).
+- Motion as a reference: the wizard's *Analyse motion* (and *Use as motion reference* in the Motion Previs tab) sends
+  one layer of a Motion Previs pack as `<Video 1>`. Defaults by measurement: the same place with a new person takes the
+  source clip (written as "`<Video 1>` with its person replaced", never with the first-frame-anchor wording); a new
+  place or the camera alone takes depth; the skeleton is offered but is the loosest. A skeleton or depth layer goes
+  with the control-video prompt (`motion_template` in `app/server.py`: structural template,
+  first-frame anchor, legend, "labels only", and the negative): keep that wording, and do not promise figures: one shot was
+  measured. Do not promise voice cloning from reference audio either. On this machine every render runs through the
+  ComfyUI server of `spark/comfy.sh`, never as standalone model code: the server's loop is the only memory guard.
 - On a DGX Spark reference to video is `oneshot-setup-spark.sh --ref2va` and the same `REF_IMAGES` / `REF_TURBO=1`
   (`spark_generate.py video --ref`): ComfyUI's `MiniMaxH3ReferenceToVideo` on its own blocks, never
   `TensorFoldH3Blocks`. The adapter is merged at run time, so it needs the bf16 transformer: on an 8-bit

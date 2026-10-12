@@ -44,8 +44,12 @@ DEFAULT_LAYERS = ["depth", "ai-depth", "pose", "camera", "edges", "masks"]  # Ap
 HANDOFF_LAYERS = {"reference": "reference.mp4", "openpose": "openpose_pose.mp4", "pose": "pose_high_contrast.mp4",
                   "ai-depth": "ai_depth.mp4", "depth": "depth.mp4", "edges": "edges.mp4", "lineart": "lineart.mp4",
                   "masks": "motion_mask.mp4", "normals": "normals_proxy.mp4"}
-SUGGESTED = {"camera-only": ["ai-depth", "depth", "edges"], "actor-motion": ["openpose", "pose", "reference"],
-             "object-motion": ["edges", "masks", "ai-depth", "depth"], "full-scene": ["reference"]}
+# By measurement on one shot (a martial-arts sequence, distance of the body's keypoints from the source's, in % of the
+# frame width, lower is closer): the source clip with a picture 0.6 to 2.2, depth with a picture 1.3 to 2.9, the
+# skeleton with a picture 2.0 to 4.5, the picture alone 5.0 to 9.8. So the same place with a new person takes the
+# source clip, a new place or the camera alone takes depth, and the skeleton is offered but never the default.
+SUGGESTED = {"camera-only": ["ai-depth", "depth", "reference"], "actor-motion": ["ai-depth", "depth", "reference"],
+             "object-motion": ["ai-depth", "depth", "reference"], "full-scene": ["reference"]}
 # a pack ZIP may hold these and nothing else is taken out of it
 PACK_FILES = ({name for name in worker.BUNDLE_FILES.values() if name}
               | {"bundle_manifest.json", "analysis_manifest.json", "preview.jpg", "pose_high_contrast.webm", "openpose_pose.webm", "ai_depth.webm"})
@@ -100,10 +104,9 @@ def motion_reference(pack, layer, mode, seconds, width, height, *, timing: str =
     """The hand-off from Motion Previs to a render: one layer of a pack as a clip of the asked length and size, the
     camera move in words, and the reference mode.
 
-    THE REF2VA HOOK-UP IS NOT HERE. It comes from the other branch (`ref-video-audio`, reference-video input for
-    MiniMax H3's Ref2VA model): the render there is expected to pass `clip` as `<Video 1>`, put `camera` into the
-    prompt, and word the rest by `mode`. This function only prepares what that render will need, and nothing in this
-    branch calls a model with it.
+    The create wizard reads it (index.html, useMotionReference and motionVideos): `clip` becomes `<Video 1>` of a
+    MiniMax H3 Ref2VA clip, `camera` goes into the prompt, and the prompt composer words the rest by `mode` and
+    `layer` (server.py, motion_template). This function only prepares the clip and the words; it calls no model.
 
     pack     a pack id, or its folder under $STUDIO_HOME/motion
     layer    one of HANDOFF_LAYERS ("reference", "openpose", "pose", "ai-depth", "depth", "edges", "lineart", "masks",

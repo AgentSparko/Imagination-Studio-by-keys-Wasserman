@@ -5,7 +5,8 @@
    the port is app/motion_worker.py and his NOTICE is kept at LICENSES/Motion-Previs-Studio-NOTICE. This page follows his
    app's flow (pick a shot, choose its range and one reference mode, pick control layers, run with a stage rail and a
    working cancel, review, export a production pack) in this Studio's own controls; none of his interface code is here.
-   What is added: the camera move in words, and "Use as motion reference", which stores the hand-off a render will read. */
+   What is added: the camera move in words, and "Use as motion reference", which stores the hand-off and opens the create
+   wizard on it (useMotionReference in index.html): the layer as <Video 1> of a MiniMax H3 Ref2VA clip. */
 const MO = { state: null, sources: null, packs: null, source: null, meta: null, start: 0, end: 5, mode: "full-scene", layers: null, fps: 12,
   poseModel: "", resolution: "auto", job: null, timer: null, packId: null, picking: false, busy: "", ref: undefined,
   hand: { layer: "", mode: "", seconds: 5, size: "864x480", w: 864, h: 480, timing: "stretch", fit: "cover" } };
@@ -153,14 +154,15 @@ function moHandoff(pack) {
   }
   const use = el("button", { class: "primary", disabled: !ready, title: ready ? "" : "Run an analysis or upload a pack first", onclick: async () => { use.disabled = true; use.textContent = "Preparing…";
     try { MO.ref = await api("/api/motion/reference", { pack: pack.id, layer: h.layer, mode: h.mode || pack.mode, seconds: Number(h.seconds), width: Number(h.w), height: Number(h.h), timing: h.timing, fit: h.fit });
-      try { window.MOTION_REFERENCE = MO.ref; localStorage.setItem("motion-reference", JSON.stringify(MO.ref)); } catch {} toast("Stored as the motion reference"); } catch (e) { toast(e.message); } render(); } }, "Use as motion reference");
-  put(box, el("div", { class: "row", style: "margin-top:14px" }, el("div", { class: "fit" }, use), el("div", { class: "note", style: "margin:0" }, ready ? "Stores the hand-off for the create wizard: the clip, the camera move in words and the mode. A reference clip is 2 to 15 s; MiniMax H3 Ref2VA takes at most " + st.reference_clips + " of them, 15 s in all." : "Ready once a pack is: run an analysis or upload a pack.")));
+      try { window.MOTION_REFERENCE = MO.ref; localStorage.setItem("motion-reference", JSON.stringify(MO.ref)); } catch {}
+      if (typeof useMotionReference === "function") return useMotionReference(MO.ref, pack); toast("Stored as the motion reference"); } catch (e) { toast(e.message); } render(); } }, "Use as motion reference");
+  put(box, el("div", { class: "row", style: "margin-top:14px" }, el("div", { class: "fit" }, use), el("div", { class: "note", style: "margin:0" }, ready ? "Opens the create wizard with this layer as <Video 1> of a reference clip, the camera move ready for the prompt and the mode chosen here. The source clip is the tested route; a skeleton or depth layer is sent as a control video. A reference clip is 2 to 15 s; MiniMax H3 Ref2VA takes at most " + st.reference_clips + " of them, 15 s in all." : "Ready once a pack is: run an analysis or upload a pack.")));
   if (MO.ref) put(box, el("div", { class: "eg", style: "max-width:none" }, el("b", {}, "Stored motion reference"), el("div", { style: "display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:14px;align-items:start" },
     MO.ref.clip ? el("video", { src: file(MO.ref.clip), controls: true, muted: true, loop: true, preload: "metadata", style: "width:100%;border-radius:10px;background:#000" }) : el("div", { class: "note" }, "No clip: the camera move in words only."),
     el("div", {}, el("div", { class: "chips" }, el("span", { class: "pill done" }, (st.modes[MO.ref.mode] || [MO.ref.mode])[0]), MO.ref.clip ? el("span", { class: "pill" }, (MO.ref.layer || "") + " · " + MO.ref.width + "×" + MO.ref.height + " · " + MO.ref.seconds + " s · " + MO.ref.frames + " frames") : null,
         MO.ref.source && MO.ref.source.speed !== 1 && MO.ref.clip ? el("span", { class: "pill" }, "speed × " + MO.ref.source.speed.toFixed(2)) : null),
       el("div", { style: "margin-top:8px" }, MO.ref.camera || "No camera move in words."), el("div", { class: "note" }, MO.ref.instruction),
-      el("div", { class: "note" }, "The render that reads this (the clip as <Video 1> for MiniMax H3 Ref2VA) is not part of this tab yet: it comes with the reference-video work."),
+      el("button", { class: "small", style: "margin:8px 6px 0 0", onclick: () => { if (typeof useMotionReference === "function") useMotionReference(MO.ref, (MO.packs || []).find(p => p.id === MO.ref.pack)); } }, "Open it in the create wizard"),
       el("button", { class: "small", style: "margin-top:8px", onclick: async () => { await api("/api/motion/handoff", undefined, "DELETE"); MO.ref = null; try { window.MOTION_REFERENCE = null; localStorage.removeItem("motion-reference"); } catch {} render(); } }, "Forget it")))));
   return box;
 }

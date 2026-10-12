@@ -192,13 +192,13 @@ const select = (obj, key, options, after) => { const n = el("select", {}, Object
 const media = (path, attrs = {}) => /\.(mp4|mov)$/i.test(path) ? el("video", { src: file(path), controls: true, preload: "metadata", ...attrs }) : el("img", { src: file(path), loading: "lazy", ...attrs });
 
 const IMAGE_SIZES = { "1344x768": "1344x768 (16:9)", "1664x928": "1664x928 (16:9, larger)", "1024x1024": "1024x1024 (square)", "768x1344": "768x1344 (9:16)" };
-Object.assign(C, { goes: "video", start: "text", engine: "fasth3", passes: "8", h3quality: "standard", res: "480p", up: false, h3passes: "preset", refs: [], subjects: [], refPasses: "20", refVideos: [], video_subjects: [], refAudios: [], audio_notes: [], video_sound: false });
+Object.assign(C, { goes: "video", start: "text", engine: "fasth3", passes: "8", h3quality: "standard", res: "480p", up: false, h3passes: "preset", refs: [], subjects: [], refPasses: "20", refVideos: [], video_subjects: [], refAudios: [], audio_notes: [], video_sound: false, motion: null });
 const ENGINES = { fasth3: "FastH3 (FastVideo, sparse attention): fastest", h3: "MiniMax H3 (Turbo adapter or full 20 steps)" };
 const RESOLUTIONS = { "480p": "480p · 864x480", "720p": "720p · 1280x720", draft: "Draft · 1344x768, generated at 672x384 with the 2x decoder",
   "2k": "2K · 2048x1152, generated at 1024x576 with the 2x decoder", native: "Native · 1344x768" };
 const UPSCALED = { "480p": ["p960", "1728x960"], "720p": ["qhd", "2560x1440 (2K)"] };
 // reference to video (MiniMax H3 Ref2VA): pictures, videos and audio clips that fix how someone or something looks,
-// moves or sounds; none of them is a frame of the clip. Videos and audio are on the Mac build only (S.ref_media).
+// moves or sounds; none of them is a frame of the clip. S.ref_media: videos and audio are offered (Ref2VA is installed).
 const isRef = () => C.mode === "r2v";
 const refMedia = () => isRef() && (C.refVideos.length > 0 || C.refAudios.length > 0);
 const refCount = () => C.refs.length + C.refVideos.length + C.refAudios.length;
@@ -342,6 +342,84 @@ function settingsRow(obj, after, keep = {}) {
 async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, seconds: Number(obj.seconds), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_media: obj === C && refMedia(), ref_turbo: obj === C && isRef() && C.refPasses === "4", ...(obj === C ? { steps: String(C.steps).trim() } : {}), loras: obj === C && isRef() ? [] : lorasOf(obj) });
   node.textContent = r.seconds ? "≈ " + mmss(r.seconds) + (S.platform === "spark" ? " on a DGX Spark, models loaded" : " on an M5 Ultra") : ""; } catch { node.textContent = ""; } }
 
+/* ---------- Motion reference: Motion Previs on <Video 1> of a reference clip ---------- */
+// C.motion: the analysis of the first reference video (a Motion Previs pack), what to carry over of it, and which
+// layer of the pack goes to the model as <Video 1>. ``made`` is the layer C.refVideos[0] already is: "reference" for
+// a clip the user added here, the chosen layer for a hand-off from the Motion Previs tab. Without an analysis the
+// video is a plain reference, as before.
+const MOTION_MODES = { "full-scene": ["Full scene", "the same place and motion, a new person"], "actor-motion": ["Actor motion", "the body motion and the camera, in a new place"],
+  "object-motion": ["Object motion", "an object's path and the camera"], "camera-only": ["Camera only", "just the camera move and its timing"] };
+const MOTION_LAYERS = { reference: ["Source clip", "the video itself: the tested route", "reference.mp4"], openpose: ["Skeleton", "OpenPose joints on black: the loosest hold on the motion", "openpose_pose.mp4"],
+  "ai-depth": ["Depth", "Depth-Anything: for a new place, or the camera alone", "ai_depth.mp4"], depth: ["Depth proxy", "made by ffmpeg: brighter is nearer", "depth.mp4"], edges: ["Edges", "outlines on black", "edges.mp4"] };
+// what goes in by default for each choice, by measurement (motion.py, SUGGESTED): the same place with a new person
+// takes the source clip; a new place, an object's path or the camera alone takes depth; the skeleton is never a default
+const motionDefault = m => m.mode === "full-scene" ? (m.made === "reference" || m.layers.includes("reference") ? "reference" : m.made) : (["ai-depth", "depth"].find(l => l === m.made || m.layers.includes(l)) || m.made);
+const MA = { state: null, job: null, timer: null };
+const maBusy = () => !!MA.job && ["queued", "running"].includes(MA.job.status);
+const maSay = () => { const j = MA.job; if (!j) return ""; const now = (j.stages || {})[j.stage] || {}; return j.status === "queued" ? "Waiting for its turn…" : "Analysing: " + (j.stage || "starting") + (now.of > 1 ? " " + now.at + "/" + now.of : "") + (j.elapsed != null ? " · " + mmss(j.elapsed) : ""); };
+const motionControl = () => !!C.motion && C.refVideos.length > 0 && C.motion.layer !== "reference";
+// what the prompt composer is told: nothing without an analysis or without a video for it
+const motionFields = () => C.motion && C.refVideos.length ? { layer: C.motion.layer, mode: C.motion.mode, camera: C.motion.useCamera ? C.motion.camera : "" } : null;
+function setMotion(pack, layer, made, mode) { const cam = pack.camera || {};
+  C.motion = { pack: pack.id, mode: mode || "full-scene", layer, made, layers: pack.layers || [], files: pack.files || {}, camera: cam.sentence || "", reliable: !!cam.reliable, confidence: cam.confidence || 0,
+    seconds: pack.range ? pack.range.duration : null, useCamera: !!cam.sentence };
+  C.prompt = ""; }
+async function analyseMotion() {
+  const path = C.refVideos[0]; if (!path || maBusy()) return;
+  try { const meta = await api("/api/probe?path=" + encodeURIComponent(path));
+    MA.job = await api("/api/motion/jobs", { source: path, start: 0, end: Math.floor(Math.min(meta.duration, 15) * 100) / 100, mode: "full-scene", fps: 12, title: "Motion of " + path.split("/").pop() });
+  } catch (e) { toast(e.message); return; }
+  render(); clearInterval(MA.timer);
+  MA.timer = setInterval(async () => { try { MA.job = await api("/api/motion/jobs/" + MA.job.id); } catch { return; }
+    if (maBusy()) { const say = document.getElementById("ma-say"); if (say) say.textContent = maSay(); return; }
+    clearInterval(MA.timer); MA.timer = null;
+    if (MA.job.status === "done" && C.refVideos[0] === path) { try { setMotion(await api("/api/motion/packs/" + MA.job.pack), "reference", "reference"); if (typeof MO !== "undefined") MO.state = null; } catch (e) { toast(e.message); } }
+    if (tab === "Create") render(); }, 700);
+}
+// the clip that goes to the model as <Video 1>: the one in the list, or the chosen layer cut from the pack
+async function motionVideos() { const m = C.motion; if (!m || !C.refVideos.length || m.layer === m.made) return C.refVideos;
+  const size = output().size, r = await api("/api/motion/reference", { pack: m.pack, layer: m.layer, mode: m.mode, seconds: Math.max(2, Math.min(Number(C.seconds), m.seconds || 15)), width: size[0], height: size[1], timing: "trim", keep: false });
+  return [r.clip, ...C.refVideos.slice(1)]; }
+function motionPanel() {
+  if (!C.refVideos.length) return null;
+  if (!MA.state) { api("/api/motion/state").then(st => { MA.state = st; }, () => { MA.state = { available: {}, setup: "" }; }).then(() => { if (tab === "Create") render(); }); return null; }
+  const st = MA.state, can = st.available || {}, m = C.motion, box = el("div", { class: "group" }, el("h3", {}, "Motion of <Video 1>"));
+  if (!m) {
+    if (!(can.pose || can.camera || can.ai_depth)) return put(box, el("div", { class: "note" }, "<Video 1> is used as a plain reference. Motion analysis (the camera move in words, a pose skeleton, a depth layer) is not installed on this machine" + (st.setup ? ": " : "."), st.setup ? el("span", { style: "font-family:var(--mono)" }, st.setup) : null, st.setup ? " adds it." : null)), box;
+    return put(box, el("div", { class: "row" }, el("button", { type: "button", class: "fit primary", disabled: maBusy(), onclick: analyseMotion }, maBusy() ? "Analysing…" : "Analyse motion"),
+      el("div", { class: "note", id: "ma-say", style: "margin:0" }, maBusy() ? maSay() : MA.job && MA.job.status === "failed" ? "The analysis failed (" + (MA.job.error || "no reason given") + "). The video is still used as a plain reference."
+        : "Optional. Runs Motion Previs on <Video 1>, on the processor, in well under a minute: the camera move in words, a pose skeleton and a depth layer, then a choice of what the clip keeps of the video. Without it the video is a plain reference."))), box;
+  }
+  const again = () => { C.prompt = ""; render(); }, layers = Object.fromEntries(Object.entries(MOTION_LAYERS).filter(([k]) => k === "reference" ? (m.made === "reference" || m.layers.includes(k)) : m.layers.includes(k) && !(k === "depth" && m.layers.includes("ai-depth"))).map(([k, v]) => [k, [v[0], v[1]]]));
+  if (!layers[m.layer]) m.layer = layers[m.made] ? m.made : Object.keys(layers)[0];
+  const shown = m.layer === m.made ? C.refVideos[0] : m.files[MOTION_LAYERS[m.layer][2]];
+  put(box, el("label", {}, "What to carry over"), choice(m, "mode", MOTION_MODES, () => { m.layer = motionDefault(m); again(); }, true),
+    el("label", {}, "What goes to the model as <Video 1>"), choice(m, "layer", layers, again, true),
+    el("div", { style: "display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:14px;align-items:start;margin-top:12px" },
+      shown ? el("video", { src: file(shown), controls: true, muted: true, loop: true, preload: "metadata", style: "width:100%;border-radius:10px;background:#000" }) : el("div", { class: "note" }, "No preview of this layer."),
+      el("div", {}, motionControl() ? el("div", { class: "tip", style: "margin-top:0" }, el("b", {}, "A control layer"), "The model is told that <Video 1> is a diagram of the shot (its structure, not its look) and that <Picture 1> is the first frame. " + (C.refs.length ? "" : "Add a picture of the opening frame above, as <Picture 1>: the look of the clip comes from it. ") + "Measured on one shot: depth with a picture kept the moves nearly as well as the source clip and takes the setting from the picture; the skeleton held them loosely (a kick was lost). Neither left a trace of its look in the clip.")
+          : el("div", { class: "note", style: "margin-top:0" }, "The source clip goes in as it is" + (C.refs.length ? ", with <Picture 1> as who replaces its person: the closest hold on the motion in our tests, in the clip's own place." : ".") + (m.mode !== "full-scene" ? " For a new place, depth is the better choice." : "")),
+        m.camera ? el("label", { class: "switch", style: "margin-top:10px" }, bind(m, "useCamera", el("input", { type: "checkbox" }), again), el("span", {}, "Add the camera move to the prompt", el("small", {}, m.camera))) : el("div", { class: "note" }, "No camera move was solved for this clip."),
+        m.camera && !m.reliable ? el("div", { class: "note" }, "Low solve confidence (" + Math.round(100 * m.confidence) + "%): check the sentence against the clip.") : null,
+        m.camera && m.useCamera && C.camera.trim() ? el("div", { class: "note" }, "The Camera field of step 1 has its own text, which is used instead.") : null,
+        el("button", { type: "button", class: "small", style: "margin-top:10px", onclick: () => { C.motion = null; MA.job = null; again(); } }, "Forget the analysis: a plain reference"))));
+  return box;
+}
+// "Use as motion reference" in the Motion Previs tab lands here: the wizard opens on its references screen with the
+// hand-off clip as <Video 1>, the mode and the layer chosen there, and the camera move ready for the prompt
+function useMotionReference(ref, pack) {
+  if (!ref) return;
+  if (!ref.clip) { if (ref.camera) C.camera = ref.camera; C.prompt = ""; C.goes = "video"; C.step = 0; tab = "Create"; history.replaceState(null, "", "#Create"); toast(ref.camera ? "The camera move is in the Camera field" : "This pack has no camera move in words"); sync(); render(); return; }
+  if (!S.ref_media) { toast("Stored. A reference video needs MiniMax H3 Ref2VA, which is not installed here (" + (S.platform === "spark" ? "oneshot-setup-spark.sh" : "oneshot-setup.sh") + " --ref2va)."); return; }
+  Object.assign(C, { goes: "video", start: "refs", refVideos: [ref.clip], video_subjects: [""], video_sound: false, step: 1, job: null });
+  setMotion(pack || { id: ref.pack, layers: [ref.layer], files: {}, camera: {} }, ref.layer, ref.layer, ref.mode);
+  Object.assign(C.motion, { camera: ref.camera || "", reliable: !!ref.camera_reliable, confidence: ref.camera_confidence || 0, useCamera: !!ref.camera, seconds: ref.seconds });
+  C.seconds = Object.keys(S.durations).map(Number).sort((a, b) => a - b).find(d => d >= ref.seconds - 0.01) || 15;
+  const named = { "864x480": "480p", "1280x736": "720p", "1344x768": "native" }[ref.width + "x" + ref.height], lim = S.custom;
+  if (named) C.res = named; else if (ref.width % 32 === 0 && ref.height % 32 === 0 && ref.width * ref.height <= lim.pixels && Math.min(ref.width, ref.height) >= lim.sides[0] && Math.max(ref.width, ref.height) <= lim.sides[1]) Object.assign(C, { res: "custom", cw: ref.width, ch: ref.height });
+  C.up = false; tab = "Create"; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); sync(); C.prompt = ""; render();
+}
+
 /* ---------- Create ---------- */
 const STEPS = ["1. Intent / Mode", "2. First frame", "3. Words / Sound", "4. Review prompt", "5. Render"];
 function viewCreate() {
@@ -394,7 +472,7 @@ function viewCreate() {
         if (refCount() >= S.reference_total) { toast("at most " + S.reference_total + " references in all"); break; }
         const data = new FormData(); data.append("file", one); const r = await fetch("/api/upload", { method: "POST", body: data }); const j = await r.json();
         if (j.path) { list.push(j.path); labels.push(""); } else toast(j.detail || j.error || "upload failed"); } C.prompt = ""; render(); } }); return input; };
-      const drop = (list, labels, i) => el("a", { href: "#", onclick: e => { e.preventDefault(); list.splice(i, 1); labels.splice(i, 1); C.prompt = ""; render(); } }, "remove");
+      const drop = (list, labels, i) => el("a", { href: "#", onclick: e => { e.preventDefault(); list.splice(i, 1); labels.splice(i, 1); if (list === C.refVideos && i === 0) { C.motion = null; MA.job = null; } C.prompt = ""; render(); } }, "remove");
       put(body, el("h2", {}, refWord()), el("div", { class: "note" }, "Up to " + S.reference_limit + " pictures of who or what must look the same in the clip. They are not frames of it: the scene comes from the prompt, which names them <Picture 1>, <Picture 2>, … in this order. A clear, front-facing picture works best; any aspect ratio."),
         field("Add pictures", add),
         C.refs.length ? el("div", { class: "grid", style: "margin-top:10px" }, C.refs.map((p, i) => el("div", { class: "tile on" }, media(p),
@@ -405,12 +483,13 @@ function viewCreate() {
           el("div", { class: "note" }, "Up to " + S.reference_video_limit + " clips (mp4 or mov), each 2 to 15 seconds and 15 seconds in all: <Video 1>, <Video 2>, … A video carries a subject and how it moves. It is read up to the clip's own length. Every second of it adds work to each pass: a 5 second reference about triples the time of a 5 second clip."),
           field("Add videos", uploader("video/mp4,video/quicktime,.mp4,.mov", C.refVideos, C.video_subjects, S.reference_video_limit, "videos")),
           C.refVideos.length ? el("div", { class: "grid", style: "margin-top:10px" }, C.refVideos.map((p, i) => el("div", { class: "tile on" }, media(p),
-            el("div", { class: "cap" }, "<Video " + (i + 1) + ">" + (C.video_sound ? " · its sound is <Audio " + (i + 1) + ">" : ""), drop(C.refVideos, C.video_subjects, i)),
+            el("div", { class: "cap" }, "<Video " + (i + 1) + ">" + (i === 0 && C.motion && C.motion.layer !== C.motion.made ? " · sent as its " + MOTION_LAYERS[C.motion.layer][0].toLowerCase() + " layer" : "") + (C.video_sound ? " · its sound is <Audio " + (i + 1) + ">" : ""), drop(C.refVideos, C.video_subjects, i)),
             bind(C.video_subjects, i, el("input", { placeholder: "who or what it shows (empty: only the motion is used)" }), () => { C.prompt = ""; })))) : null,
           C.refVideos.length ? el("label", { class: "note", style: "display:block;margin-top:8px" }, el("input", { type: "checkbox", checked: C.video_sound, style: "width:auto;margin-right:6px", onchange: e => { C.video_sound = e.target.checked; C.prompt = ""; render(); } }),
             "Also use the videos' own sound as a reference (every video must have sound; the audio clips below are then numbered after them)") : null,
+          motionPanel(),
           el("h3", { style: "margin-top:18px" }, "Reference audio"),
-          el("div", { class: "note" }, "Up to " + S.reference_audio_limit + " sound clips (wav, mp3, m4a, aac, flac, ogg), each 2 to 15 seconds and 15 seconds in all: a voice or music the clip's sound should follow. Only beside a picture or a video: the model does not take sound alone. A clip longer than the video is cut to its length."),
+          el("div", { class: "note" }, "Up to " + S.reference_audio_limit + " sound clips (wav, mp3, m4a, aac, flac, ogg), each 2 to 15 seconds and 15 seconds in all: a voice or music the clip's sound should follow. Only beside a picture or a video: the model does not take sound alone. A clip longer than the video is cut to its length. This is not voice cloning: in our measurements a voice that fits the pictured person, and a video's own sound, carried over; a voice that does not fit (a man's line beside a woman's picture) did not."),
           field("Add audio", uploader("audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg", C.refAudios, C.audio_notes, S.reference_audio_limit, "audio clips")),
           C.refAudios.length ? el("div", { class: "grid", style: "margin-top:10px" }, C.refAudios.map((p, i) => el("div", { class: "tile on" }, el("audio", { src: file(p), controls: true, preload: "metadata", style: "width:100%" }),
             el("div", { class: "cap" }, audioName(i), drop(C.refAudios, C.audio_notes, i)),
@@ -447,7 +526,7 @@ function viewCreate() {
       field("Music (N/A for none)", bind(C, "music", el("input"))));
   } else if (C.step === 3) {
     const area = bind(C, "prompt", el("textarea", { style: "min-height:260px;font-family:ui-monospace,monospace;font-size:12px" }));
-    const again = async () => { const r = await api("/api/compose", { fields: C, first_frame: !noFrame(), references: isRef() ? Math.max(C.refs.length, refMedia() ? 0 : 1) : 0, referenced: isRef() }); C.prompt = r.prompt; area.value = r.prompt; };
+    const again = async () => { const r = await api("/api/compose", { fields: { ...C, motion: isRef() ? motionFields() : null }, first_frame: !noFrame(), references: isRef() ? Math.max(C.refs.length, refMedia() ? 0 : 1) : 0, referenced: isRef() }); C.prompt = r.prompt; area.value = r.prompt; };
     if (!C.prompt) again();
     put(body, el("h2", {}, "Review the prompt"), el("div", { class: "note" }, "This is what the video model receives, in MiniMax H3's own three-part format. Edit it freely; “Rebuild” discards edits."), area,
       el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "fit", onclick: again }, "Rebuild from steps 1–3"), el("span")));
@@ -455,16 +534,16 @@ function viewCreate() {
     const est = el("div", { class: "note" }); showEstimate(C, est);
     const job = C.job && jobs.find(j => j.id === C.job);
     const ready = C.prompt.trim() && (isRef() ? C.refs.length + C.refVideos.length > 0 : noFrame() || C.image);
-    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() && !isRef() ? " · " + C.steps + " passes (custom)" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + refPassText() + ", " + [[C.refs.length, "picture"], [C.refVideos.length, "video"], [C.refAudios.length, "audio clip"]].filter(k => k[0]).map(k => k[0] + " reference " + k[1] + (k[0] === 1 ? "" : "s")).join(", ") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
+    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() && !isRef() ? " · " + C.steps + " passes (custom)" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + refPassText() + ", " + [[C.refs.length, "picture"], [C.refVideos.length, "video"], [C.refAudios.length, "audio clip"]].filter(k => k[0]).map(k => k[0] + " reference " + k[1] + (k[0] === 1 ? "" : "s")).join(", ") + (motionFields() ? ", motion: " + MOTION_MODES[C.motion.mode][0].toLowerCase() + " from the " + MOTION_LAYERS[C.motion.layer][0].toLowerCase() : "") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
       !ready ? el("div", { class: "note", style: "color:var(--warn)" }, C.prompt.trim() ? (isRef() ? (S.ref_media ? "Add a reference picture or video in step 2." : "Add a reference picture in step 2.") : "Pick or upload a first frame in step 2.") : "Open step 4 once to build the prompt.") : null,
       el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "hot fit", disabled: !ready, onclick: async () => { try {
-        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed, ...extras(), ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4", ...(refMedia() ? { reference_videos: C.refVideos, reference_audios: C.refAudios, reference_video_sound: C.video_sound } : {}) } : {}) };
+        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed, ...extras(), ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4", ...(refMedia() ? { reference_videos: await motionVideos(), reference_audios: C.refAudios, reference_video_sound: C.video_sound, ...(motionFields() ? { motion: { pack: C.motion.pack, layer: C.motion.layer, mode: C.motion.mode } } : {}) } : {}) } : {}) };
         const j = await api("/api/jobs", isLong() ? { kind: "long", title: S.long[C.seconds] + ": " + (C.action || C.scene || "Video").slice(0, 40), params: { ...base, total_seconds: Number(C.seconds), beats: (C.beats || "").split("\n") } }
           : { kind: "video", title: (C.action || C.scene || "Clip").slice(0, 48), params: { ...base, seconds: Number(C.seconds) } });
         C.job = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, "Queue this clip"),
         // the way back to step 1 once a clip is queued: with the same settings, or with the words cleared
         el("button", { class: "fit", onclick: () => { C.step = 0; C.job = null; render(); } }, "Back to the start, keep this setup"),
-        el("button", { class: "fit", onclick: () => { Object.assign(C, { step: 0, job: null, prompt: "", scene: "", action: "", camera: "", dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, beats: "", refs: [], subjects: [], refVideos: [], video_subjects: [], refAudios: [], audio_notes: [], video_sound: false }); render(); } }, "Start a new clip"), el("span")));
+        el("button", { class: "fit", onclick: () => { Object.assign(C, { step: 0, job: null, prompt: "", scene: "", action: "", camera: "", dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, beats: "", refs: [], subjects: [], refVideos: [], video_subjects: [], refAudios: [], audio_notes: [], video_sound: false, motion: null }); MA.job = null; render(); } }, "Start a new clip"), el("span")));
     if (job) { put(body, el("h3", {}, "This clip"), jobCard(job));
       if (job.status === "done") put(body, el("video", { class: "main", src: file(job.outputs[0]), controls: true }),
         el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "fit", onclick: () => addToTimeline(job.outputs[0]) }, "Add to the editor timeline"), el("a", { class: "fit", href: file(job.outputs[0]), download: "" }, "Download"), el("span"))); }
@@ -617,7 +696,8 @@ function lessons() {
       { t: "Add the pictures", d: ["In step 2 add up to " + S.reference_limit + " pictures. A clear, front-facing, well-lit picture works best. They are numbered in the order you add them."], tip: "One good picture per person beats several mixed ones. Only use pictures you have the right to use.", go: go(1, "Add pictures", { start: "refs" }) },
       { t: "Label every picture", d: ["Under each picture type who or what it is. The label is how your scene text points at the picture, so make it something you will repeat word for word."], eg: "Picture 1: the woman with red hair\nPicture 2: the brown leather jacket", tip: "Unlabeled pictures are only called “the main subject”. With two or more, the model cannot tell which is which.", go: go(1, "Add pictures", { start: "refs" }) },
       { t: "Write the scene with the same labels", d: ["Back in step 1, describe the new scene and use the labels exactly as typed. Do not leave the scene boxes empty: the pictures say who, the boxes say where and what."], eg: "Scene: The woman with red hair sits at a wooden desk in a small radio studio at night, wearing the brown leather jacket.\nWhat happens: She leans to the microphone and speaks, then smiles.", go: go(0, "Describe the scene", { start: "refs" }) },
-      ...(S.ref_media ? [{ t: "Reference videos and audio", d: ["Step 2 also takes up to " + S.reference_video_limit + " videos and " + S.reference_audio_limit + " audio clips, each 2 to 15 seconds. A video carries a subject and its motion; an audio clip a voice or music. The prompt names them <Video 1> and <Audio 1>, and step 4 writes those names for you.", "Audio needs a picture or a video beside it. A reference video makes every pass slower, so start with a short one."], tip: "Under a video, say who it shows to keep that person; leave the box empty to borrow only the motion.", go: go(1, "Add videos", { start: "refs" }) }] : []),
+      ...(S.ref_media ? [{ t: "Reference videos and audio", d: ["Step 2 also takes up to " + S.reference_video_limit + " videos and " + S.reference_audio_limit + " audio clips, each 2 to 15 seconds. A video carries a subject and its motion; an audio clip a voice or music. The prompt names them <Video 1> and <Audio 1>, and step 4 writes those names for you.", "Audio needs a picture or a video beside it. A reference video makes every pass slower, so start with a short one."], tip: "Under a video, say who it shows to keep that person; leave the box empty to borrow only the motion.", go: go(1, "Add videos", { start: "refs" }) },
+        { t: "Motion of a reference video", d: ["Under the first video, Analyse motion runs Motion Previs on it: the camera move in words, a pose skeleton and a depth layer. Then choose what the clip keeps of the video (the full scene, the actor's motion, an object's path or only the camera) and what the model is given as <Video 1>.", "The source clip is the tested route: with a picture of someone else, the clip repeats the shot with that person in it. For a new place choose depth, sent as a control video with a picture of the opening frame: it kept the moves nearly as well in our tests. The skeleton holds the motion most loosely."], tip: "The camera sentence is added to the prompt unless the Camera field of step 1 has text of its own.", go: go(1, "Add videos", { start: "refs" }) }] : []),
       { t: "Passes and limits", d: [S.ref2va_turbo ? "20 passes is the model as released. Turbo 4 passes is about 2.5 times faster and good for trying ideas." : "Reference clips use 20 plain passes.", "Reference clips are at most 15 seconds and are slower than plain FastH3 clips."], tip: "Speech rules are the same as in “Speech, sound and music”: fit the line to the clip length.", go: go(0, "Reference to video", { start: "refs" }) } ] }] : []),
     { id: "long", track: "Create", title: "Videos longer than 15 seconds", sub: "chained clips and story beats", steps: [
       { t: "Pick a long length", d: ["The model makes at most 15 seconds at a time. Choose 30 seconds or more under Length and the app renders several 15 second clips, each opening on the last frame of the one before, then joins them."], tip: "Not available with reference pictures.", go: go(0, "Length", { start: "text" }) },
@@ -730,8 +810,8 @@ function jobCard(job) { const p = job.progress; const elapsed = job.elapsed != n
       ["queued", "running"].includes(job.status) ? el("button", { class: "small", onclick: async () => { await api("/api/jobs/" + job.id + "/cancel", {}); poll(); } }, "Cancel") : null,
       el("button", { class: "small", onclick: () => pre.classList.toggle("hide") }, "Log")),
     job.status === "running" ? el("div", {}, el("div", { class: "bar" }, el("i", { style: "width:" + share + "%" })),
-      el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + (job.estimate && elapsed != null ? (job.estimate - elapsed > 5 ? "about " + mmss(job.estimate - elapsed) + " left" : "almost done") : "no time estimate for this setting") + (job.passes ? " · " + job.passes + " passes" : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : ""))) : null,
-    job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.passes ? " · " + job.passes + " passes" : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, qaLines(job), pre); }
+      el("div", { class: "note" }, (p ? p.stage + " " + p.at + "/" + p.of + " · " : "loading · ") + (job.estimate && elapsed != null ? (job.estimate - elapsed > 5 ? "about " + mmss(job.estimate - elapsed) + " left" : "almost done") : "no time estimate for this setting") + (job.passes ? " · " + job.passes + " passes" : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : job.engine === "cuda" ? "CUDA" : "MLX engine") : ""))) : null,
+    job.status === "done" && elapsed ? el("div", { class: "note" }, "Took " + mmss(elapsed) + (job.passes ? " · " + job.passes + " passes" : "") + (job.engine ? " · " + (job.engine === "zig" ? "native Zig engine" : job.engine === "cuda" ? "CUDA" : "MLX engine") : "")) : null, job.error ? el("div", { class: "note", style: "color:var(--bad)" }, job.error) : null, qaLines(job), pre); }
 let lastSig = "";
 async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
   const box = $("#jobs"); box.replaceChildren(...(jobs.length ? jobs.slice(0, 30).map(jobCard) : [el("div", { class: "note" }, "Nothing queued yet.")]));
@@ -747,7 +827,9 @@ function render() { $("#tabs").replaceChildren(...TABS.map(t => el("button", { c
 (async () => { const want = decodeURIComponent(location.hash.slice(1)); if (TABS.includes(want)) tab = want;
   // links can preset the Create form: ?goes=image, ?engine=h3&res=720p&up=1&step=4 ...
   for (const [k, v] of new URLSearchParams(location.search)) if (k in C && k !== "mode") C[k] = k === "up" ? v === "1" : (k === "step" || k === "count" ? Number(v) : v);
-  S = await api("/api/state"); await loadLoras(); if (!S.turbo) C.engine = "fasth3"; sync(); $("#gohome").onclick = () => { tab = "Create"; C.step = 0; T.coach = false; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); render(); }; $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "Wasserman Slate AI Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000); })();
+  S = await api("/api/state"); await loadLoras(); if (!S.turbo) C.engine = "fasth3"; sync(); $("#gohome").onclick = () => { tab = "Create"; C.step = 0; T.coach = false; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); render(); }; $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "Wasserman Slate AI Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000);
+  // ?motionref opens the create wizard on the motion reference stored by the Motion Previs tab
+  if (new URLSearchParams(location.search).has("motionref")) { try { const r = (await api("/api/motion/handoff")).reference; if (r) useMotionReference(r, await api("/api/motion/packs/" + r.pack).catch(() => null)); } catch {} } })();
 </script>
 </body>
 </html>

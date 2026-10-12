@@ -95,8 +95,8 @@ SPARK_REF2VA_5S = {"small": 321}
 SPARK_REF2VA_TURBO_5S = {"small": 107}
 REF2VA_ADAPTER = "lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 REFERENCE_LIMIT = 9
-# MiniMax's limits for the other two kinds of reference (Mac only for now): 3 videos and 3 audio clips, each 2 to 15
-# seconds and 15 seconds in all per kind, and 12 files of all kinds in one request
+# MiniMax's limits for the other two kinds of reference: 3 videos and 3 audio clips, each 2 to 15 seconds and 15
+# seconds in all per kind, and 12 files of all kinds in one request (the Mac engine and, on a Spark, ComfyUI's node)
 REFERENCE_VIDEO_LIMIT, REFERENCE_AUDIO_LIMIT, REFERENCE_TOTAL = 3, 3, 12
 REFERENCE_CLIP_SECONDS, REFERENCE_KIND_SECONDS = (2.0, 15.0), 15.0
 VIDEO_SUFFIXES, AUDIO_SUFFIXES = (".mp4", ".mov"), (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
@@ -160,6 +160,81 @@ def relative(path: Path) -> str:
     return str(Path(path).resolve().relative_to(HOME.resolve()))
 
 
+# What a Motion Previs layer shows, for the model: a control layer is a diagram of the shot, not footage of it.
+MOTION_LEGENDS = {
+    "openpose": "an OpenPose skeleton on a black background, where the coloured lines are the joints and limbs of the subject's body and the black area is everything else",
+    "pose": "a pose skeleton on a black background, where the coloured lines are the joints and limbs of the subject's body and the black area is everything else",
+    "ai-depth": "a depth map in shades of grey, where brighter is nearer to the camera and darker is farther away",
+    "depth": "a depth map in shades of grey, where brighter is nearer to the camera and darker is farther away",
+    "edges": "an edge map, where the bright lines on black are the outlines of the people and objects",
+    "lineart": "a line drawing, where the lines are the outlines of the people and objects",
+    "masks": "a motion mask, where the bright areas are what moves and the black area is what stays still",
+    "normals": "a surface-direction map, where each colour stands for the way a surface faces",
+}
+MOTION_MODES = ("camera-only", "actor-motion", "object-motion", "full-scene")
+# what each mode keeps of a control layer, and of the source clip itself
+MOTION_KEEPS = {"camera-only": "the camera path and the scale and layout it gives the scene",
+                "actor-motion": "the positions, silhouettes and body movement of its figure and the camera path",
+                "object-motion": "the position and motion path of its main object and the camera path",
+                "full-scene": "the layout, silhouettes, positions, movement and camera path"}
+MOTION_SOURCE = {
+    "camera-only": ("the camera reference for the target video: only its camera movement and timing are kept",
+                    "the camera movement and timing of <Video 1> are followed; its people, objects and setting are not rendered.",
+                    "The camera moves as the camera of <Video 1> does."),
+    "actor-motion": ("the motion reference for the target video: the body motion of its person and its camera movement are kept, and who it is and where it is are replaced",
+                     "the position, stance, body motion and timing of its person and the camera movement of <Video 1> are followed frame by frame; its person and its setting are not rendered.",
+                     "{who} moves as the person in <Video 1> does, move for move, and the camera follows the camera of <Video 1>."),
+    "object-motion": ("the motion reference for the target video: the path of its main object and its camera movement are kept, and the object's design and the setting are replaced",
+                      "the motion path and timing of the main object and the camera movement of <Video 1> are followed frame by frame; its design, surface and setting are not rendered.",
+                      "The main object moves along the path of the object in <Video 1>, and the camera follows the camera of <Video 1>."),
+    "full-scene": ("the source video: its setting, its camera movement and the motion in it are kept",
+                   "the setting, light, camera path and the position, motion and timing of what moves in <Video 1> are followed frame by frame.",
+                   "The scene, the motion and the camera follow <Video 1>."),
+}
+
+
+def motion_template(motion: dict, pictures: int) -> dict:
+    """What a motion reference adds to the Ref2VA prompt: how ``<Video 1>`` is declared, what is kept of it, and what
+    the clip must not look like. ``motion`` is ``{"layer", "mode"}``: the layer of a Motion Previs pack that goes in
+    as ``<Video 1>`` ("reference" is the source clip itself) and what to carry over.
+
+    The source clip is declared as footage (the form tested on both builds). A control layer (skeleton, depth, edges)
+    is declared in the control-video form: ``<Video 1>`` the structural template, ``<Picture 1>`` the first-frame
+    anchor, a legend of the layer, and its colours named as labels, not as the look of the clip.
+    """
+
+    layer = motion.get("layer") or "reference"
+    mode = motion.get("mode") if motion.get("mode") in MOTION_MODES else "full-scene"
+    who = "<Subject 1>" if pictures else "The subject"
+    if layer not in MOTION_LEGENDS:  # the source clip
+        role, keep, follow = MOTION_SOURCE[mode]
+        if mode == "full-scene" and pictures:
+            # the form that held best in the tests: the clip is <Video 1> with its person replaced. Calling the picture
+            # a first-frame anchor here made the picture's layout override the video.
+            lead = "The target video is <Video 1> with its person replaced by <Subject 1>, the person shown in <Picture 1>."
+            role += ", and its person is replaced by <Subject 1>. Only the appearance of <Subject 1> comes from <Picture 1>"
+            keep = keep[:-1] + "; the person of <Video 1> is not rendered."
+            follow = "<Subject 1> takes the place of the person in <Video 1> and moves as that person does, move for move; the setting and the camera are those of <Video 1>."
+        return {"video_roles": [role], "video_keeps": [keep], "video_follows": [follow.format(who=who)],
+                **({"lead": lead} if mode == "full-scene" and pictures else {})}
+    kept = MOTION_KEEPS[mode]
+    definitions = []
+    if pictures:
+        definitions.append("<Picture 1> is the first-frame anchor: the opening frame of the target video, with the subject, "
+                           "setting and light of the target. The appearance of <Subject 1> comes from <Picture 1>"
+                           + ("." if mode == "camera-only" else ", the position and motion from <Video 1>."))
+    definitions.append(f"Legend of <Video 1>: {MOTION_LEGENDS[layer]}. These colours are labels only, not the look of the target video.")
+    follow = (f"The position, scale and movement of {who.replace('The', 'the')} in every frame are those of the figure in <Video 1>, and the camera "
+              "follows the path of <Video 1>." if mode != "camera-only" else "The camera follows the path of <Video 1> frame by frame.")
+    look = ", continuing the look of <Picture 1>" if pictures else ""
+    return {"lead": "A photorealistic video that follows the structure of <Video 1> frame by frame"
+                    + (" and has the look of <Picture 1>, with <Subject 1>." if pictures else "."),
+            "video_roles": [f"the structural template of the target video: it supplies {kept} frame by frame"],
+            "video_keeps": [f"fully_preserved structure - {kept} of <Video 1> are followed frame by frame; its look is not rendered."],
+            "video_follows": [follow], "definitions": definitions,
+            "avoid": f"The picture is photorealistic throughout{look}: no skeleton lines, no flat-coloured, depth-map or segmentation-map look."}
+
+
 def compose_references(fields: dict, count: int) -> str:
     """The Ref2VA model's own prompt form: who each picture is, what is kept of it, then the shot.
 
@@ -171,10 +246,20 @@ def compose_references(fields: dict, count: int) -> str:
     A caller with its own template for a reference video (a control layer such as a depth or segmentation pass
     rather than footage, say) can replace what is written about it: ``video_roles`` (one per video) is the
     sentence after ``<Video k> is``, ``video_keeps`` (one per video) the sentence after ``<Video k>: reference -``,
-    ``definitions`` are further lines for the subject definitions (a legend of the control colours, or what a
+    ``lead`` opens the summary in place of the usual sentence, ``definitions`` are further lines for the subject definitions (a legend of the control colours, or what a
     picture is in relation to a video), and ``avoid`` is closing text for the shot (what the clip must not look
-    like). None of them is set by the app's own screens.
+    like), and ``video_follows`` (one per video) the sentence the shot ends on. The create wizard sets them through
+    ``motion`` (``{"layer", "mode", "camera"}``, a Motion Previs hand-off for ``<Video 1>``: see ``motion_template``),
+    whose ``camera`` sentence stands in for an empty Camera field.
     """
+
+    motion = fields.get("motion") if isinstance(fields.get("motion"), dict) else None
+    if motion and (fields.get("video_subjects") or motion.get("layer") in (None, "", "none")):
+        pictures = max(0, min(int(count), REFERENCE_LIMIT)) if fields.get("video_subjects") else 0
+        made = motion_template(motion, pictures) if fields.get("video_subjects") and motion.get("layer") not in (None, "", "none") else {}
+        fields = {**fields, **{key: value for key, value in made.items() if not fields.get(key)}}
+        if not (fields.get("camera") or "").strip() and (motion.get("camera") or "").strip():
+            fields["camera"] = motion["camera"].strip()
 
     videos = [(text or "").strip() for text in (fields.get("video_subjects") or [])][:REFERENCE_VIDEO_LIMIT]
     audios = [(text or "").strip() for text in (fields.get("audio_notes") or [])][:REFERENCE_AUDIO_LIMIT]
@@ -187,12 +272,14 @@ def compose_references(fields: dict, count: int) -> str:
     people, sounds, follow = count, 0, []
     roles = [(text or "").strip() for text in (fields.get("video_roles") or [])]
     keeps = [(text or "").strip() for text in (fields.get("video_keeps") or [])]
+    follows = [(text or "").strip() for text in (fields.get("video_follows") or [])]
     for k, shown in enumerate(videos, start=1):
         role, keep = (roles[k - 1] if k <= len(roles) else ""), (keeps[k - 1] if k <= len(keeps) else "")
         if role:  # the caller's own account of this video
             subjects.append(f"<Video {k}> is {role.rstrip('.')}.")
-            kept.append(f"<Video {k}>: reference - " + (keep or f"the structure and movement of <Video {k}> are followed."))
-            follow.append(f"The layout, movement and camera path follow <Video {k}>.")
+            kept.append(f"<Video {k}>: " + ("" if keep.startswith("fully_preserved") else "reference - ")
+                        + (keep or f"the structure and movement of <Video {k}> are followed."))
+            follow.append((follows[k - 1] if k <= len(follows) else "") or f"The layout, movement and camera path follow <Video {k}>.")
         elif shown or not people:  # a video that shows someone: a subject of its own, as the model card writes it
             people += 1
             subjects.append(f"<Subject {people}> is {shown or 'the main subject'} in <Video {k}>.")
@@ -249,8 +336,10 @@ def compose_references(fields: dict, count: int) -> str:
     kinds = " + ".join(kind for kind, used in (("subject reference", count), ("video reference", videos),
                                                ("audio reference", sounds)) if used)
     return ("subject_definitions:\n" + "\n".join(subjects)
-            + f"\n\nsummary:\n[{kinds}] A new video with {who}, keeping how each looks in its "
-            + ("reference. " if videos else "picture. ")
+            + f"\n\nsummary:\n[{kinds}] "
+            + ((fields.get("lead") or "").strip() + " " if (fields.get("lead") or "").strip()
+               else f"A new video with {who}, keeping how each looks in its " + ("reference. " if videos else "picture. ") if who
+               else "A new video that follows its video reference. ")
             + (scene or "A new scene.")
             + "\n\nretention_analysis:\n" + "\n".join(kept)
             + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()} {sound}")
@@ -424,8 +513,6 @@ def references(params: dict) -> dict:
     pictures, videos, audios = found["pictures"], found["videos"], found["audios"]
     if not (pictures or videos or audios):
         return {}
-    if (videos or audios) and SPARK:
-        raise HTTPException(400, "reference videos and reference audio are Mac only for now: on a DGX Spark use reference pictures")
     for kind, limit, files in (("reference pictures", REFERENCE_LIMIT, pictures), ("reference videos", REFERENCE_VIDEO_LIMIT, videos),
                                ("reference audio clips", REFERENCE_AUDIO_LIMIT, audios)):
         if len(files) > limit:
@@ -807,8 +894,8 @@ def state() -> dict:
             "home": str(HOME), "pack": str(PACK), "version": (PACK / "VERSION").read_text().strip(),
             "zig": zig_ready(), "turbo": turbo_ready() and not SPARK, "x2": not SPARK,
             "ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready(), "reference_limit": REFERENCE_LIMIT,
-            # reference videos and audio: the Mac build only for now
-            "ref_media": ref2va_ready() and not SPARK, "reference_video_limit": REFERENCE_VIDEO_LIMIT,
+            # reference videos and audio: wherever Ref2VA is installed
+            "ref_media": ref2va_ready(), "reference_video_limit": REFERENCE_VIDEO_LIMIT,
             "reference_audio_limit": REFERENCE_AUDIO_LIMIT, "reference_total": REFERENCE_TOTAL,
             "text_encoders": sorted(text_encoders()), "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
             "platform": machine()[0], "platform_label": machine()[1],
