@@ -84,18 +84,22 @@ Rules:
   alone. Named `<Video N>` and `<Audio N>` in the prompt; with `REF_VIDEO_SOUND=1` each video's own sound is a
   reference numbered ahead of the `REF_AUDIOS` clips. They need a TensorFold whose H3 family has
   `packing.reference_layout` on a Mac (engine branch `ref-video-audio`); the renderer says so when it is missing. A 5 s
-  reference video about triples the time of a 5 s clip. Do not promise that a voice carries over: a matching voice
-  moved the pitch to the reference's, a man's voice on a woman's picture changed nothing measurable. On a DGX Spark
+  reference video about triples the time of a 5 s clip. A voice reference is followed when the prompt describes the same
+  voice (the line's *Voice* field: "a deep male voice") and can be ignored when the prompt is silent about it; use a clean
+  recording. Pitch and tone come close by measurement; do not promise an exact copy of a voice. On a DGX Spark
   the same variables go through ComfyUI's `MiniMaxH3ReferenceToVideo` (`spark_generate.py video --ref-video /
   --ref-audio`), which needs no engine change; the video is scaled to the clip's pixel area before the node sees it,
   and must stay so (`REF_VIDEO_SIZE=full` multiplies the rows and the memory and is refused on a Spark).
 - Motion as a reference: the wizard's *Analyse motion* (and *Use as motion reference* in the Motion Previs tab) sends
   one layer of a Motion Previs pack as `<Video 1>`. Defaults by measurement: the same place with a new person takes the
   source clip (written as "`<Video 1>` with its person replaced", never with the first-frame-anchor wording); a new
-  place or the camera alone takes depth; the skeleton is offered but is the loosest. A skeleton or depth layer goes
+  place or the camera alone takes depth; the skeleton is offered but is the loosest. The source clip holds fast motion
+  at 20 passes and lost it with the Turbo 4-pass adapter (two shots of two), so with Turbo the wizard sends depth for
+  full scene too. The pose pass, the skeleton and the distance checker follow one person only; the user says when
+  `<Video 1>` has two or more people (`motion.people`) and the prompt then speaks of its people. A skeleton or depth layer goes
   with the control-video prompt (`motion_template` in `app/server.py`: structural template,
   first-frame anchor, legend, "labels only", and the negative): keep that wording, and do not promise figures: one shot was
-  measured. Do not promise voice cloning from reference audio either. On this machine every render runs through the
+  measured. Do not promise an exact copy of a voice from reference audio either. On this machine every render runs through the
   ComfyUI server of `spark/comfy.sh`, never as standalone model code: the server's loop is the only memory guard.
 - On a DGX Spark reference to video is `oneshot-setup-spark.sh --ref2va` and the same `REF_IMAGES` / `REF_TURBO=1`
   (`spark_generate.py video --ref`): ComfyUI's `MiniMaxH3ReferenceToVideo` on its own blocks, never

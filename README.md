@@ -593,8 +593,29 @@ well under a minute and gives two choices:
 - **What to carry over:** *Full scene* (the same place and motion with a new person: its person is replaced by
   `<Picture 1>`), *Actor motion* (the body motion and the camera, in a new place), *Object motion* (an object's path
   and the camera) or *Camera only*.
-- **What goes to the model as `<Video 1>`:** the **source clip** (the default for *Full scene*), the **depth** layer
-  as a control video (the default for the other three), or the **skeleton** (offered, never the default) or edges.
+- **What goes to the model as `<Video 1>`:** the **source clip** (the default for *Full scene* at 20 passes), the
+  **depth** layer as a control video (the default for the other three, and for *Full scene* with Turbo 4 passes), or
+  the **skeleton** (offered, never the default) or edges.
+- **People in `<Video 1>`:** *One* or *Two or more*. With two or more the prompt speaks of its people and figures,
+  one for one. You say it: the pose pass, its skeleton layer and the distance figures below follow **one person
+  only** (asked for up to four people on a two-person duel at arm's length, it returned one in every frame).
+
+**The source clip needs 20 passes for fast motion.** On the Mac, through the app, 5 s at 864x480, seed 7 (two cuts
+of a fictional martial-arts short: one man drilling a wooden dummy while the camera pushes in to a close-up, and two
+fighters trading hands while the camera cranes up to overhead; pose distance as in the table below, median / 90th
+percentile):
+
+| shot | `<Video 1>` | passes | time | distance | what came out |
+|---|---|---|---|---|---|
+| dummy drill | source clip + a picture of a woman | Turbo 4 | 236 s | 26.4 / 36.6 | the place kept; she drifts out of frame, strikes lost |
+| dummy drill | the same request | 20 | 741 s | 4.2 / 11.7 | held: she does the drill and the push-in on the same rooftop |
+| dummy drill | depth + a picture of her in a bamboo clearing | Turbo 4 | 235 s | 3.5 / 11.7 | held, in the new place |
+| dummy drill | depth + a picture of her on the same rooftop | Turbo 4 | 247 s | 16.0 / 25.3 | the drill and the push-in, with the layout shifted |
+| duel | source clip + a picture of a new pair | Turbo 4 | 238 s | not valid | lost: one new fighter appears, the crane-up is not followed |
+| duel | depth + a picture of the pair in a temple courtyard | Turbo 4 | 234 s | not valid | held by eye: both new fighters in time, the crane-up followed |
+
+The duel's figures are not valid because the checker follows one person and picked different fighters in source and
+result. One seed each; the duel was not run at 20 passes with the source clip.
 
 The camera move in words goes into the prompt in every case (a switch; text of your own in the Camera field wins).
 With the source clip and a picture, step 4 writes "The target video is `<Video 1>` with its person replaced by
@@ -1068,8 +1089,25 @@ REF_VIDEOS="baker.mp4" REF_VIDEO_SOUND=1 bash scripts/video.sh "..." out.mp4   #
   - *A picture and an audio clip of the same kind of voice* (a woman's still, 6 s of a woman singing, the prompt
     asks her to sing): median pitch 281 Hz, the reference's own 281, against 314 without the clip; closer in
     timbre statistics as well (4.9 against 6.7).
-  - *A picture and a voice that does not fit it* (the woman's still, a man's spoken line as `<Audio 1>`): **no
-    carry-over we could measure.** She speaks at 184 Hz with the clip and 182 without; the man's voice is at 122.
+  - *A picture and a voice that does not fit it* (the woman's still, a man's voice as `<Audio 1>`): **it carries
+    when the prompt describes the voice, and not when the prompt is silent about it.** Measured against a clean
+    5.8 s male voice at 117 Hz (the macOS speech voice "Daniel"; distance = MFCC statistics to the reference, lower
+    is closer; 20 passes, one seed):
+
+    | prompt | with the clip | same prompt without it |
+    |---|---|---|
+    | says only "the voice timbre references `<Audio 1>`" | 225 Hz, distance 14.1 (no carry-over) | 182 Hz, 11.7 |
+    | also calls it a deep male voice (written by hand) | 137 Hz, 5.0 | 169 Hz, 11.6 |
+    | the app's prompt with *Voice* = "a deep male voice" | 130 to 134 Hz, 4.1 to 4.8 | 141 Hz, 10.1 |
+    | one plain sentence: "speaks with the voice in `<Audio 1>`, a deep male voice" | 132 Hz, 3.9 | not run |
+
+    The other way round (a man's still, a woman's voice at 180 Hz, the prompt silent about the voice) it carried
+    as well: 174 Hz and distance 4.3 with the clip, 143 Hz and 10.6 without. The first test of this pack found no
+    carry-over because its prompt did not describe the voice and its reference was a noisy clip with a voice in
+    a fifth of it; with the voice described, that same clip carries too (117 Hz against its own 122, distance 6.0
+    against 15.9 without). So: **describe the voice in the line's *Voice* field as it sounds in the clip, and use a
+    clean recording.** The pitch and the tone come close to the reference; none of this was judged by ear, and it
+    is not an exact copy of a voice.
 - **Not checked:** sound by ear (the figures above are measurements: pitch by autocorrelation, MFCC statistics,
   spectrogram correlation), more than one reference video or audio clip in a request, two seeds, lengths over
   5 s, references longer than the clip, `REF_VIDEO_SIZE=full`, `QUALITY=high` with a video, the app's screens by eye

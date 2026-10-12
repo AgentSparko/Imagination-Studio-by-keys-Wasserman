@@ -193,7 +193,43 @@ MOTION_SOURCE = {
 }
 
 
+# the same sentences for a clip with more than one person in it: longest phrases first
+MOTION_PLURAL = (
+    ("the body motion of its person", "the body motion of its people"), ("its person is replaced by", "its people are replaced by"),
+    ("with its person replaced by", "with its people replaced by"), ("the person shown in", "the people shown in"),
+    ("the person of <Video 1> is not rendered", "the people of <Video 1> are not rendered"),
+    ("its person and its setting are not rendered", "its people and its setting are not rendered"),
+    ("<Subject 1> takes the place of the person in <Video 1> and moves as that person does",
+     "<Subject 1> take the places of the people in <Video 1>, one for one, and move as those people do"),
+    ("moves as the person in <Video 1> does", "move as the people in <Video 1> do"),
+    ("timing of its person", "timing of its people"), ("of its figure", "of its figures"),
+    ("are those of the figure in <Video 1>", "are those of the figures in <Video 1>, one for one"),
+)
+
+
 def motion_template(motion: dict, pictures: int) -> dict:
+    """``motion_template_one`` for the number of people the user says are in ``<Video 1>`` (``motion["people"]``,
+    1 when not given): with two or more the same sentences speak of its people and figures, one for one. The count is
+    the user's: the pose pass follows one person even when asked for more (two fighters at arm's length came back
+    as one in every frame)."""
+
+    made = motion_template_one(motion, pictures)
+    try:
+        people = int(motion.get("people") or 1)
+    except (TypeError, ValueError):
+        people = 1
+    if people < 2:
+        return made
+
+    def plural(text: str) -> str:
+        for one, many in MOTION_PLURAL:
+            text = text.replace(one, many)
+        return text
+
+    return {key: [plural(line) for line in value] if isinstance(value, list) else plural(value) for key, value in made.items()}
+
+
+def motion_template_one(motion: dict, pictures: int) -> dict:
     """What a motion reference adds to the Ref2VA prompt: how ``<Video 1>`` is declared, what is kept of it, and what
     the clip must not look like. ``motion`` is ``{"layer", "mode"}``: the layer of a Motion Previs pack that goes in
     as ``<Video 1>`` ("reference" is the source clip itself) and what to carry over.
@@ -269,7 +305,11 @@ def compose_references(fields: dict, count: int) -> str:
     subjects = [f"<Subject {i}> is {name or 'the main subject'} shown in <Picture {i}>." for i, name in enumerate(names, start=1)]
     kept = [f"<Subject {i}> (appears in [Shot 1]): fully_preserved - the identity, face, hair, clothing and colours "
             f"shown in <Picture {i}> are kept." for i in range(1, count + 1)]
-    people, sounds, follow = count, 0, []
+    people, sounds, follow, tracks = count, 0, [], []
+    # how the speaker sounds, in the user's words: written beside an audio reference too, because the model follows a
+    # voice reference when the prompt describes the same voice and may ignore it when the prompt is silent about it
+    described = next(((line.get("voice") or "").strip() for line in fields.get("dialogue") or []
+                      if (line.get("text") or "").strip() and (line.get("voice") or "").strip()), "")
     roles = [(text or "").strip() for text in (fields.get("video_roles") or [])]
     keeps = [(text or "").strip() for text in (fields.get("video_keeps") or [])]
     follows = [(text or "").strip() for text in (fields.get("video_follows") or [])]
@@ -295,13 +335,17 @@ def compose_references(fields: dict, count: int) -> str:
         if fields.get("video_sound"):
             sounds += 1
             subjects.append(f"<Audio {sounds}> is the synchronized audio track of <Video {k}>.")
-            kept.append(f"<Audio {sounds}>: reference - the target audio references the sound of <Audio {sounds}>.")
+            kept.append(f"<Audio {sounds}>: reference - the sound of <Audio {sounds}> is reused in the target video.")
+            tracks.append(f"<Audio {sounds}>")
     subjects += [line.strip() for line in (fields.get("definitions") or []) if line and line.strip()]
     voices = []
     for note in audios:
         sounds += 1
-        subjects.append(f"<Audio {sounds}> is {note or 'the voice timbre reference for the voice of <Subject 1>'}.")
-        kept.append(f"<Audio {sounds}>: reference - the target audio references the voice timbre and the sound of <Audio {sounds}>.")
+        subjects.append(f"<Audio {sounds}> is " + (note.rstrip(".") if note else "the voice timbre reference for <Subject 1>'s voice"
+                                                   + (f", containing {described}" if described else "")) + ".")
+        kept.append(f"<Audio {sounds}>: reference - the target audio references the voice timbre from <Audio {sounds}>"
+                    + " for the spoken lines." if described or not note
+                    else f"<Audio {sounds}>: reference - the target audio references the sound of <Audio {sounds}>.")
         voices.append(f"<Audio {sounds}>")
     scene = (fields.get("scene") or "").strip()
     shot = " ".join(part.strip() for part in (scene, fields.get("camera", ""), fields.get("action", ""), *follow)
@@ -317,18 +361,21 @@ def compose_references(fields: dict, count: int) -> str:
         spoken.append(f"<Subject {int(line.get('subject') or 1)}> (S{index}), in {voice}, {verb}: <d>[{language}] {text}</d>")
     if spoken:
         if voices:
-            shot += " The voice timbre references " + " and ".join(voices) + "."
+            shot += " The speaker's voice timbre references the delivery from " + " and ".join(voices) + "."
         # a clip longer than its lines: without this the model may keep the mouth moving and invent words
         shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
                  " talking, closes the mouth and stays silent until the end of the clip.")
+    elif tracks:  # a video's own sound is a reference: it may hold speech, so nothing here says that nobody speaks
+        shot += " The sound of " + " and ".join(tracks) + " plays through the clip."
     else:
         shot += " Nobody speaks."
     if (fields.get("avoid") or "").strip():
         shot += " " + fields["avoid"].strip()
-    sound = (fields.get("soundscape") or "Natural ambient sound for the scene.").strip()
-    sound += " No speech after the spoken lines." if spoken else " No voices, no speech."
-    if voices and not spoken:
-        sound += " The sound references " + " and ".join(voices) + "."
+    sound = (fields.get("soundscape") or ("The sound of " + " and ".join(tracks) + ", reused." if tracks
+                                          else "Natural ambient sound for the scene.")).strip()
+    sound += " No speech after the spoken lines." if spoken else "" if tracks else " No voices, no speech."
+    if voices:
+        sound += (" The spoken lines reference the voice timbre of " if spoken else " The sound references ") + " and ".join(voices) + "."
     music = (fields.get("music") or "N/A").strip()
     if music.upper() != "N/A":
         sound += f" Music: {music}."

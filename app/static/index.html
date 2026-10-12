@@ -349,20 +349,22 @@ async function showEstimate(obj, node) { try { const r = await api("/api/estimat
 // video is a plain reference, as before.
 const MOTION_MODES = { "full-scene": ["Full scene", "the same place and motion, a new person"], "actor-motion": ["Actor motion", "the body motion and the camera, in a new place"],
   "object-motion": ["Object motion", "an object's path and the camera"], "camera-only": ["Camera only", "just the camera move and its timing"] };
-const MOTION_LAYERS = { reference: ["Source clip", "the video itself: the tested route", "reference.mp4"], openpose: ["Skeleton", "OpenPose joints on black: the loosest hold on the motion", "openpose_pose.mp4"],
-  "ai-depth": ["Depth", "Depth-Anything: for a new place, or the camera alone", "ai_depth.mp4"], depth: ["Depth proxy", "made by ffmpeg: brighter is nearer", "depth.mp4"], edges: ["Edges", "outlines on black", "edges.mp4"] };
+const MOTION_LAYERS = { reference: ["Source clip", "the video itself: holds the motion at 20 passes, not at Turbo", "reference.mp4"], openpose: ["Skeleton", "OpenPose joints on black, one person only: the loosest hold", "openpose_pose.mp4"],
+  "ai-depth": ["Depth", "Depth-Anything: holds at Turbo too; for a new place, or the camera alone", "ai_depth.mp4"], depth: ["Depth proxy", "made by ffmpeg: brighter is nearer", "depth.mp4"], edges: ["Edges", "outlines on black", "edges.mp4"] };
 // what goes in by default for each choice, by measurement (motion.py, SUGGESTED): the same place with a new person
 // takes the source clip; a new place, an object's path or the camera alone takes depth; the skeleton is never a default
-const motionDefault = m => m.mode === "full-scene" ? (m.made === "reference" || m.layers.includes("reference") ? "reference" : m.made) : (["ai-depth", "depth"].find(l => l === m.made || m.layers.includes(l)) || m.made);
+const motionTurbo = () => C.refPasses === "4";
+// full scene: the source clip at 20 passes; with the Turbo adapter it lost fast motion twice, so depth goes in
+const motionDefault = m => m.mode === "full-scene" && !(motionTurbo() && ["ai-depth", "depth"].some(l => m.layers.includes(l))) ? (m.made === "reference" || m.layers.includes("reference") ? "reference" : m.made) : (["ai-depth", "depth"].find(l => l === m.made || m.layers.includes(l)) || m.made);
 const MA = { state: null, job: null, timer: null };
 const maBusy = () => !!MA.job && ["queued", "running"].includes(MA.job.status);
 const maSay = () => { const j = MA.job; if (!j) return ""; const now = (j.stages || {})[j.stage] || {}; return j.status === "queued" ? "Waiting for its turn…" : "Analysing: " + (j.stage || "starting") + (now.of > 1 ? " " + now.at + "/" + now.of : "") + (j.elapsed != null ? " · " + mmss(j.elapsed) : ""); };
 const motionControl = () => !!C.motion && C.refVideos.length > 0 && C.motion.layer !== "reference";
 // what the prompt composer is told: nothing without an analysis or without a video for it
-const motionFields = () => C.motion && C.refVideos.length ? { layer: C.motion.layer, mode: C.motion.mode, camera: C.motion.useCamera ? C.motion.camera : "" } : null;
+const motionFields = () => C.motion && C.refVideos.length ? { layer: C.motion.layer, mode: C.motion.mode, camera: C.motion.useCamera ? C.motion.camera : "", people: Number(C.motion.people) || 1 } : null;
 function setMotion(pack, layer, made, mode) { const cam = pack.camera || {};
   C.motion = { pack: pack.id, mode: mode || "full-scene", layer, made, layers: pack.layers || [], files: pack.files || {}, camera: cam.sentence || "", reliable: !!cam.reliable, confidence: cam.confidence || 0,
-    seconds: pack.range ? pack.range.duration : null, useCamera: !!cam.sentence };
+    seconds: pack.range ? pack.range.duration : null, useCamera: !!cam.sentence, people: "1" };
   C.prompt = ""; }
 async function analyseMotion() {
   const path = C.refVideos[0]; if (!path || maBusy()) return;
@@ -373,7 +375,7 @@ async function analyseMotion() {
   MA.timer = setInterval(async () => { try { MA.job = await api("/api/motion/jobs/" + MA.job.id); } catch { return; }
     if (maBusy()) { const say = document.getElementById("ma-say"); if (say) say.textContent = maSay(); return; }
     clearInterval(MA.timer); MA.timer = null;
-    if (MA.job.status === "done" && C.refVideos[0] === path) { try { setMotion(await api("/api/motion/packs/" + MA.job.pack), "reference", "reference"); if (typeof MO !== "undefined") MO.state = null; } catch (e) { toast(e.message); } }
+    if (MA.job.status === "done" && C.refVideos[0] === path) { try { setMotion(await api("/api/motion/packs/" + MA.job.pack), "reference", "reference"); C.motion.layer = motionDefault(C.motion); if (typeof MO !== "undefined") MO.state = null; } catch (e) { toast(e.message); } }
     if (tab === "Create") render(); }, 700);
 }
 // the clip that goes to the model as <Video 1>: the one in the list, or the chosen layer cut from the pack
@@ -395,10 +397,12 @@ function motionPanel() {
   const shown = m.layer === m.made ? C.refVideos[0] : m.files[MOTION_LAYERS[m.layer][2]];
   put(box, el("label", {}, "What to carry over"), choice(m, "mode", MOTION_MODES, () => { m.layer = motionDefault(m); again(); }, true),
     el("label", {}, "What goes to the model as <Video 1>"), choice(m, "layer", layers, again, true),
+    el("label", {}, "People in <Video 1>"), choice(m, "people", { 1: ["One", "or none"], 2: ["Two or more", "the prompt then speaks of its people"] }, again, true),
     el("div", { style: "display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:14px;align-items:start;margin-top:12px" },
       shown ? el("video", { src: file(shown), controls: true, muted: true, loop: true, preload: "metadata", style: "width:100%;border-radius:10px;background:#000" }) : el("div", { class: "note" }, "No preview of this layer."),
-      el("div", {}, motionControl() ? el("div", { class: "tip", style: "margin-top:0" }, el("b", {}, "A control layer"), "The model is told that <Video 1> is a diagram of the shot (its structure, not its look) and that <Picture 1> is the first frame. " + (C.refs.length ? "" : "Add a picture of the opening frame above, as <Picture 1>: the look of the clip comes from it. ") + "Measured on one shot: depth with a picture kept the moves nearly as well as the source clip and takes the setting from the picture; the skeleton held them loosely (a kick was lost). Neither left a trace of its look in the clip.")
-          : el("div", { class: "note", style: "margin-top:0" }, "The source clip goes in as it is" + (C.refs.length ? ", with <Picture 1> as who replaces its person: the closest hold on the motion in our tests, in the clip's own place." : ".") + (m.mode !== "full-scene" ? " For a new place, depth is the better choice." : "")),
+      el("div", {}, motionControl() ? el("div", { class: "tip", style: "margin-top:0" }, el("b", {}, "A control layer"), "The model is told that <Video 1> is a diagram of the shot (its structure, not its look) and that <Picture 1> is the first frame. " + (C.refs.length ? "" : "Add a picture of the opening frame above, as <Picture 1>: the look of the clip comes from it. ") + "Measured on three shots: depth with a picture of the opening frame kept fast moves at Turbo 4 passes and at 20, and takes the setting from the picture; the skeleton held them loosely (a kick was lost) and follows one person only. Neither left a trace of its look in the clip.")
+          : el("div", { class: "note", style: "margin-top:0" }, "The source clip goes in as it is" + (C.refs.length ? ", with <Picture 1> as who replaces its person: the closest hold on the motion in our tests at 20 passes, in the clip's own place." : ".") + (m.mode !== "full-scene" ? " For a new place, depth is the better choice." : ""),
+            motionTurbo() ? el("div", { style: "color:var(--warn);margin-top:6px" }, "With Turbo 4 passes the source clip lost fast motion in our tests (two shots of two: the person drifted out of frame). Choose 20 passes in step 1, or Depth with a picture of the opening frame.") : null),
         m.camera ? el("label", { class: "switch", style: "margin-top:10px" }, bind(m, "useCamera", el("input", { type: "checkbox" }), again), el("span", {}, "Add the camera move to the prompt", el("small", {}, m.camera))) : el("div", { class: "note" }, "No camera move was solved for this clip."),
         m.camera && !m.reliable ? el("div", { class: "note" }, "Low solve confidence (" + Math.round(100 * m.confidence) + "%): check the sentence against the clip.") : null,
         m.camera && m.useCamera && C.camera.trim() ? el("div", { class: "note" }, "The Camera field of step 1 has its own text, which is used instead.") : null,
@@ -489,7 +493,7 @@ function viewCreate() {
             "Also use the videos' own sound as a reference (every video must have sound; the audio clips below are then numbered after them)") : null,
           motionPanel(),
           el("h3", { style: "margin-top:18px" }, "Reference audio"),
-          el("div", { class: "note" }, "Up to " + S.reference_audio_limit + " sound clips (wav, mp3, m4a, aac, flac, ogg), each 2 to 15 seconds and 15 seconds in all: a voice or music the clip's sound should follow. Only beside a picture or a video: the model does not take sound alone. A clip longer than the video is cut to its length. This is not voice cloning: in our measurements a voice that fits the pictured person, and a video's own sound, carried over; a voice that does not fit (a man's line beside a woman's picture) did not."),
+          el("div", { class: "note" }, "Up to " + S.reference_audio_limit + " sound clips (wav, mp3, m4a, aac, flac, ogg), each 2 to 15 seconds and 15 seconds in all: a voice or music the clip's sound should follow. Only beside a picture or a video: the model does not take sound alone. A clip longer than the video is cut to its length. For a voice, add the spoken line in step 3 and describe the voice there as it sounds in the clip (a deep male voice): the model follows the reference when the words agree with it, and may ignore it when they say nothing. A clean recording with little else in it works best. The pitch and tone come close to the reference; it is not an exact copy of a voice."),
           field("Add audio", uploader("audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg", C.refAudios, C.audio_notes, S.reference_audio_limit, "audio clips")),
           C.refAudios.length ? el("div", { class: "grid", style: "margin-top:10px" }, C.refAudios.map((p, i) => el("div", { class: "tile on" }, el("audio", { src: file(p), controls: true, preload: "metadata", style: "width:100%" }),
             el("div", { class: "cap" }, audioName(i), drop(C.refAudios, C.audio_notes, i)),
