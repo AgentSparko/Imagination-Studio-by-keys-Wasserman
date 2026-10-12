@@ -199,6 +199,11 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >   the camera move is added to the prompt. *Use as motion reference* in the Motion
 >   Previs tab opens the wizard filled in the same way. Without the motion environment a reference video is a plain
 >   reference, as before.
+> - **Sound and movement agree.** *Sound and movement* under *Analyse motion*: **Impacts** (fast strikes and blocks,
+>   with their sound), **Flow** (slow movement, silent or under music) or **Automatic**, which never lays hits over a
+>   reference that moves slowly. Every finished reference clip is measured for it and flagged when it does not agree.
+>   A source clip's mouth is kept out of a clip in which nobody speaks. See
+>   [Sound and movement of a motion reference](#sound-and-movement-of-a-motion-reference-impacts-or-flow).
 > - **The reference step checks each file as you add it**: a clip under 2 or over 15 seconds, more than 15 seconds of
 >   one kind, a tenth picture, a thirteenth reference or a silent "audio" file is turned away with the reason, and
 >   *the videos' own sound* can only be ticked when every video has sound. A motion layer (skeleton, depth) now
@@ -224,6 +229,9 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 > one clip made start to finish through the page); a video's own sound, a voice recording, and both together, by
 > measurement ([what a sound reference does](#reference-videos-audio-and-motion-on-a-dgx-spark)); two reference videos
 > in one request; an 8 second clip from an 8 second shot; the object-motion and camera-only modes in a render.
+> **Sound and movement** (Impacts, Flow with and without music, the soft mouth) was rendered on both machines
+> through the wizard's API calls and looked at frame by frame; the new controls themselves were not clicked in a
+> browser.
 > **Not tested on either machine:** the motion figures on more than a few shots or seeds; voice cloning (not
 > promised: see the measurements); three reference videos at once; a real Motion Previs Studio export ZIP;
 > `REF_VIDEO_SIZE=full` (refused on the Spark, for memory). Not tested on the Mac: the join after the merge (the Mac
@@ -656,6 +664,79 @@ the frame width, lower is closer):
 No control layer left a trace of its look in a clip. One shot: read the table as an order, not as figures to promise.
 On the DGX Spark the same routes were rendered through the wizard's own API calls with the Turbo adapter and looked
 at, not measured: see [the Spark's table](#reference-videos-audio-and-motion-on-a-dgx-spark).
+
+### Sound and movement of a motion reference: Impacts or Flow
+
+A clip's sound and its movement have to agree. The first duel renders above did not: the reference is two people
+doing slow sticky hands (forearms in contact, circling), the soundscape asked for "quick slaps of forearms and hands",
+and the model did both: it followed the slow hands and laid 1.7 to 1.9 slaps a second over them, on the Mac and on
+the DGX Spark alike. Three things were measured before anything was changed:
+
+- **The slaps came from the Soundscape field**, not from the source clip (its own sound is at -54 dBFS and was not
+  sent).
+- **The slow hands came from the reference.** The source clip's quickest movement is 14 percent of the frame width a
+  second; the renders made from it are at 14 to 17. A reference video is followed whatever the prompt says about
+  speed: four wordings were tried on the Spark (fast words in the action, a template that says the slow hands are
+  not followed, *Camera only*, and the clip played at twice its speed and back), and the arms stayed at 15 to 21.
+- **The music of the Mac's fourth test** was the model's own: nothing in that prompt asked for music.
+
+**Sound and movement**, under *Analyse motion* on the references screen, is the choice that follows from this:
+
+| | What the prompt says | What is sent | Sound |
+|---|---|---|---|
+| **Impacts** | both fight at full speed: sharp strikes and hard blocks, attacking and blocking, every strike heard as it lands | a reference that moves fast goes in as before. One that moves slowly is **left out** (a switch, on by default, when there is a picture of who is in the clip): the picture and the prompt carry the fight, and the camera move of the video stays, in words | the hits of the soundscape |
+| **Flow** | the movement is slow, smooth and continuous, and no strike lands | the reference, as before | the hits are taken out of the soundscape and a video's own hits are not reused. Without music the clip is **delivered silent** (its track is muted after the render); with music named in step 3, under that music |
+| **Automatic** (the default) | as you wrote it, except that a soundscape that names hits over a reference that moves slowly becomes Flow | the reference | as Flow in that one case |
+
+The analysis measures the reference for this (`app/pace.py`, with ffmpeg and NumPy alone): **movement** is how fast
+the quickest parts of the picture move against the rest of it, in percent of the frame width a second (frames lined
+up on the camera's shift, each pixel's change over its edge strength, the three quickest blocks less the median
+block, 90th percentile over the clip), read also against the size of the action in the frame, so that a fight seen
+from across a roof is not called slow for being small; **hits** are sharp onsets a second that fill the band above
+600 Hz and die away within 50 ms, which a plucked note and a spoken consonant do not. The same two figures are taken
+of every finished reference clip and shown under it ("Sound and movement: agree", or "impact sound over slow motion"
+in red): a flag beside the clip, like the QA gate's lines, never a failed job. `pace`, `silent` and
+`motion.measured` / `motion.free` are the job's settings for scripts that drive `/api/jobs`.
+
+Measured on the duel, through the wizard's own API calls, Turbo 4 passes, 5 s at 864x480, seed 7 (movement in percent
+of the frame width a second, then the same against the size of the action; fast is 24 or 44):
+
+| machine | Sound and movement | time | movement | hits a second | checker | by eye |
+|---|---|---|---|---|---|---|
+| Mac | before: source clip, slaps in the soundscape | 284 s | 14.2 / 34.8 slow | 1.7 | impact sound over slow motion | slow sticky hands under slaps |
+| Mac | Impacts (video left out) | 89 s | 25.0 / 62.4 fast | 2.5 | agree | both throw straight punches and block, in time with the slaps; a new rooftop from the Scene text, the push-in and tilt followed |
+| Mac | Flow, no music | 262 s | 14.5 / 35.5 slow | 0 | agree | the slow hands of the reference, silent |
+| Mac | Flow, with music | 272 s | 15.6 / 40.4 slow | 0 | agree | the slow hands under a slow plucked melody |
+| DGX Spark | before: source clip, slaps in the soundscape | 216 s | 16.8 / 40.6 slow | 1.9 | impact sound over slow motion | slow sticky hands under slaps |
+| DGX Spark | Impacts (video left out) | 101 s | 17.0 / 59.0 fast | 2.5 | agree | both strike and block at speed, seen from further off than on the Mac; a new rooftop, the push-in followed |
+| DGX Spark | Flow, no music | 206 s | 14.9 / 37.8 slow | 0 | agree | the slow hands of the reference, silent |
+| DGX Spark | Flow, with music | 207 s | 15.3 / 37.6 slow | 0 | agree | the slow hands under a slow plucked melody |
+
+What this does not do. **Impacts cannot make a slow reference fast**: with the video left out the clip keeps who is
+in it (from the picture) and the camera move (in words), and loses the reference's own place and blocking, which
+then come from the Scene text. A picture of the reference's first frame as a second picture was tried for the
+place and brought the reference's people back with it after the first second, so it is not used. Before the track
+is muted, a Flow clip asked for near silence was near silent on the Spark (-45 dBFS) and under music of the model's
+own on the Mac in two of three renders, which is why the track is muted and not left to the prompt. The thresholds
+were set on thirteen clips of two shots; they sort the clear cases and call the rest "moderate", which is not
+flagged. One seed each.
+
+**The mouth of a reference video.** A picture with a source clip of someone talking, in a clip where nobody speaks:
+the new face mouths the reference's words (a woman asked only to smile opens and closes her mouth through the last
+second, on both machines). The model copies the lip movement whatever is asked: the same clip came out with a
+prompt that says her lips stay together and that the mouth of `<Video 1>` is not followed, and at 20 passes without
+the Turbo adapter (761 s on the Spark). What removes it is taking the mouth out of the reference: **Keep the mouth
+of `<Video 1>` out of the clip** (on by default when the source clip itself goes in, the clip has no spoken lines and
+does not reuse the video's sound) smooths an ellipse over the mouth and jaw of the pose track's person before the
+video goes to the model (`soft_mouth()` in `app/motion.py`, ffmpeg and NumPy; `mouth: "soft"` on
+`/api/motion/reference`). With it she holds the smile to the end, on the Spark (202 s) and on the Mac (275 s); body,
+head and camera follow the reference as before. It needs *Analyse motion* (the pose track) and follows one person.
+
+**The woman who left the frame** (the first dummy-drill row above) was checked again by eye on the Mac through the
+app's own job path, the way the wizard runs it, at this release's code: 259 s, she stays in frame for the whole clip
+and strikes the dummy as the reference does (movement 28.8 fast, 2.3 hits a second, "agree"). The app goes through
+`scripts/video.sh`, so it picks up the fix (a reference video with the Turbo adapter runs without the int8
+kernels) with nothing to set.
 
 ## FastH3 (new in 1.8)
 

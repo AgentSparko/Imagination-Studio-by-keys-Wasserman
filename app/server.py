@@ -274,6 +274,62 @@ def motion_template_one(motion: dict, pictures: int) -> dict:
             "avoid": f"The picture is photorealistic throughout{look}: no skeleton lines, no flat-coloured, depth-map or segmentation-map look."}
 
 
+def freed(asked, motion: dict | None, pictures: int) -> bool:
+    """Whether a clip leaves its reference video out: the user chose Impacts, said so (``motion["free"]``), there is a
+    picture to carry who is in it, and the reference was measured and is not fast. The model follows a reference
+    video's movement whatever the prompt says about speed (measured: a slow sticky-hands duel stayed at 15 to 19
+    percent of the frame width a second under four wordings, the camera-only one among them, and reached 42 with the
+    video left out), so hits over a slow reference are only true when the reference is not sent."""
+
+    measured = (motion or {}).get("measured")
+    return bool(motion and motion.get("free") and pictures > 0 and isinstance(measured, dict)
+                and measured.get("motion") in ("slow", "moderate") and pace.choose(asked or motion.get("pace"), measured) == "impacts")
+
+
+def paced_fields(fields: dict, motion: dict | None, has_video: bool, pictures: int) -> dict:
+    """The sound and the motion of a reference clip made to agree (pace.py). ``pace`` is the user's choice, in
+    ``fields["pace"]`` or ``motion["pace"]``: "impacts" (fast strikes and blocks, with their sound), "flow" (slow,
+    continuous movement, silent or with music) or "auto". Automatic reads ``motion["measured"]`` (what the analysis
+    measured of the reference: ``pace.measure``) and changes one case only: a soundscape that names hits over a
+    reference that moves slowly becomes Flow. Everything else is left as it was written.
+
+    Flow takes the hits out of the soundscape, says that the movement is slow and that no strike lands, and does not
+    reuse a video's own sound when that sound holds hits. Impacts says that the arms attack and block at full speed
+    and that each strike is heard as it lands. Returns ``{"fields", "pace"}``.
+    """
+
+    measured = (motion or {}).get("measured") if isinstance((motion or {}).get("measured"), dict) else None
+    asked = fields.get("pace") or (motion or {}).get("pace")
+    asked = asked if asked in pace.PACES else "auto"
+    chosen = pace.choose(asked, measured)
+    if asked == "auto" and not (chosen == "flow" and has_video and measured.get("motion") == "slow"
+                                and pace.has_impacts(fields.get("soundscape") or "")):
+        return {"fields": fields, "pace": ""}  # Automatic steps in only where hits were asked for over a slow reference
+    if not (has_video or asked != "auto"):
+        return {"fields": fields, "pace": ""}
+    fields = dict(fields)
+    try:
+        many = int((motion or {}).get("people") or 1) > 1
+    except (TypeError, ValueError):
+        many = False
+    action, soundscape = (fields.get("action") or "").strip(), (fields.get("soundscape") or "").strip()
+    if chosen == "flow":
+        fields["action"] = (action + " " + pace.SMOOTH).strip()
+        # Without music the clip is asked for near silence in so many words: left at "cloth rustle", or told "No
+        # music", the model laid music of its own over the shot (measured on the Mac, twice)
+        quiet = pace.calm(soundscape)
+        named = (fields.get("music") or "N/A").strip().upper() != "N/A"
+        fields["soundscape"] = quiet if named or quiet == pace.QUIET else "Near silence: " + quiet[0].lower() + quiet[1:]
+        if asked == "flow" and measured and measured.get("sound") == "impacts":
+            fields["video_sound"] = False  # Flow by choice: the reference's own hits are not reused
+    else:
+        who = "<Subject 1>" if pictures else ("The two" if many else "The subject")
+        fields["action"] = (action + " " + (pace.VIGOROUS if many else pace.VIGOROUS_ONE).format(who=who)).strip()
+        if not fields.get("video_sound") and not pace.has_impacts(soundscape):
+            fields["soundscape"] = ("Sharp slaps and knocks of hands and forearms, one on every strike that lands. " + soundscape).strip()
+    return {"fields": fields, "pace": chosen}
+
+
 def compose_references(fields: dict, count: int) -> str:
     """The Ref2VA model's own prompt form: who each picture is, what is kept of it, then the shot.
 
@@ -293,7 +349,10 @@ def compose_references(fields: dict, count: int) -> str:
     """
 
     motion = fields.get("motion") if isinstance(fields.get("motion"), dict) else None
-    if motion and (fields.get("video_subjects") or motion.get("layer") in (None, "", "none")):
+    free = len(fields.get("video_subjects") or []) <= 1 and freed(fields.get("pace"), motion, int(count))
+    if free:  # the fight is the prompt's: no video goes in, and its camera move stays as words
+        fields = {**fields, "video_subjects": [], "video_sound": False}
+    if motion and (fields.get("video_subjects") or motion.get("layer") in (None, "", "none") or free):
         pictures = max(0, min(int(count), REFERENCE_LIMIT)) if fields.get("video_subjects") else 0
         made = motion_template(motion, pictures) if fields.get("video_subjects") and motion.get("layer") not in (None, "", "none") else {}
         fields = {**fields, **{key: value for key, value in made.items() if not fields.get(key)}}
@@ -303,6 +362,8 @@ def compose_references(fields: dict, count: int) -> str:
     videos = [(text or "").strip() for text in (fields.get("video_subjects") or [])][:REFERENCE_VIDEO_LIMIT]
     audios = [(text or "").strip() for text in (fields.get("audio_notes") or [])][:REFERENCE_AUDIO_LIMIT]
     count = max(0 if videos else 1, min(int(count), REFERENCE_LIMIT))
+    paced = paced_fields(fields, motion, bool(videos) or free, max(0, min(int(count), REFERENCE_LIMIT)))
+    fields, pacing = paced["fields"], paced["pace"]
     names = [(text or "").strip() for text in (fields.get("subjects") or [])][:count]
     names += [""] * (count - len(names))
     subjects = [f"<Subject {i}> is {name or 'the main subject'} shown in <Picture {i}>." for i, name in enumerate(names, start=1)]
@@ -563,6 +624,8 @@ def references(params: dict) -> dict:
 
     found = {kind: [str(inside(path)) for path in (params.get(key) or []) if path]
              for kind, key in (("pictures", "references"), ("videos", "reference_videos"), ("audios", "reference_audios"))}
+    if len(found["videos"]) == 1 and freed(params.get("pace"), params.get("motion") if isinstance(params.get("motion"), dict) else None, len(found["pictures"])):
+        found["videos"] = []  # Impacts over a slow reference: the prompt carries the fight (see freed)
     pictures, videos, audios = found["pictures"], found["videos"], found["audios"]
     if not (pictures or videos or audios):
         return {}
@@ -590,6 +653,9 @@ def references(params: dict) -> dict:
     if wrong:
         raise HTTPException(400, f"a reference audio clip is a sound file, and {relative(Path(wrong[0]))} is not")
     video_sound = bool(videos and params.get("reference_video_sound"))
+    measured = (params.get("motion") or {}).get("measured") if isinstance(params.get("motion"), dict) else None
+    if video_sound and isinstance(measured, dict) and measured.get("sound") == "impacts" and params.get("pace") == "flow":
+        video_sound = False  # Flow by choice: the reference's own hits are not reused (as the prompt says)
     low, high = REFERENCE_CLIP_SECONDS
     for kind, files in (("video", videos), ("audio clip", audios)):
         total = 0.0
@@ -803,6 +869,19 @@ def run(job: dict, command: list[str], env: dict, label: str = "") -> bool:
     return True
 
 
+def hush(clip: Path) -> None:
+    """The clip with its sound track silenced (``silent`` in a job's settings: a Flow clip without music). Asking the
+    model for near silence is not enough: on the Mac it laid music of its own over two of three such clips."""
+
+    quiet = clip.with_name(clip.stem + ".quiet" + clip.suffix)
+    done = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(clip), "-map", "0:v:0", "-map", "0:a?", "-c:v", "copy", "-af", "volume=0",
+                           "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(quiet)], capture_output=True, text=True, env=environment({}))
+    if done.returncode or not quiet.is_file():
+        quiet.unlink(missing_ok=True)
+        raise RuntimeError("the clip's sound could not be silenced: " + (done.stderr or "").strip()[-200:])
+    quiet.replace(clip)
+
+
 def gated(job: dict, clip: Path) -> bool:
     """Sam Wasserman's QA gate on a clip made to his Sharp Spec; False when the job was cancelled meanwhile."""
 
@@ -921,6 +1000,13 @@ def work() -> None:
                 if job["kind"] == "video" and params.get("preset") == "sharp" and params.get("qa", True):
                     if not gated(job, Path(outputs[0])):
                         continue
+                if job["kind"] == "video" and params.get("silent"):
+                    hush(Path(outputs[0]))
+                if job["kind"] == "video" and (params.get("reference_videos") or params.get("pace") in ("impacts", "flow")):
+                    try:  # reported beside the clip like the QA gate; it never fails a clip that was made
+                        job["pace"] = {**pace.measure(Path(outputs[0])), "asked": params.get("pace") or "auto"}
+                    except Exception as error:  # noqa: BLE001
+                        job["pace"] = {"verdict": "not measured", "note": str(error)[-200:]}
             job["status"] = "done"
         except Exception as error:  # noqa: BLE001 - a failed job must not stop the queue
             if job["status"] != "cancelled":
@@ -934,7 +1020,7 @@ threading.Thread(target=work, daemon=True).start()
 
 def public(job: dict) -> dict:
     out = {k: job.get(k) for k in ("id", "kind", "status", "title", "outputs", "progress", "error", "created",
-                                    "started", "finished", "estimate", "engine", "qa", "passes")}
+                                    "started", "finished", "estimate", "engine", "qa", "passes", "pace")}
     # by this machine's clock: the page may be open on another one
     out["elapsed"] = (job.get("finished") or time.time()) - job["started"] if job.get("started") else None
     out["log"] = job["log"][-3000:]
@@ -1177,6 +1263,7 @@ async def errors(_, error: HTTPException):
 import loras  # noqa: E402  (Keys and Wasserman LoRA Hub, beside this file)
 lora_router, lora_resolve, lora_lead = loras.attach(HOME, PACK, SPARK)
 app.include_router(lora_router)
+import pace  # noqa: E402  (whether a clip's sound and motion agree, beside this file)
 import qa  # noqa: E402  (Sam Wasserman's QA gate, beside this file)
 import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)
 

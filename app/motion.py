@@ -31,6 +31,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 import motion_worker as worker
+import pace
 
 HOME = Path.home() / "TensorFoldStudio"
 PACK = Path(__file__).resolve().parent.parent
@@ -106,7 +107,64 @@ def has_sound(path: Path) -> bool:
     return "audio" in out.stdout
 
 
-def motion_reference(pack, layer, mode, seconds, width, height, *, timing: str = "stretch", fit: str = "cover") -> dict:
+def soft_mouth(clip: Path, pose: dict, target: Path, speed: float, source_size: tuple[int, int]) -> int:
+    """`clip` with the lower face of the pose track's person smoothed over (mouth and jaw), written to `target`;
+    returns the number of frames that were smoothed (0: nothing written).
+
+    A reference video of someone talking moves the new face's mouth too, into the shapes of words that nobody says:
+    the model copies the lip movement whatever the prompt asks (measured on a DGX Spark: a baker says a line in the
+    reference, the woman who replaces him is asked only to smile, and her mouth opens and closes through the last
+    second; with the reference's mouth smoothed she holds the smile to the end). A blurred mouth has no lip movement
+    to copy, and the body, the head and the camera are untouched.
+
+    The mask is an ellipse on the mouth corners of the pose track (MediaPipe landmarks 9 and 10), as wide as the
+    ears are apart, feathered; frames without a face are left as they are. `speed` is source seconds per clip second,
+    `source_size` the frame the track was made on (the clip may be a cover crop of it).
+    """
+
+    try:
+        import numpy as np
+    except ImportError:
+        return 0
+    frames = [f for f in pose.get("frames") or [] if isinstance(f, dict)]
+    meta = worker.ffprobe(clip)
+    width, height, count = meta["width"], meta["height"], round(meta["duration"] * FPS)
+    if not frames or not width or not count:
+        return 0
+    wide, tall = source_size
+    scale = max(width / wide, height / tall)  # the cover crop of motion_reference
+    left, top = (wide * scale - width) / 2, (tall * scale - height) / 2
+    times = np.array([float(f.get("time") or 0) for f in frames])
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float32)
+    masks, radii, done = [], [], 0
+    for n in range(count):
+        frame = frames[int(np.argmin(np.abs(times - n / FPS * speed)))]
+        marks = frame.get("landmarks") or []
+        mask = np.zeros((height, width), np.float32)
+        if len(marks) > 10 and min(float(marks[i].get("visibility") or 0) for i in (9, 10)) > 0.5:
+            x = (marks[9]["x"] + marks[10]["x"]) / 2 * wide * scale - left
+            y = (marks[9]["y"] + marks[10]["y"]) / 2 * tall * scale - top
+            radius = max(abs(marks[7]["x"] - marks[8]["x"]) * wide * scale * 0.62, 0.016 * width)
+            reach = np.sqrt(((xs - x) / radius) ** 2 + ((ys - (y + 0.15 * radius)) / (0.8 * radius)) ** 2)
+            mask = np.clip((1.25 - reach) / 0.5, 0, 1)  # full inside, feathered over the outer quarter
+            radii.append(radius)
+            done += 1
+        masks.append((mask * 255).astype(np.uint8).tobytes())
+    if not done:
+        return 0
+    sigma = max(float(np.median(radii)) * 0.45, 3.0)
+    command = [worker.tool("ffmpeg"), "-v", "error", "-y", "-i", str(clip), "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{width}x{height}", "-r", str(FPS),
+               "-i", "-", "-filter_complex", f"[0:v]format=gbrp,split[a][b];[b]gblur=sigma={sigma:.1f}[soft];[1:v]format=gbrp[m];[a][soft][m]maskedmerge,format=yuv420p[v]",
+               "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-c:a", "copy", "-frames:v", str(count),
+               "-movflags", "+faststart", str(target)]
+    made = subprocess.run(command, input=b"".join(masks), capture_output=True)
+    if made.returncode or not target.is_file():
+        target.unlink(missing_ok=True)
+        return 0
+    return done
+
+
+def motion_reference(pack, layer, mode, seconds, width, height, *, timing: str = "stretch", fit: str = "cover", mouth: str = "") -> dict:
     """The hand-off from Motion Previs to a render: one layer of a pack as a clip of the asked length and size, the
     camera move in words, and the reference mode.
 
@@ -122,6 +180,8 @@ def motion_reference(pack, layer, mode, seconds, width, height, *, timing: str =
     width, height   size of the clip, even numbers
     timing   "stretch" retimes the whole shot to `seconds`; "trim" keeps its speed, cut or held on its last frame
     fit      "cover" fills the frame and crops; "contain" keeps the whole picture with bars
+    mouth    "soft" smooths the mouth of the source clip's person out of it (layer "reference", fit "cover", a pack
+             with a pose track): for a clip in which nobody speaks, made from a video of someone talking (soft_mouth)
 
     Returns a dict: kind, pack, layer, mode, clip (path under the studio folder, or None), clip_path, seconds, width,
     height, fps, frames, source {seconds, width, height, speed}, camera (a sentence or two), camera_reliable,
@@ -180,11 +240,18 @@ def motion_reference(pack, layer, mode, seconds, width, height, *, timing: str =
                 sound = True
             except RuntimeError:
                 voiced.unlink(missing_ok=True)
+        if mouth == "soft" and layer == "reference" and fit == "cover":
+            quiet = clip.with_name(clip.stem + "-softmouth.mp4")
+            softened = soft_mouth(clip, read_json(folder / "pose_landmarks.json", {}) or {}, quiet,
+                                  probe["duration"] / seconds if timing == "stretch" else 1.0, (probe["width"], probe["height"]))
+            if softened:
+                clip = quiet
     length = float(probe["duration"] or seconds)
     said = camera_words(folder, seconds if timing == "stretch" else min(seconds, length), None if timing == "stretch" else seconds)
     return {"kind": "motion-reference", "schema": 1, "pack": folder.name, "layer": layer, "file": HANDOFF_LAYERS.get(layer), "mode": mode,
             "clip": relative(clip) if clip else None, "clip_path": str(clip) if clip else None, "seconds": seconds, "width": width,
             "height": height, "fps": FPS, "frames": round(seconds * FPS) if clip else 0, "timing": timing, "fit": fit, "sound": sound,
+            "mouth": "soft" if clip and clip.name.endswith("-softmouth.mp4") else "",
             "source": {"seconds": length, "width": probe["width"], "height": probe["height"],
                        "speed": round(length / seconds, 4) if timing == "stretch" else 1.0},
             "camera": said["sentence"], "camera_reliable": said["reliable"], "camera_confidence": said["confidence"],
@@ -303,6 +370,20 @@ def attach(home: Path, pack: Path, spark: bool) -> APIRouter:
 
     threading.Thread(target=work, daemon=True).start()
 
+    def paced(folder: Path) -> dict | None:
+        """How fast the shot's quickest movement is and whether its sound holds hits (pace.py), measured once."""
+
+        kept, clip = folder / "pace.json", folder / "reference.mp4"
+        found = read_json(kept)
+        if found is None and clip.is_file():
+            try:
+                found = pace.measure(clip)
+                if found["verdict"] != "not measured":
+                    kept.write_text(json.dumps(found))
+            except Exception:  # noqa: BLE001 - a pack is still a pack without it
+                found = None
+        return found
+
     def describe(folder: Path) -> dict:
         manifest = read_json(folder / "bundle_manifest.json", {})
         port = manifest.get("port") or {}
@@ -317,6 +398,7 @@ def attach(home: Path, pack: Path, spark: bool) -> APIRouter:
                 "size": size, "files": files, "layers": layers, "suggested": next((l for l in SUGGESTED.get(mode, []) if l in layers), "reference" if "reference" in layers else None),
                 "camera": port.get("cameraDescription") or camera_words(folder), "camera_summary": (read_json(folder / "camera_motion.json", {}) or {}).get("summary"),
                 "pose": (read_json(folder / "pose_landmarks.json", {}) or {}).get("summary"), "quality": read_json(folder / "quality_report.json"),
+                "pace": paced(folder),
                 "notes": port.get("notes") or [], "timings": port.get("timings"), "memory": port.get("peakMemoryMB"),
                 "zip": relative(archive) if archive.is_file() else None, "instruction": worker.mode_instruction(mode)}
 
@@ -498,7 +580,8 @@ def attach(home: Path, pack: Path, spark: bool) -> APIRouter:
         if not body.get("pack"):
             raise HTTPException(400, "which pack?")
         out = motion_reference(body["pack"], body.get("layer"), body.get("mode"), body.get("seconds", 5), body.get("width", 864),
-                               body.get("height", 480), timing=body.get("timing") or "stretch", fit=body.get("fit") or "cover")
+                               body.get("height", 480), timing=body.get("timing") or "stretch", fit=body.get("fit") or "cover",
+                               mouth=body.get("mouth") or "")
         if body.get("keep", True):
             (root / "handoff.json").write_text(json.dumps(out, indent=1))
         return out
