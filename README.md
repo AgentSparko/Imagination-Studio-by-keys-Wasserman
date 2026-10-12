@@ -960,8 +960,10 @@ REF_VIDEOS="baker.mp4" REF_VIDEO_SOUND=1 bash scripts/video.sh "..." out.mp4   #
     carry-over we could measure.** She speaks at 184 Hz with the clip and 182 without; the man's voice is at 122.
 - **Not checked:** sound by ear (the figures above are measurements: pitch by autocorrelation, MFCC statistics,
   spectrogram correlation), more than one reference video or audio clip in a request, two seeds, lengths over
-  5 s, references longer than the clip, `REF_VIDEO_SIZE=full`, `QUALITY=high` with a video, the app's screens in a
-  browser (its checks and the prompt it writes were exercised through its API, and the page's script parses).
+  5 s, references longer than the clip, `REF_VIDEO_SIZE=full`, `QUALITY=high` with a video, the app's screens by eye
+  in a browser (its checks and the prompt it writes were exercised through its API, two clips were rendered
+  through its queue, and the Create page's choosers and reference step were driven in a scripted DOM, not looked
+  at).
 
 ### GHCR prebuilt carrier
 
