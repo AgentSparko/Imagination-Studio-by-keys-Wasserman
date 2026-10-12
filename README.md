@@ -125,6 +125,21 @@ bash oneshot-setup.sh            # the same command as on a Mac: on Linux it run
 bash scripts/app.sh              # http://127.0.0.1:7870
 ```
 
+#### Upgrade from 2.5 or 2.6 (DGX Spark)
+
+```bash
+cd keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark && git pull
+bash oneshot-setup.sh --upgrade  # on Linux: oneshot-setup-spark.sh --upgrade
+```
+
+`--upgrade` moves an existing install to the version of the clone: the environment's packages, ComfyUI at its pinned
+commit, the engine (rebuilt only when its pinned commit changed) and the Motion Previs environment, which it adds
+when it is missing. It **fetches no weights** (a model that is not on disk is named and left out; an image-only
+install stays image-only), does not touch `~/TensorFoldStudio` (clips, projects, LoRAs, settings), prints the version
+before and after, and ends with `--verify`. Running it a second time changes nothing. Restart the app afterwards
+(`bash scripts/app.sh`) so it serves the new pages. Run it when no clip is rendering.
+
+
 The installer takes the prebuilt engine from the carrier image when Docker is there, and otherwise builds it from
 source (`spark/build-engine.sh`: it fetches Zig 0.17.0 and the engine's source,
 [drowzeys/TensorFold `h3-1.0.4`](https://github.com/drowzeys/TensorFold/tree/h3-1.0.4), and needs the CUDA toolkit's
@@ -190,6 +205,10 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >   installed the engine before it, so on a new Mac those two kinds of reference stopped with a message. Running
 >   `oneshot-setup.sh` again on an existing install replaces the engine. The DGX Spark build is unchanged.
 > - **Library tiles have two rows:** the file name, then the buttons. A long name pushed *+ timeline* out of the tile.
+> - **One command upgrades an existing install:** `git pull && bash oneshot-setup.sh --upgrade` on either machine.
+>   No weights are fetched and the studio folder is not touched. See *Upgrade from 2.5 or 2.6* under each install.
+> - **A Motion Previs tutorial:** a 13-step lesson in the app (*Tutorial → Motion Previs*) and
+>   [TUTORIAL.md, section 9](TUTORIAL.md#9-motion-previs-make-a-clip-that-moves-like-another), with two worked examples.
 
 > **2.6 (2026-10-12): reference videos and audio, Motion Previs, and the two joined in the create wizard.**
 > **What's new in 2.6:**
@@ -411,6 +430,22 @@ bash oneshot-setup.sh --turbo --app     # the same plus MiniMax H3 Turbo (64 GB 
 bash oneshot-setup.sh --ref2va --app    # the same plus reference pictures to video (64 GB more on disk, 128 GB of memory)
 ```
 
+#### Upgrade from 2.5 or 2.6 (Mac)
+
+```bash
+cd keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark && git pull
+bash oneshot-setup.sh --upgrade         # add --app to rebuild the double-clickable app as well
+```
+
+`--upgrade` moves an existing install to the version of the clone: it replaces the TensorFold engine in the
+install's own environment when it is older than this version needs (2.6.1: the build with reference videos and
+audio), copies the render scripts, and adds the Motion Previs environment when it is missing (0.5 GB). It **fetches
+no weights**: a model that is not on disk is named and left out, and an image-only install stays image-only. It does
+not touch `~/TensorFoldStudio` (clips, projects, LoRAs, settings), prints the version before and after, and ends with
+`--verify`. Running it a second time changes nothing. Quit and reopen the app afterwards. A plain
+`bash oneshot-setup.sh` after `git pull` upgrades the engine too, and also fetches any model the install lacks.
+
+
 **Step-by-step tutorial with screenshots: [TUTORIAL.md](TUTORIAL.md).**
 
 Then **double-click Wasserman Slate AI Studio** on the Desktop or in `~/Applications` (drag it to the Dock if you like). `bash scripts/make-app.sh` rebuilds the app on its own. It starts the studio
@@ -606,6 +641,10 @@ transforms, text, transitions or audio mixing), and there is no assisted prompt 
 on rookiestar28's ComfyUI-MiniMaxH3-Studio, which does far more; no code is shared with it.
 
 ## Motion Previs: a shot into control layers and a camera move
+
+**New to it? Start with the walkthrough:** [TUTORIAL.md, section 9](TUTORIAL.md#9-motion-previs-make-a-clip-that-moves-like-another)
+(two worked examples, what each choice does, and what to do when a clip goes wrong), or **Tutorial → Motion Previs** in
+the app.
 
 The **Motion Previs** tab takes a clip (one you upload, or an earlier render or upload), a range of 2 to 15 seconds
 and one of four reference modes (camera only, actor motion, object motion, full scene), and writes a production pack
@@ -1379,7 +1418,7 @@ videos at once, and sound by ear (the figures above are measurements).
 
 ```bash
 docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1
-# index digest: sha256:6d27fa35d57cae1f66a5ad4bb002c15086207cb1eab8ecec0544a3367b9466bc (linux/arm64 + linux/amd64)
+# index digest: sha256:759aa57789223c4f63ecea950638b90d045a39d5c7452ff411fea5ecbcda8e0b (linux/arm64 + linux/amd64)
 docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1 cp -a /payload/. /out/payload/
 ```
 

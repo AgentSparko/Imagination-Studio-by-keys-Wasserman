@@ -10,6 +10,8 @@
 #   bash oneshot-setup.sh --image-only  # the image model only (33 GB), render a test image
 #   bash oneshot-setup.sh --no-render   # install and fetch only
 #   bash oneshot-setup.sh --verify      # check an existing install, no downloads, no render
+#   bash oneshot-setup.sh --upgrade     # after `git pull`: move an existing install to this version (engine, scripts, Motion
+#                                       # Previs environment), fetch no weights, then --verify. Running it twice changes nothing.
 #
 # Memory: 48 GB for --image-only; 64 GB for the default install (M1 to M4 run FastH3 on the MLX engine with 8-bit
 # weights, 37 GB more on disk, much slower than an M5); 128 GB with --turbo. Disk: 33 GB, 175 GB and 240 GB.
@@ -23,12 +25,12 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # One command on either machine: on Linux with an NVIDIA GPU this hands over to the DGX Spark installer (CUDA build).
-# The options both know (--image-only, --no-render, --verify) pass through; the Mac-only ones are dropped with a note.
+# The options both know (--image-only, --no-render, --verify, --motion, --upgrade) pass through; the Mac-only ones are dropped with a note.
 if [ "$(uname -s)" = Linux ]; then
   SPARK_ARGS=()
   for arg in "$@"; do
     case "$arg" in
-      --image-only|--no-render|--verify|--motion) SPARK_ARGS+=("$arg");;
+      --image-only|--no-render|--verify|--motion|--upgrade) SPARK_ARGS+=("$arg");;
       --fasth3) ;;
       --turbo|--app|--ref2va) echo "note: $arg is for the Mac build and does nothing on a DGX Spark";;
       *) echo "unknown option $arg" >&2; exit 2;;
@@ -66,7 +68,7 @@ REF_ADAPTER_NAME="lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 X2_REPO="speach1sdef178/MiniMax-H3-X2-Detail-VAE"
 X2_NAME="MiniMax-H3-X2-Detail-v1.safetensors"
 X2_SHA256="2296840f4acedcaa976688e7d7b97f7bf570b136e400385d3f46224011897aac"
-MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0
+MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0; UPGRADE=0
 for arg in "$@"; do
   case "$arg" in
     --image-only) VIDEO=0;;
@@ -76,6 +78,7 @@ for arg in "$@"; do
     --motion) MOTION=1;;
     --app) APP=1;;
     --verify|--no-render) MODE="$arg";;
+    --upgrade) UPGRADE=1; MODE="--no-render"; MOTION=1;;
     *) echo "unknown option $arg" >&2; exit 2;;
   esac
 done
@@ -83,11 +86,21 @@ done
 die() { echo "FATAL: $*" >&2; exit 1; }
 ok()  { echo "  ✓ $*"; }
 step(){ echo; echo "==> $*"; }
+# a weight that is not on disk: --verify stops there; --upgrade says so and goes on without fetching it
+absent() { [ "$MODE" != "--verify" ] || die "$1"; [ "$UPGRADE" = 1 ] || return 1; echo "  ! $1: --upgrade fetches no weights (run oneshot-setup.sh without it to add them)"; }
 
 step "Preflight"
 [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] || die "Apple silicon macOS only"
 CHIP=$(sysctl -n machdep.cpu.brand_string); RAM=$(( $(sysctl -n hw.memsize) / 1073741824 ))
 ok "$CHIP, macOS $(sw_vers -productVersion), ${RAM} GB"
+# --upgrade moves an existing install to this version: the engine, the scripts and the Motion Previs environment.
+# A video install stays a video install and an image-only one image-only; the studio folder is not touched.
+INSTALLED="$(cat "$PREFIX/VERSION" 2>/dev/null || echo "2.6 or earlier")"
+if [ "$UPGRADE" = 1 ]; then
+  [ -x "$PREFIX/venv/bin/python" ] || die "nothing to upgrade at $PREFIX: run oneshot-setup.sh without --upgrade"
+  ls "$H3_MODEL_DIR"/FL2VA/text_encoder/*.safetensors >/dev/null 2>&1 || VIDEO=0
+  ok "upgrade: installed $INSTALLED -> $(cat "$HERE/VERSION")$([ "$VIDEO" = 1 ] || echo " (image-only install)")"
+else ok "version $(cat "$HERE/VERSION")$([ ! -f "$PREFIX/VERSION" ] || echo " (installed: $INSTALLED)")"; fi
 # an install that already holds MiniMax H3's transformer and the Turbo adapter keeps them
 [ "$VIDEO" = 0 ] || { ls "$H3_MODEL_DIR"/FL2VA/transformer/*.safetensors >/dev/null 2>&1 && [ -f "$PREFIX/adapters/$H3_ADAPTER_NAME" ] && TURBO=1; } || true
 # Peak memory measured on an M5 Ultra: image 28 GiB; FastH3 on the native engine 32 GiB (the passes; the text encoder
@@ -152,8 +165,7 @@ print("  ✓ int8 tensor-unit kernels available" if mlp_int8.available() else " 
 EOF
 
 step "Qwen-Image-2.1-Turbo weights (33 GB) -> $QWEN_MODEL_DIR"
-if [ ! -f "$QWEN_MODEL_DIR/transformer/diffusion_pytorch_model-00002-of-00002.safetensors" ]; then
-  [ "$MODE" = "--verify" ] && die "no Qwen-Image-2.1-Turbo weights at $QWEN_MODEL_DIR"
+if [ ! -f "$QWEN_MODEL_DIR/transformer/diffusion_pytorch_model-00002-of-00002.safetensors" ] && ! absent "no Qwen-Image-2.1-Turbo weights at $QWEN_MODEL_DIR"; then
   echo "  Qwen-Image-2.1-Turbo is under the Qwen Research License Agreement: NON-COMMERCIAL use only. Read it first:"
   echo "  https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo/blob/main/LICENSE"
   BASE="$(dirname "$QWEN_MODEL_DIR")/Qwen-Image-2.1"
@@ -190,8 +202,7 @@ if [ "$VIDEO" = 1 ]; then
   h3_ok() { ls "$H3_MODEL_DIR"/FL2VA/text_encoder/model-00014-of-00014.safetensors "$H3_MODEL_DIR"/FL2VA/audio_vae/model.safetensors \
               "$H3_MODEL_DIR"/FL2VA/video_vae/config.json "$H3_MODEL_DIR"/FL2VA/transformer/config.json >/dev/null 2>&1 \
             && { [ "$TURBO" = 0 ] || ls "$H3_MODEL_DIR"/FL2VA/transformer/model-00013-of-00013.safetensors >/dev/null 2>&1; }; }
-  if ! h3_ok; then
-    [ "$MODE" = "--verify" ] && die "no H3 weights at $H3_MODEL_DIR"
+  if ! h3_ok && ! absent "no H3 weights at $H3_MODEL_DIR"; then
     echo "  MiniMax H3 is under the MiniMax H3 Community License, which limits where it may be used. Read it first:"
     echo "  https://huggingface.co/MiniMaxAI/MiniMax-H3"
     "$PREFIX/venv/bin/hf" download MiniMaxAI/MiniMax-H3 --include "FL2VA/*" --include model_index.json \
@@ -203,8 +214,7 @@ if [ "$VIDEO" = 1 ]; then
   if [ "$REF2VA" = 1 ]; then
     # Ref2VA is the same pipeline with another transformer: its text encoder and decoders are FL2VA's files, linked
     step "MiniMax H3 Ref2VA transformer (reference pictures to video, 62 GB) -> $H3_MODEL_DIR/Ref2VA"
-    if ! ls "$H3_MODEL_DIR"/Ref2VA/transformer/model-00013-of-00013.safetensors "$H3_MODEL_DIR"/Ref2VA/model_index.json >/dev/null 2>&1; then
-      [ "$MODE" = "--verify" ] && die "no Ref2VA transformer at $H3_MODEL_DIR/Ref2VA"
+    if ! ls "$H3_MODEL_DIR"/Ref2VA/transformer/model-00013-of-00013.safetensors "$H3_MODEL_DIR"/Ref2VA/model_index.json >/dev/null 2>&1 && ! absent "no Ref2VA transformer at $H3_MODEL_DIR/Ref2VA"; then
       "$PREFIX/venv/bin/hf" download MiniMaxAI/MiniMax-H3 --include "Ref2VA/transformer/*" --include "Ref2VA/model_index.json" \
         --local-dir "$H3_MODEL_DIR"
       ls "$H3_MODEL_DIR"/Ref2VA/transformer/model-00013-of-00013.safetensors >/dev/null 2>&1 || die "the Ref2VA download is incomplete at $H3_MODEL_DIR/Ref2VA"
@@ -215,7 +225,7 @@ if [ "$VIDEO" = 1 ]; then
     done
     REF_ADAPTER="$PREFIX/adapters/$REF_ADAPTER_NAME"
     if [ ! -f "$REF_ADAPTER" ]; then
-      if [ "$MODE" = "--verify" ]; then echo "  ! no Ref2VA Turbo adapter at $REF_ADAPTER: reference clips run their 20 passes"; else
+      if [ "$MODE" = "--verify" ] || [ "$UPGRADE" = 1 ]; then echo "  ! no Ref2VA Turbo adapter at $REF_ADAPTER: reference clips run their 20 passes"; else
         mkdir -p "$PREFIX/adapters/h3-ref2v"
         "$PREFIX/venv/bin/hf" download "$REF_ADAPTER_REPO" "$REF_ADAPTER_SOURCE" --local-dir "$PREFIX/adapters/h3-ref2v" >/dev/null
         echo "$REF_ADAPTER_SHA256  $PREFIX/adapters/h3-ref2v/$REF_ADAPTER_SOURCE" | shasum -a 256 -c - >/dev/null || die "Ref2VA Turbo adapter checksum mismatch"
@@ -230,30 +240,27 @@ if [ "$VIDEO" = 1 ]; then
   if [ "$TURBO" = 1 ]; then
     step "Video Turbo adapter (lightx2v v1.0, runner layout, 1.96 GB)"
     H3_ADAPTER="$PREFIX/adapters/$H3_ADAPTER_NAME"
-    if [ ! -f "$H3_ADAPTER" ]; then
-      [ "$MODE" = "--verify" ] && die "no video Turbo adapter at $H3_ADAPTER"
+    if [ ! -f "$H3_ADAPTER" ] && ! absent "no video Turbo adapter at $H3_ADAPTER"; then
       curl -L --fail --retry 3 -C - -o "$H3_ADAPTER.partial" "$H3_ADAPTER_URL"
       echo "$H3_ADAPTER_SHA256  $H3_ADAPTER.partial" | shasum -a 256 -c - >/dev/null || die "video Turbo adapter checksum mismatch"
       mv "$H3_ADAPTER.partial" "$H3_ADAPTER"
     fi
-    ok "$H3_ADAPTER_NAME"
+    [ ! -f "$H3_ADAPTER" ] || ok "$H3_ADAPTER_NAME"
   fi
 
   step "2x video decoder (MiniMax-H3-X2-Detail-VAE, 5.2 GB)"
   X2_VAE="$PREFIX/adapters/$X2_NAME"
-  if [ ! -f "$X2_VAE" ]; then
-    [ "$MODE" = "--verify" ] && die "no 2x video decoder at $X2_VAE"
+  if [ ! -f "$X2_VAE" ] && ! absent "no 2x video decoder at $X2_VAE"; then
     "$PREFIX/venv/bin/hf" download "$X2_REPO" "$X2_NAME" LICENSE NOTICE --local-dir "$PREFIX/adapters/h3-x2" >/dev/null
     echo "$X2_SHA256  $PREFIX/adapters/h3-x2/$X2_NAME" | shasum -a 256 -c - >/dev/null || die "2x video decoder checksum mismatch"
     ln -sf "h3-x2/$X2_NAME" "$X2_VAE"
   fi
-  ok "$X2_NAME"
+  [ ! -e "$X2_VAE" ] || ok "$X2_NAME"
 
   if true; then
     step "FastH3 8-Step V2 transformer (70 GB) -> $FASTH3_DIR"
     if ! ls "$FASTH3_DIR"/transformer/diffusion_pytorch_model-00014-of-00014.safetensors >/dev/null 2>&1 \
-       && [ ! -f "$FASTH3_DIR/transformer-q8/q8.json" ]; then
-      [ "$MODE" = "--verify" ] && die "no FastH3 transformer at $FASTH3_DIR"
+       && [ ! -f "$FASTH3_DIR/transformer-q8/q8.json" ] && ! absent "no FastH3 transformer at $FASTH3_DIR"; then
       echo "  FastH3 is a derivative of MiniMax H3 under the MiniMax H3 Community License. Read it first:"
       echo "  https://huggingface.co/$FASTH3_REPO"
       "$PREFIX/venv/bin/hf" download "$FASTH3_REPO" --include "transformer/*" --include "fastvideo_inference.json" \
@@ -264,13 +271,12 @@ if [ "$VIDEO" = 1 ]; then
 
     case "$CHIP" in *M[5-9]*) ;; *)
       step "8-bit FastH3 weights for a chip without tensor units (37 GB, written once) -> $FASTH3_DIR/transformer-q8"
-      if [ ! -f "$FASTH3_DIR/transformer-q8/q8.json" ]; then
-        [ "$MODE" = "--verify" ] && die "no 8-bit FastH3 weights at $FASTH3_DIR/transformer-q8"
+      if [ ! -f "$FASTH3_DIR/transformer-q8/q8.json" ] && ! absent "no 8-bit FastH3 weights at $FASTH3_DIR/transformer-q8"; then
         PYTHONPATH="$PREFIX/minimax-h3-mlx" "$PREFIX/venv/bin/python" "$PREFIX/fasth3_q8.py" convert "$FASTH3_DIR" | grep -E "wrote|block [0-9]*0/" | sed 's/^/  /'
         [ -f "$FASTH3_DIR/transformer-q8/q8.json" ] || die "the 8-bit conversion did not finish"
       fi
       # Q8_ONLY=1: the 65 GB of bfloat16 weights are not read again on this chip
-      [ "${Q8_ONLY:-0}" != 1 ] || [ "$MODE" = "--verify" ] || rm -f "$FASTH3_DIR"/transformer/diffusion_pytorch_model-*.safetensors
+      [ "${Q8_ONLY:-0}" != 1 ] || [ "$MODE" = "--verify" ] || [ ! -f "$FASTH3_DIR/transformer-q8/q8.json" ] || rm -f "$FASTH3_DIR"/transformer/diffusion_pytorch_model-*.safetensors
       ok "transformer-q8 ($(du -sh "$FASTH3_DIR/transformer-q8" | cut -f1)): FastH3 runs on the MLX engine with 8-bit weights"
       ;; esac
 
@@ -319,12 +325,17 @@ if [ "$MOTION" = 1 ] || [ -x "$PREFIX/motion-venv/bin/python" ]; then
     || echo "  ! Motion Previs is not fully set up: its tab says which layers are not available on this machine"
 fi
 
+[ "$MODE" = "--verify" ] || cp "$HERE/VERSION" "$PREFIX/VERSION"
 export PREFIX H3_MODEL_DIR QWEN_MODEL_DIR FASTH3_DIR
 if [ "$APP" = 1 ] && [ "$MODE" != "--verify" ]; then
   step "One-click app"
   DESKTOP=1 bash "$HERE/scripts/make-app.sh" | sed 's/^/  /'
 fi
 
+if [ "$UPGRADE" = 1 ]; then
+  step "Upgraded: $INSTALLED -> $(cat "$PREFIX/VERSION"). Checking the install (restart the app to serve the new pages)"
+  exec bash "$HERE/oneshot-setup.sh" --verify $([ "$VIDEO" = 1 ] || echo --image-only)
+fi
 if [ "$MODE" = "--verify" ] || [ "$MODE" = "--no-render" ]; then
   echo; echo "DONE. Image: bash $HERE/scripts/image.sh \"a prompt\" out.png"
   [ "$VIDEO" = 0 ] || echo "      Studio: bash $HERE/scripts/studio.sh \"the picture\" \"what happens\" out.mp4"
