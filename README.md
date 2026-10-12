@@ -1182,6 +1182,7 @@ More of the 2.6 surface, on the same machine (Turbo 4 passes, 864x480):
 | Two 5 s reference videos (a man from one, a street and its camera from the other) | 373 s | 33.8 GB |
 | An 8 s clip from a picture and an 8 s source shot, full scene, through the app | 345 s | 30.3 GB |
 | A picture, a 5 s video with its own sound and an audio clip | 229 s | 33.2 GB |
+| The 8 s clip again with the shot's own sound as a reference: the clip's sound is the shot's, likeness 0.96 (0.02 without) | 344 s | 33.4 GB |
 | Object motion: the depth layer of a ball rolling over a table, no picture, a prompt for an apple on marble | 208 s | 38.1 GB |
 | Camera only: the depth layer of a street shot, no picture, a prompt for an empty canyon | 198 s | 36.9 GB |
 
