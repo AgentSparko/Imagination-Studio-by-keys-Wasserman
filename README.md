@@ -236,8 +236,11 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 > measurement ([what a sound reference does](#reference-videos-audio-and-motion-on-a-dgx-spark)); two reference videos
 > in one request; an 8 second clip from an 8 second shot; the object-motion and camera-only modes in a render.
 > **Sound and movement** (Impacts, Flow with and without music, the soft mouth) was rendered on both machines
-> through the wizard's API calls and looked at frame by frame; the new controls themselves were not clicked in a
-> browser.
+> through the wizard's API calls and looked at frame by frame. The controls were then clicked in a headless Chromium
+> against both machines' running apps: a reference video added, *Analyse motion*, each of *Automatic*, *Impacts* and
+> *Flow*, the mouth switch off and on, and one Flow clip queued from the page (DGX Spark 206 s, Mac 242 s, 5 s at
+> 864x480, 4 passes; both measured slow and silent, "agree"). **Clear and delete** were driven the same way on both
+> builds against a studio folder of test clips (25 checks each).
 > **Not tested on either machine:** the motion figures on more than a few shots or seeds; voice cloning (not
 > promised: see the measurements); three reference videos at once; a real Motion Previs Studio export ZIP;
 > `REF_VIDEO_SIZE=full` (refused on the Spark, for memory). Not tested on the Mac: the join after the merge (the Mac
@@ -508,9 +511,10 @@ or reloaded. A queued or running job cannot be deleted (cancel it first), and a 
 stays. Deleting never touches a project file, a LoRA or a model: only pictures, clips and sound in `renders`,
 `exports`, `scouts`, `uploads` and `qa`, and clips in `projects` and `slate`, can be moved. The trash is
 `~/TensorFoldStudio/trash`; a LoRA removed in the hub goes there too, so *Empty trash* erases that as well.
-`tests/test_clear.py` holds the path checks. Driven in a headless Chromium on both machines' builds: each Clear and
-Undo, one job deleted and put back, two ticked jobs, the failed ones, all finished, restore, two ticked Library
-files, and the trash emptied (25 checks).
+`tests/test_clear.py` holds the path checks. Driven in a headless Chromium on both machines' builds, against a
+studio folder of test clips: each Clear and Undo, one job deleted and put back, two ticked jobs, the failed ones,
+all finished, restore, two ticked Library files, and the trash emptied (25 checks). Not driven in a browser: the
+*Clear* above a Slate shot's prompt (it is the same control as a segment's).
 
 ![Tutorial](samples/ui_tutorial.png)
 
