@@ -29,9 +29,9 @@ def test_presets_are_well_formed():
     for r in PRESETS:
         assert r["name"] and r["author"] and r["page"] and r["licence"], r["id"]
         assert set(r["category"]) <= GROUPS and r["category"], r["id"]
-        assert r["status"] in ("ready", "gated", "unsupported"), r["id"]
+        assert r["status"] in ("ready", "gated", "unsupported", "action"), r["id"]  # action: used from a Library clip
         assert len(r["sha256"]) == 64 and r["url"].startswith("https://"), r["id"]
-        assert r["needs"] in ("text", "first-last", "reference", "source-video", "workflow", "image"), r["id"]
+        assert r["needs"] in ("text", "first-last", "reference", "source-video", "workflow", "image", "action"), r["id"]
         assert r["status"] == "ready" or r["why"], r["id"]
         assert r["range"][0] <= r["strength"] <= r["range"][1], r["id"]
     for group in ("camera", "transform", "character", "motion", "style", "finish", "fun"):
