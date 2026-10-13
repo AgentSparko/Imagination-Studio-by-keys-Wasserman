@@ -1,0 +1,229 @@
+"""The key layouts MiniMax H3 LoRAs are published in, and one rewrite between them.
+
+A LoRA for the H3 transformer is a pair of small matrices per adapted linear layer. Trainers name the pairs differently:
+
+  comfy     diffusion_model.<module>.lora_A.weight / .lora_B.weight      ai-toolkit, ComfyUI (also kohya's
+            diffusion_model.<module>.lora_down.weight / .lora_up.weight with .alpha)
+  peft      <module>.lora_A.<adapter>.weight / .lora_B.<adapter>.weight  DiffSynth-Studio and raw PEFT saves, the
+            adapter name is usually `default`; no prefix, no alpha (the scale is 1)
+  runner    <module>.lora_A.weight / .lora_B.weight, scale folded into B  what the Mac engine's --lora reads
+                                                                           (scripts/convert-lora.py writes it)
+
+<module> is the checkpoint's own name in all three (blocks.N.attn.qkv_proj, blocks.N.mlp.fc1, token_refiner.blocks.N…,
+blocks.N.adaln_proj.linear, final_layer.adaln_proj.linear). ComfyUI's loader reads the comfy layout only: a peft file
+loaded as it is matches no key and changes nothing, without a warning. `to_comfy` renames the keys and copies the
+tensors' bytes as they are. One kind of pair needs more than a name: a LoRA on an adaln projection, made on MiniMax's
+full weights, against ComfyUI's `pruned` checkpoints (see curve_basis).
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import struct
+from pathlib import Path
+
+PEFT = re.compile(r"^(?P<module>.+)\.lora_(?P<side>[AB])\.(?P<adapter>[A-Za-z0-9_-]+)\.weight$")
+PLAIN = re.compile(r"^(?P<module>.+)\.(?:lora_[AB]|lora_down|lora_up)\.weight$")
+# the linear layers of the H3 transformer a LoRA can sit on, under the checkpoint's names
+MODULE = re.compile(r"^(?:token_refiner\.)?blocks\.\d+\.(?:attn\.(?:qkv_proj|out_proj)|mlp\.fc[12]|adaln_proj\.linear)$"
+                    r"|^final_layer\.(?:adaln_proj\.linear|video_out|audio_out)$"
+                    r"|^(?:video_patch_proj|audio_patch_proj|condition_proj|time_embedder\.proj_(?:in|out))$")
+
+
+def header(path: Path) -> tuple[dict, dict, int]:
+    """(tensors, metadata, where the payload starts) of a safetensors file."""
+
+    with open(path, "rb") as handle:
+        head = handle.read(8)
+        size = struct.unpack("<Q", head)[0] if len(head) == 8 else 0
+        if not 0 < size < 50_000_000:
+            raise ValueError("not a safetensors file")
+        tensors = json.loads(handle.read(size))
+    return tensors, tensors.pop("__metadata__", None) or {}, 8 + size
+
+
+def layout(names) -> str:
+    """comfy, peft, runner or unknown, from a file's tensor names."""
+
+    names = [n for n in names if n != "__metadata__"]
+    if any(PEFT.match(n) for n in names):
+        return "peft"
+    low = [n for n in names if PLAIN.match(n)]
+    if not low:
+        return "unknown"
+    return "comfy" if all(n.startswith("diffusion_model.") for n in low) else "runner"
+
+
+def modules(names) -> list[str]:
+    """The adapted modules under checkpoint names, whatever the layout."""
+
+    found = set()
+    for name in names:
+        hit = PEFT.match(name) or PLAIN.match(name)
+        if hit:
+            module = hit["module"]
+            found.add(module[len("diffusion_model."):] if module.startswith("diffusion_model.") else module)
+    return sorted(found)
+
+
+def comfy_names(names) -> dict[str, str]:
+    """{name in a peft file: name in the comfy layout}; a name that is not a LoRA matrix of the transformer raises."""
+
+    adapters = {PEFT.match(n)["adapter"] for n in names if PEFT.match(n)}
+    if len(adapters) != 1:
+        raise ValueError(f"expected one PEFT adapter in the file, found {sorted(adapters) or 'none'}")
+    renamed = {}
+    for name in names:
+        hit = PEFT.match(name)
+        if not hit:
+            raise ValueError(f"unsupported tensor {name}: a low-rank LoRA with lora_A / lora_B is read")
+        module = hit["module"]
+        module = module[len("diffusion_model."):] if module.startswith("diffusion_model.") else module
+        if not MODULE.match(module):
+            raise ValueError(f"{module} is not a layer of MiniMax H3's transformer")
+        renamed[name] = f"diffusion_model.{module}.lora_{hit['side']}.weight"
+    if len(set(renamed.values())) != len(renamed):
+        raise ValueError("two tensors would take the same name")
+    return renamed
+
+
+ADALN = re.compile(r"(?:^|\.)adaln_proj\.linear$")
+# MiniMax's own Ref2VA transformer: the time embedder sits in the first 64 MB of its first file
+OFFICIAL = "https://huggingface.co/MiniMaxAI/MiniMax-H3/resolve/main/Ref2VA/transformer/model-00001-of-00013.safetensors"
+EMBEDDER = ("time_embedder.proj_in.weight", "time_embedder.proj_in.bias", "time_embedder.proj_out.weight", "time_embedder.proj_out.bias")
+
+
+def _tensor(handle, start: int, entry: dict):
+    import numpy as np
+
+    kinds = {"F32": np.float32, "F16": np.float16, "F64": np.float64, "BF16": np.uint16}
+    begin, end = entry["data_offsets"]
+    handle.seek(start + begin)
+    flat = np.frombuffer(handle.read(end - begin), dtype=kinds[entry["dtype"]])
+    if entry["dtype"] == "BF16":  # bfloat16 is the top half of a float32
+        flat = (flat.astype(np.uint32) << 16).view(np.float32)
+    return flat.astype(np.float32).reshape(entry["shape"])
+
+
+def embedder(local: Path | None = None, url: str = OFFICIAL) -> dict:
+    """The four tensors of MiniMax H3's time embedder: from the model's own first file on this machine, else the
+    first 64 MB of that file on MiniMax's page (a ranged read; nothing else of the model is fetched)."""
+
+    import io
+    import urllib.request
+
+    if local is not None and Path(local).is_file():
+        tensors, _, start = header(Path(local))
+        with open(local, "rb") as handle:
+            return {name: _tensor(handle, start, tensors[name]) for name in EMBEDDER}
+
+    def part(first: int, last: int) -> bytes:
+        request = urllib.request.Request(url, headers={"Range": f"bytes={first}-{last}", "User-Agent": "TensorFoldStudio"})
+        with urllib.request.urlopen(request, timeout=300) as reply:
+            return reply.read()
+
+    size = struct.unpack("<Q", part(0, 7))[0]
+    if not 0 < size < 50_000_000:
+        raise ValueError("the model file's header is not a safetensors header")
+    tensors = json.loads(part(8, 7 + size))
+    first = min(tensors[name]["data_offsets"][0] for name in EMBEDDER)
+    last = max(tensors[name]["data_offsets"][1] for name in EMBEDDER)
+    blob = io.BytesIO(part(8 + size + first, 8 + size + last - 1))
+    return {name: _tensor(blob, -first, tensors[name]) for name in EMBEDDER}
+
+
+def curve_basis(table, weights: dict):
+    """(basis [k, time_embed_dim], offset [time_embed_dim], fit error) for a curve-form checkpoint.
+
+    ComfyUI's `pruned` H3 files have no time embedder: each adaln projection reads a row of `adaln_t_table` (k = 8
+    numbers a timestep, 1025 timesteps) where MiniMax's reads silu(time_embedder(t)) (2688 numbers). The two are tied
+    by one affine map, silu(time_embedder(t)) = table(t) @ basis + offset, which this solves for by least squares
+    over the table's own grid. With it a LoRA made on the full adaln weights moves onto the pruned ones exactly:
+    A' = A @ basis.T, and what the offset contributes goes to the bias (B @ A @ offset)."""
+
+    import numpy as np
+
+    table = np.asarray(table, dtype=np.float64)
+    grid = np.arange(table.shape[0], dtype=np.float64) / (table.shape[0] - 1)
+    half = weights[EMBEDDER[0]].shape[1] // 2
+    angles = grid[:, None] * np.exp(-np.log(10000.0) * np.arange(half, dtype=np.float64) / half)[None]
+    silu = lambda x: x / (1.0 + np.exp(-x))  # noqa: E731
+    hidden = silu(np.concatenate([np.cos(angles), np.sin(angles)], axis=-1) @ weights[EMBEDDER[0]].astype(np.float64).T + weights[EMBEDDER[1]])
+    wanted = silu(hidden @ weights[EMBEDDER[2]].astype(np.float64).T + weights[EMBEDDER[3]])
+    design = np.concatenate([table, np.ones((table.shape[0], 1))], axis=1)
+    solved = np.linalg.lstsq(design, wanted, rcond=None)[0]
+    error = float(np.linalg.norm(design @ solved - wanted) / np.linalg.norm(wanted))
+    return solved[:-1].astype(np.float32), solved[-1].astype(np.float32), error
+
+
+def curve_table(checkpoint: Path):
+    """`adaln_t_table` of a ComfyUI H3 checkpoint, or None when the file keeps the full time embedder."""
+
+    tensors, _, start = header(Path(checkpoint))
+    if "adaln_t_table" not in tensors:
+        return None
+    with open(checkpoint, "rb") as handle:
+        return _tensor(handle, start, tensors["adaln_t_table"])
+
+
+def to_comfy(source: Path, target: Path, basis=None, offset=None) -> dict:
+    """Write `source` (peft or comfy layout) as `target` in the comfy layout: {"modules", "adaln", "layout"}.
+
+    Names change; every tensor keeps its bytes, type and shape, except a pair on an adaln projection when `basis`
+    and `offset` (curve_basis) are given: its A is carried onto the pruned checkpoint's 8-number time code and a
+    `.diff_b` beside it holds the bias the offset adds. Without them such a pair is written as it is, which only a
+    checkpoint with the full time embedder can take. A PEFT save without alpha runs at scale 1, which is what
+    ComfyUI assumes for a pair with no `.alpha` beside it."""
+
+    tensors, metadata, start = header(source)
+    kind = layout(list(tensors))
+    if kind == "peft":
+        renamed = comfy_names(list(tensors))
+    elif kind == "comfy":
+        renamed = {name: name for name in tensors}
+    else:
+        raise ValueError(f"a {kind} file is not rewritten for ComfyUI")
+    carried = sorted(name[: -len(".lora_A.weight")] for name in renamed.values()
+                     if name.endswith(".lora_A.weight") and ADALN.search(name[: -len(".lora_A.weight")])) if basis is not None else []
+    back = {new: old for old, new in renamed.items()}
+    out, blobs, at = {}, [], 0
+
+    def put(name: str, dtype: str, shape: list, data: bytes) -> None:
+        nonlocal at
+        out[name] = {"dtype": dtype, "shape": list(shape), "data_offsets": [at, at + len(data)]}
+        blobs.append(data)
+        at += len(data)
+
+    with open(source, "rb") as handle:
+        for new in sorted(renamed.values()):
+            entry = tensors[back[new]]
+            module = new.rsplit(".lora_", 1)[0]
+            if module in carried:
+                if new.endswith(".lora_A.weight"):
+                    import numpy as np
+
+                    a = _tensor(handle, start, entry)
+                    b = _tensor(handle, start, tensors[back[module + ".lora_B.weight"]])
+                    alpha = tensors.get(back.get(module + ".alpha", ""), None)
+                    scale = float(_tensor(handle, start, alpha).reshape(-1)[0]) / a.shape[0] if alpha else 1.0
+                    moved = (a.astype(np.float64) @ basis.astype(np.float64).T).astype(np.float32)
+                    bias = (scale * (b.astype(np.float64) @ (a.astype(np.float64) @ offset.astype(np.float64)))).astype(np.float32)
+                    put(new, "F32", moved.shape, moved.tobytes())
+                    put(module + ".diff_b", "F32", bias.shape, bias.tobytes())
+                    continue
+            begin, end = entry["data_offsets"]
+            handle.seek(start + begin)
+            put(new, entry["dtype"], entry["shape"], handle.read(end - begin))
+    out["__metadata__"] = {**{k: str(v) for k, v in metadata.items()}, "converted_from": Path(source).name,
+                           "source_layout": kind, "adaln": "curve" if carried else "as published", "format": "pt"}
+    blob = json.dumps(out, separators=(",", ":")).encode()
+    blob += b" " * (-len(blob) % 8)
+    part = Path(str(target) + ".part")
+    with open(part, "wb") as writer:
+        writer.write(struct.pack("<Q", len(blob)))
+        writer.write(blob)
+        for data in blobs:
+            writer.write(data)
+    part.replace(target)
+    return {"modules": sum(1 for name in renamed.values() if name.endswith(".lora_A.weight")), "adaln": len(carried), "layout": kind}
