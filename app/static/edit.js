@@ -12,7 +12,7 @@ async function edLoad() { try { ED.state = await api("/api/edit/state"); } catch
 // from the hub, or a Library tile: open the step on this LoRA or this picture
 function edUse(r) { if (!edHas(r.id)) ED.loras.push({ id: r.id, strength: r.strength || 1 }); if (ED.state && r.id === ED.state.angle_lora) ED.way = "angles";
   C.goes = "edit"; C.step = 0; tab = "Create"; history.replaceState(null, "", "#Create"); render(); }
-function edOpen(path) { ED.image = path; C.goes = "edit"; C.step = 0; tab = "Create"; history.replaceState(null, "", "#Create"); render(); }
+function edOpen(path, way) { ED.image = path; ED.way = way || "words"; C.goes = "edit"; C.step = 0; tab = "Create"; history.replaceState(null, "", "#Create"); render(); }
 function edWants() { const out = [];
   if (!ED.image) out.push("the picture to edit");
   if (ED.way === "angles") { const r = edAngleLora();

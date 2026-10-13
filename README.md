@@ -552,14 +552,27 @@ latents, and the model draws the picture again as the prompt describes it.
 ![One picture, five views and an edit in words, Mac](samples/edit_angles_mac.jpg)
 
 Measured through the app's own queue, a generated picture of a statue at 1024x1024, seed 7, Turbo's 8 steps
-(EDIT_MEASURED). What we saw, one subject and one seed each:
+(below). What we saw, one subject and one seed each:
+
+| | Mac (M5 Ultra, MLX, bfloat16) | DGX Spark (ComfyUI, bfloat16) |
+|---|---|---|
+| One picture, model loaded | 10 s | 15 s |
+| Five views around, one job | 55 s | 86 s (25 s for the first, with the load) |
+| An edit in words, one job | 14 s | 16 s |
+| Base model, 40 steps, one picture | not run (the base transformer is not on this Mac) | 49 to 54 s |
+| Memory | 43 GiB at its peak | 82 GB of 121 left at the lowest |
+
+![The same on a DGX Spark, with two views from the 40-step base model](samples/edit_angles_spark.jpg)
+
 
 - The picture input works without any LoRA: the edit in words kept the statue and its plinth and changed the light.
 - Without the LoRA the model already turns the subject for a side or a back view and keeps the scene. With it the
   height and the close-up are followed too (an *elevated* view is from above, a *close-up* fills the frame), and a
   side view often comes back on a plain studio background: its author trained it on single objects and characters.
-- On the Mac, with Turbo, *left side* and *right side* both came out facing the same way. Check a set before you
-  build on it.
+- *Left side* and *right side* both came out facing the same way, on both machines. Check a set before you build
+  on it.
+- On the DGX Spark every view with the LoRA came back on the plain background, the front view too; on the Mac the
+  front, front-right and back views kept the scene.
 
 Scripts: `bash scripts/edit.sh photo.png "what changes" out.png`; `SET_FILE=edits.json` makes several from one load;
 `LORA=path:0.9` adds an image LoRA. `BASE=1` runs the 40-step base model, which is what image LoRAs are trained on:
@@ -793,7 +806,7 @@ author's, for credit.
 | Person Remover | Akatz Labs (akatz-ai) | Removes a chosen person from a video and rebuilds the background. | the Library's *Remove a person* action | H3 Community | DGX Spark (about 11 min for 5 s) |
 | VH5 Tape (VHS) | KennethFal | A 1980s home-video look with a damage dial: light wear, visible tape damage, or heavy tracking errors. | text or a first frame | H3 Community | Mac (138 s), DGX Spark (150 s) |
 | Wushu Action | Jojocodex | Kung fu and wushu moves with weight behind them: punches, kicks, spins, staff work. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
-| Multiple Angles (image) | akhaliq | Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. Used in Create, *Edit a picture*. | a picture to edit | Apache-2.0 | EDIT_TESTED |
+| Multiple Angles (image) | akhaliq | Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. Used in Create, *Edit a picture*. | a picture to edit | Apache-2.0 | Mac (10 s a picture), DGX Spark (15 s a picture) |
 
 "Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a clip does
 not have in this version. Its card says which. Three LoRAs are not for a clip at all and have a job of their own,
