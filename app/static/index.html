@@ -176,6 +176,7 @@ label.check { display:flex; gap:9px; align-items:flex-start; text-transform:none
 </main>
 <script src="slate.js"></script>
 <script src="motion.js"></script>
+<script src="actions.js"></script>
 <script>
 "use strict";
 if (location.search.includes("shot")) document.write('<img src="/api/wait?ms=4000" style="display:none">');
@@ -390,7 +391,7 @@ function flowRow(obj, r, done) { if (!C.lineart) C.lineart = "medium"; const f =
     own && f.lineart && C.lineartFrom && /_lineart\.mp4$/.test(C.refVideos[0] || "") ? el("span", {}, " Video 1 is line art drawn from your clip.") : null); }
 async function loadLoras() { try { LORAS = await api("/api/loras"); if (!HUB.groups.length) HUB.groups = await api("/api/loras/groups"); } catch { LORAS = []; } }
 // what a LoRA works from, as the card's first tag
-const LORA_NEEDS = { text: "Text or first frame", "first-last": "First + last frame", reference: "Reference pictures", "source-video": "Source video", workflow: "Its own workflow", image: "A picture (image model)" };
+const LORA_NEEDS = { text: "Text or first frame", "first-last": "First + last frame", reference: "Reference pictures", "source-video": "Source video", workflow: "Its own workflow", image: "A picture (image model)", action: "A Library action" };
 const HUB = { open: false, browse: false, tab: "all", q: "", mine: false, groups: [], form: { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" }, timer: null };
 function hubWatch(redraw) { if (HUB.timer || !LORAS.some(r => r.installing && r.installing.stage !== "failed")) return;
   HUB.timer = setInterval(async () => { await loadLoras(); if (!LORAS.some(r => r.installing && r.installing.stage !== "failed")) { clearInterval(HUB.timer); HUB.timer = null; } redraw(); }, 1500); }
@@ -451,12 +452,14 @@ function loraHub(obj, save = () => {}, redraw = render) { if (!obj.loras) obj.lo
         r.trigger ? el("span", { class: "tag", title: "Added to the prompt for you" }, "trigger: " + r.trigger) : null,
         r.tested ? el("span", { class: "tag", title: "Where we rendered a clip with it" }, "tested: " + r.tested) : null),
       dead || r.status === "gated" ? el("div", { class: "note" + (dead ? "" : ""), style: dead ? "color:var(--warn)" : "" }, (dead ? "Not supported in the Studio yet. " : "") + (r.why || "")) : null,
+      r.status === "action" ? actHubNote(r) : null,
       r.notes && !dead ? el("div", { class: "note" }, r.notes) : null,
       st && st.stage === "failed" ? el("div", { class: "note", style: "color:var(--bad)" }, st.error) : null,
       el("div", { class: "acts" },
         dead ? null :
         busy ? el("button", { type: "button", class: "small", disabled: true }, st.stage + (st.of ? " " + Math.round(100 * st.done / st.of) + "%" : "…")) :
         !r.installed ? el("button", { type: "button", class: "small", title: r.page || "", onclick: () => install([r]) }, "⤓ Install") :
+        r.status === "action" ? actHubButton(r) :
         el("button", { type: "button", class: "small lora" + (on ? " on" : ""), onclick: () => use(r) }, on ? "✓ On this clip" : "Use on this clip"),
         r.installed && !busy ? el("button", { type: "button", class: "small", title: "Moves this LoRA's file to the trash folder" + (r.builtin ? "; the preset stays in the hub" : " and takes it out of the hub"), onclick: async () => { if (!confirm("Remove the file of “" + r.name + "” from this machine?")) return; try { await api("/api/loras/" + r.id, undefined, "DELETE"); obj.loras = obj.loras.filter(x => x.id !== r.id); await loadLoras(); done(); } catch (e) { toast(e.message); } } }, "Remove") : null)); };
   const count = id => LORAS.filter(r => id === "all" || (r.category || ["mine"]).includes(id)).length;
@@ -471,7 +474,7 @@ function loraHub(obj, save = () => {}, redraw = render) { if (!obj.loras) obj.lo
       el("button", { type: "button", class: "fit small", onclick: () => { HUB.open = !HUB.open; redraw(); } }, "+ Add your own LoRA")),
     el("div", { class: "note" }, "Each LoRA is its author's work, under that file's own licence; the page named on a card is where it comes from and who to credit. Install takes the file from the LoRA bundle on this machine when there is one (no network), and otherwise from the author's page, and checks it. " + (S.platform === "spark" ? "" : "On a Mac the file is then rewritten once for the MLX engine. ") + "LoRAs from the hub are for text-to-video and first-frame clips; a clip made from reference pictures or videos does not take them yet."),
     shown.length ? el("div", { class: "hubgrid" }, shown.map(card)) : el("div", { class: "note", style: "padding:10px" }, "Nothing here matches."));
-  const quick = LORAS.filter(r => r.installed || picked(r.id) || (r.installing && r.installing.stage !== "failed"));
+  const quick = LORAS.filter(r => r.status !== "action" && (r.installed || picked(r.id) || (r.installing && r.installing.stage !== "failed")));  // a Library action's LoRA is not for a clip
   return el("div", { class: "hub" }, el("label", {}, "Keys and Wasserman LoRA Hub"),
     el("div", { class: "chips" }, quick.map(chip),
       el("button", { type: "button", class: "small" + (HUB.browse ? " on lora" : ""), id: "lorabrowse", onclick: () => { HUB.browse = !HUB.browse; redraw(); } }, HUB.browse ? "▾ Close the hub" : "▸ Browse the hub (" + LORAS.length + " LoRAs in " + (tabs.length - 1) + " groups)")),
@@ -891,7 +894,8 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
     const many = el("button", { class: "fit", onclick: () => clearOut({ paths: [...LIBPICK], films: true }, "Delete the " + count(LIBPICK.size, "selected file") + "?") });
     const all = el("button", { class: "fit", onclick: () => { const every = LIBPICK.size === list.length; LIBPICK.clear(); if (!every) for (const m of list) LIBPICK.add(m.path); render(); } }, LIBPICK.size && LIBPICK.size === list.length ? "Select none" : "Select all");
     const show = () => { many.textContent = "Delete selected (" + LIBPICK.size + ")"; many.disabled = !LIBPICK.size; }; show();
-    put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased."),
+    if (!ACT.state) actLoad().then(() => { if (tab === "Library") render(); });
+    put(box, el("div", { class: "note" }, list.length + " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale and Remove a person. Under a picture: Turnaround."), actPanel(),
       el("div", { class: "row", style: "margin-top:10px" }, all, many, el("span"),
         bin ? el("span", { class: "note fit", id: "trashline" }, "Trash: " + (bin.files ? count(bin.files, "file") + " · " + sizeText(bin.bytes) : "empty")) : null,
         bin && bin.last ? el("button", { class: "fit", title: "Puts the files of the last deletion back where they were, and its job cards back in the queue", onclick: restoreLast }, "Restore last deletion (" + count(bin.last.files, "file") + ")") : null,
@@ -901,7 +905,7 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
     el("div", { class: "tile" }, media(m.path), el("div", { class: "cap" }, el("input", { type: "checkbox", title: "Select " + m.path, "aria-label": "Select " + m.path, checked: LIBPICK.has(m.path), style: "width:auto;flex:none", onchange: e => { if (e.target.checked) LIBPICK.add(m.path); else LIBPICK.delete(m.path); show(); } }),
       el("span", { style: "cursor:pointer;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.split("/").pop())),
       // the buttons on a row of their own: a long file name no longer pushes them out of the tile
-      el("div", { class: "cap", style: "padding-top:0;justify-content:flex-end" },
+      el("div", { class: "cap", style: "padding-top:0;justify-content:flex-end;flex-wrap:wrap" }, actButtons(m),
       m.kind === "video" ? el("button", { class: "small", title: "Start a new clip on this clip's last frame", onclick: async () => { try { const r = await api("/api/frame", { path: m.path, at: "last" }); C.image = r.path; C.prompt = ""; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } catch (e) { toast(e.message); } } }, "continue") : el("button", { class: "small", title: "End a new clip on this picture", onclick: () => { C.lastImage = m.path; C.prompt = ""; C.goes = "video"; if (C.start === "refs") C.start = "text"; C.step = 1; tab = "Create"; render(); } }, "last frame"),
       m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use"),
       // out of the library: the server moves the file to the studio's trash folder
@@ -1031,6 +1035,9 @@ function lessons() {
       { t: "What is in the Library", d: ["Every clip, scout, image and export the app has made, as files under " + S.home + ". They stay there when the app restarts."], go: on("Library", "Library") },
       { t: "Copy a path", d: ["Click the name under a file to copy its path. Paste it into a Production segment that opens on “an image from the library”."], go: on("Library", "Library") },
       { t: "Reuse a file", d: ["On a video, “+ timeline” adds it to the editor timeline. On an image, “use” takes it to Create as the first frame of a new clip."], go: on("Library", "Library") },
+      { t: "Turn a picture round", d: ["Under a picture, “Turnaround” makes five views of its subject, turning from where it faces now. They are made together, so the character stays the same in all five.", "Each view is a picture of its own in the Library: “first frame” starts a clip on it, “reference” adds it to a reference clip's pictures. 512 is the fastest size; 1024 is the one to keep."], tip: "“The turn” goes furthest round. “The look” turns less and stays closer to your picture.", go: on("Library", "Turnaround") },
+      { t: "Make a clip larger", d: ["Under a clip, “Upscale” makes it larger and sharper: the picture is enlarged, then drawn over once, lightly, with the clip itself as the guide. Mouths, motion and the clip's own sound stay as they were.", "2 megapixels is about 1920 × 1080. “Light” is the tested re-draw; “None” only enlarges."], go: on("Library", "Upscale") },
+      { t: "Take a person out", d: ["Under a clip, “Remove a person” takes one person out and draws the background again. Say who in a few words (“man in a gray shirt”), then press “1. Find the person”: the person comes back painted green. Check hands, hair and shadow before the long render.", "“2. Remove the person” then works through the clip in overlapping pieces. It needs a first frame without the person: the app builds one from the clip, or you load your own edit of the first frame."], tip: "Best on a short, continuous shot. The whole picture is drawn again, so small details elsewhere can change. The clip's own sound still holds the removed person's voice: tick “No sound” to leave it out.", go: on("Library", "Remove a person") },
       { t: "Delete files", d: ["🗑 on a tile takes the file out of the Library after you confirm. To delete several, tick them (or “Select all”) and press “Delete selected”. Deleted files are moved to the “trash” folder inside " + S.home + ", not erased.", "“Restore last deletion” puts the files of the last deletion back where they were. “Empty trash” shows how much the trash holds and, after you confirm, erases it for good: that is the one step that cannot be undone, and the one that frees the disk space."], tip: "A file that a queued or running job needs cannot be deleted until the job is done.", go: on("Library", "Library") },
       { t: "Clear what you typed", d: ["Every form has a Clear button: “Clear this step” and “Clear all” at the foot of the create wizard, “Clear” on a segment and “Clear every segment's text” on the production board, “Clear” above a Slate shot's prompt. It empties the text only; pictures, clips, titles and settings stay.", "“Undo” in the message, or the “Undo clear” button that appears beside Clear, puts the text back until you close or reload the page."], go: { tab: "Create", spot: "Clear all" } } ] } ]; }
 // outline the control a step talks about; Production and Editor draw themselves a moment after the tab opens, so look again
@@ -1116,7 +1123,7 @@ function render() { $("#tabs").replaceChildren(...TABS.map(t => el("button", { c
   $("#view").replaceChildren({ Create: viewCreate, Production: viewProduction, "Motion Previs": viewMotion, Editor: viewEditor, Library: viewLibrary, Tutorial: viewTutorial }[tab]()); coach();
   // a redraw (a job changed, a view finished loading) must not drop the outline a tutorial step just put on a control
   if (T.spot && Date.now() < T.spot[1]) spot(T.spot[0], 3, true); }
-(async () => { const want = decodeURIComponent(location.hash.slice(1)); if (TABS.includes(want)) tab = want;
+(async () => { const want = decodeURIComponent(location.hash.slice(1)); if (TABS.includes(want)) tab = want; actLoad();
   // links can preset the Create form: ?goes=image, ?engine=h3&res=720p&up=1&step=4 ...
   for (const [k, v] of new URLSearchParams(location.search)) if (k in C && k !== "mode") C[k] = k === "up" ? v === "1" : (k === "step" || k === "count" ? Number(v) : v);
   S = await api("/api/state"); await loadLoras(); if (!S.turbo) C.engine = "fasth3"; sync(); $("#gohome").onclick = () => { tab = "Create"; C.step = 0; T.coach = false; history.replaceState(null, "", "#Create"); window.scrollTo(0, 0); render(); }; $("#plat").textContent = S.platform_label; $("#plat").className = "plat " + S.platform; document.title = "Wasserman Slate AI Studio · " + (S.platform === "spark" ? "DGX Spark" : "Mac"); $("#ver").textContent = "pack " + S.version; $("#home").textContent = S.home; await poll(); render(); setInterval(poll, 2000);

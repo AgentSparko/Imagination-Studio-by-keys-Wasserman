@@ -164,6 +164,44 @@ press *Make line art of Video 1*, and write Scene "A young martial artist with s
 jacket on a rooftop at dusk, red paper lanterns", Action "He strikes a wooden training dummy". The clip comes back
 drawn as anime on the same outlines and timing.
 
+## 8.6 Library actions: turn a picture round, make a clip larger, take a person out
+
+Three LoRAs of the hub have a job of their own, and the Library has a button for each. They are queued like any
+render; the result lands in the Library.
+
+**Turnaround** (under a picture; Mac and DGX Spark). Five views of the picture's subject, turning from where it
+faces now, made together so the character is the same in all five.
+
+1. Press **Turnaround** under a picture. A character or an object standing upright, whole in the frame, works best.
+2. Choose the size of each view: *512* is the fastest, *1024* the one to keep. Choose **The turn** (goes furthest
+   round) or **The look** (turns less, stays closer to your picture).
+3. Press **Make the turnaround sheet**. The sheet shows the five views side by side; each view is also a picture of
+   its own, with **first frame** (start a clip on it) and **reference** (add it to a reference clip's pictures).
+
+If a view comes out tilted or seen from above, change the seed. The instruction box takes your own wording; it
+names the picture as `<Picture 1>`.
+
+**Upscale** (under a clip; DGX Spark). A finished clip made larger and sharper, with its motion, mouths and sound
+left as they were.
+
+1. Press **Upscale** under a clip and choose the size: *2 megapixels* is about 1920 x 1080.
+2. Leave the re-draw on **Light**. *None* only enlarges; *Stronger* adds more detail of its own.
+3. Press **Upscale this clip**. A 5 second 864x480 clip took about five minutes at 2 megapixels.
+
+**Remove a person** (under a clip; DGX Spark). One person taken out, the background drawn again.
+
+1. Press **Remove a person** under a clip and say who, in a few words: *man in a blue shirt*, *woman in a red coat*.
+2. Press **1. Find the person**. In under a minute the clip comes back with the person painted green. Look at the
+   hands, the hair and the shadow. If something is missed, or someone else is green, describe the person more
+   exactly and press it again.
+3. The removal needs a first frame without the person. **Build it for me** makes one from the clip. With **My own
+   picture** you load your own edit of the clip's first frame (same size, the person painted out).
+4. Press **2. Remove the person**. The clip is worked through in overlapping pieces of 22 frames; a 5 second clip
+   took about eleven minutes.
+
+The whole picture is drawn again, so small things elsewhere can change too. It works best on a short, continuous
+shot. The clip keeps its own sound, which still holds the removed person's voice: tick **No sound** to leave it out.
+
 ## 9. Motion Previs: make a clip that moves like another
 
 The analysis in the **Motion Previs** tab is a port, modified, of Motion Previs Studio by Sam Wasserman

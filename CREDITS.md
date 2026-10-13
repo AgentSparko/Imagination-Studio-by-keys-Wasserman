@@ -43,6 +43,23 @@ page and keeps the author's model card and licence beside it.
 
 The MiniMax H3 ones are Model Derivatives of MiniMax H3. Powered by MiniMax H3.
 
+## The Library's actions: the people whose workflows they run
+
+Three of those LoRAs are not for making a clip. Each has a workflow of its own, built by its author, and the Library
+runs that workflow as an action. On a DGX Spark it is the author's own ComfyUI nodes, cloned from the author's
+repository at a pinned commit when the Studio is installed; none of their code is in this pack.
+
+- **Turnaround sheet:** the Turnaround LoRA by matlod and the contact-sheet sampler and ComfyUI nodes by MATLOWAI
+  (H3 Contact Sheet, GPL-3.0). The idea is theirs: five still pictures packed where a five-step video would go, so
+  the model's consistency along time becomes consistency between views. On a Mac the MLX engine packs and decodes
+  the five views the same way (`h3_generate.py --sheet`), written from their description of it.
+- **Upscale:** the Video Upscaler LoRA and the H3 Video Upsampler node by dntpi (Sandpies), MIT; the latent upscaler
+  network it enlarges with by LBH-123-AI (weights Apache-2.0); the upscale recipe it follows by bbaudio-2025; the
+  guide layout and the training set of the LoRA by Alissonerdx.
+- **Remove a person:** the Person Remover LoRA and H3 Relay (the windowed removal with its green mask and its relay
+  of history frames, GPL-3.0) by Akatz Labs (akatz-ai); the person is found and followed by SAM 3.1 from Meta, in
+  the build Comfy-Org repackaged for ComfyUI, under the SAM License.
+
 ## The Motion Previs tab: Sam Wasserman's Motion Previs Studio
 
 **Sam Wasserman (wassermanproductions.com, wasserman.ai)** created **Motion Previs Studio**

@@ -215,6 +215,9 @@ def attach(home: Path, pack: Path, spark: bool):
 
     def recipes() -> list[dict]:
         built = [{"status": "ready", "category": ["mine"], **r, "builtin": True} for r in json.loads(PRESETS.read_text())]
+        # a LoRA that belongs to a Library action (actions.py) is installed like the others and used by that action,
+        # not on a clip; where the action does not run (a Mac), its card says why
+        built = [r if r.get("status") != "action" or spark or "mac" in r.get("platforms", ()) else {**r, "status": "unsupported", "why": r.get("mac", r.get("why", ""))} for r in built]
         taken = {r["id"] for r in built}
         where = bundle()
         if where and not where.startswith(("http://", "https://")):  # a bundle newer than this pack brings its own cards
@@ -414,6 +417,8 @@ def attach(home: Path, pack: Path, spark: bool):
                 raise HTTPException(400, f"the strength of {recipe['name']} is between {low:g} and {high:g}, and not 0")
             if recipe.get("status") == "unsupported":
                 raise HTTPException(400, f"{recipe['name']} is not supported in the Studio yet. {recipe.get('why', '')}".strip())
+            if recipe.get("status") == "action":
+                raise HTTPException(400, f"{recipe['name']} is not for a clip: {recipe.get('why', 'the Library has an action for it')}")
             phrase = (recipe.get("styles") or {}).get(str(item.get("style") or ""), "")
             lead = ", ".join(part for part in (recipe.get("trigger", ""), phrase) if part)
             out.append({"id": recipe["id"], "name": recipe["name"], "path": str(ready(recipe["id"])), "strength": strength, "trigger": recipe.get("trigger", ""), "lead": lead,

@@ -862,6 +862,40 @@ def decode(model_dir, root: Path, latents, config, int8: bool = True, upscale_de
     return frames, wave, acfg.sampling_rate
 
 
+# A turnaround sheet (matlod's Turnaround LoRA, MATLOWAI's contact-sheet sampler): five still pictures of one subject
+# ride where the five latent steps of a 17-frame clip would go, so the model's own consistency along time becomes
+# consistency between views. The audio is the 28 silent latents such a clip would carry.
+SHEET_SLOTS, SHEET_AUDIO = 5, 28
+
+
+def write_sheet(model_dir, latents, config, prefix: str, int8: bool = True) -> list[str]:
+    """Decode the five slots one by one and write PREFIX_sheet.png and PREFIX_view1..5.png.
+
+    A slot is one latent step, which is not a length the decoder knows: each is repeated into the shortest clip
+    the decoder takes (a still clip) and the first frame kept, as the ComfyUI node does with its own decoder."""
+
+    from PIL import Image
+
+    from tensorfold.families.h3.vae_video import load_video_decoder
+
+    decoder = load_video_decoder(model_dir, int8=int8)
+    video = unpatchify(latents.video_rows, latents.latent_frames, latents.latent_height, latents.latent_width,
+                       decoder.config.latent_channels, config.patch_size)
+    vae = decoder.config
+    shortest = max(2, 2 * math.ceil(vae.clip_length / vae.temporal_ratio) - vae.token_drop)   # latent steps of a clip
+    views = []
+    for slot in range(latents.latent_frames):
+        one = video[:, :, slot:slot + 1]
+        views.append(decoder.frames(mx.concatenate([one] * shortest, axis=2))[0])
+    base = Path(prefix)
+    base.parent.mkdir(parents=True, exist_ok=True)
+    outputs = [str(base.parent / f"{base.name}_sheet.png")] + [str(base.parent / f"{base.name}_view{i + 1}.png") for i in range(len(views))]
+    Image.fromarray(np.concatenate(views, axis=1)).save(outputs[0])
+    for view, target in zip(views, outputs[1:]):
+        Image.fromarray(view).save(target)
+    return outputs
+
+
 def parity(root: Path, dit, args, text, tags):
     """Largest and relative difference between this transformer and the reference on one real forward."""
 
@@ -966,8 +1000,21 @@ def main():
     parser.add_argument("--text-encoder", default=None, metavar="PATH",
                         help="a ComfyUI int8 (int8_tensorwise, ConvRot) safetensors of the Qwen3-VL text encoder, "
                              "decoded to bfloat16 as it loads; the tokenizer stays the model folder's")
+    parser.add_argument("--sheet", default=None, metavar="PREFIX",
+                        help="a turnaround sheet instead of a clip: five views of the subject of the one --ref-image, "
+                             "written as PREFIX_sheet.png and PREFIX_view1..5.png. Needs the Turnaround LoRA (--lora) "
+                             "and a square size; -o is not written")
     parser.add_argument("--parity", action="store_true")
     args = parser.parse_args()
+    if args.sheet:
+        if len(args.ref_image) != 1 or args.ref_video or args.ref_audio or args.first_frame or args.fasth3:
+            raise SystemExit("--sheet takes exactly one --ref-image and nothing else to start from")
+        if args.width != args.height or args.width % 32:
+            raise SystemExit("--sheet makes square views: --width and --height the same multiple of 32")
+        if not args.lora:
+            raise SystemExit("--sheet needs the Turnaround LoRA: --lora PATH")
+        # five independent pictures on the time axis: not a frame count the clip grid has, so it is set by hand
+        h3.latent_frames, h3.audio_latents = (lambda frames: SHEET_SLOTS), (lambda frames: SHEET_AUDIO)
     if args.text_encoder and not (args.text_encoder.endswith(".safetensors") and Path(args.text_encoder).is_file()):
         raise SystemExit(f"--text-encoder takes a .safetensors file, and {args.text_encoder} is not one")
 
@@ -1156,6 +1203,18 @@ def main():
     del dit
     gc.collect()
     mx.clear_cache()
+
+    if args.sheet:
+        started = time.perf_counter()
+        outputs = write_sheet(args.model_dir, latents, h3.DiTConfig.from_checkpoint(args.model_dir), args.sheet,
+                              int8=not args.float_vae)
+        print("[tensorfold] " + json.dumps({
+            "outputs": outputs, "action": "turnaround", "size": args.width, "rows": latents.packed.rows,
+            "forwards": len(latents.step_seconds), "text_s": round(text_seconds, 1), "load_s": round(load_seconds, 1),
+            "denoise_s": round(denoise_seconds, 1), "decode_s": round(time.perf_counter() - started, 1),
+            "per_forward_s": round(float(np.median(latents.step_seconds)), 2),
+            "peak_gib": round(mx.get_peak_memory() / 2**30, 1)}), flush=True)
+        return
 
     started = time.perf_counter()
     frames, wave, rate = decode(args.model_dir, root, latents, h3.DiTConfig.from_checkpoint(args.model_dir),
