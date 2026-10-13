@@ -20,6 +20,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+import lengths  # which frame counts the model takes, beside this file
+import negation  # what a prompt forbids by name, beside this file
+
 router = APIRouter()
 HOME: Path = Path()
 DURATIONS: dict = {}
@@ -316,10 +319,6 @@ def voice_of(sheet: dict | None, fallback: str = "") -> str:
     return f"a voice that is {sound}" if sound else "a natural voice"
 
 
-def nearest(seconds: float) -> int:
-    return min(sorted(DURATIONS, reverse=True), key=lambda d: abs(d - seconds))
-
-
 def find_shot(project: dict, shot_id: str) -> tuple[dict, dict, int]:
     for scene in project.get("scenes") or []:
         for index, shot in enumerate(scene.get("shots") or []):
@@ -347,9 +346,12 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
     place = by_id("locations").get(extra.get("location"))
     start = extra.get("start") or "text"
 
-    seconds = nearest(float(spec.get("durationSec") or project.get("defaults", {}).get("durationSec") or 8))
-    if spec.get("durationSec") and float(spec["durationSec"]) != seconds:
-        warnings.append(f"This engine makes clips of {', '.join(map(str, sorted(DURATIONS)))} s: the shot is {spec['durationSec']:g} s and renders as {seconds} s.")
+    # any length the model takes (lengths.py): the shot's own seconds, brought to the nearest count of 17n + 5 frames
+    asked = float(spec.get("durationSec") or project.get("defaults", {}).get("durationSec") or 8)
+    frames = lengths.nearest(asked)
+    seconds = next((named for named, count in DURATIONS.items() if count == frames), round(frames / lengths.FPS, 3))
+    if spec.get("durationSec") and abs(frames / lengths.FPS - asked) > 0.5:
+        warnings.append(f"A clip is {lengths.SHORTEST / lengths.FPS:.1f} to {lengths.LONGEST / lengths.FPS:.0f} s long: the shot is {asked:g} s and renders as {lengths.says(frames)}.")
     if spec.get("fps") and int(spec["fps"]) != 24:
         warnings.append(f"MiniMax H3 renders at 24 fps; the shot says {spec['fps']}.")
     tier = film.get("res") if film.get("res") in SIZES else "480p"
@@ -417,13 +419,15 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
     music = sentence(", ".join(bit for bit in (cue.get("genre"), cue.get("mood"), cue.get("tempo"), cue.get("instrumentation")) if bit)) if cue else (extra.get("music") or "N/A")
     fields = {"scene": picture, "camera": camera, "action": action, "dialogue": lines, "soundscape": extra.get("soundscape") or "",
               "music": music, "subjects": subjects}
-    prompt = compose_references(fields, len(references)) if references else compose(fields, bool(image or previous))
+    prompt = compose_references(fields, len(references)) if references else compose(fields, bool(image or previous), frames=frames)
+    for one in negation.check_fields(fields)["negations"]:  # said, never rewritten (negation.py)
+        warnings.append(f"“{one['phrase']}” ({one['field'].lower()}): the video model has no negative prompt, and what a prompt names tends to appear. Say what is there instead.")
     limit = 7000
     if len(prompt) > limit:
         warnings.append(f"The prompt is {len(prompt)} characters; MiniMax H3's guide suggests at most {limit}. Tighten the shot.")
     if not (shot.get("prompt") or "").strip():
         warnings.append("The shot has no prompt yet.")
-    plan = {"seconds": seconds, "seed": int(extra.get("seed") or 1), "quality": film.get("quality") or "fh8",
+    plan = {"seconds": seconds, "frames": frames, "seed": int(extra.get("seed") or 1), "quality": film.get("quality") or "fh8",
             **({"preset": size} if isinstance(size, str) else {"preset": "custom", "width": size[0], "height": size[1]}),
             **({"references": references, "ref_turbo": film.get("refPasses") == "4"} if references else {}),
             **({"image": image} if image else {}), **({"first_frame_from": previous} if previous else {})}

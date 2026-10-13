@@ -129,7 +129,7 @@ PROMPT QUALITY: every "prompt" you write uses the sectioned format below, in viv
 
 (Only include sections with content, keep this order.)
 
-THIS SLATE RENDERS ITS OWN SHOTS: it runs inside TensorFold Studio on MiniMax H3, video with sound in one pass. A shot is 5, 8, 10 or 15 seconds, 24 fps. One or two actions fit in 5 seconds; put each further action in its own shot.
+THIS SLATE RENDERS ITS OWN SHOTS: it runs inside TensorFold Studio on MiniMax H3, video with sound in one pass. A shot is 1 to 15 seconds, 24 fps (5, 8, 10 and 15 are the usual lengths). One or two actions fit in 5 seconds; put each further action in its own shot.
 SPEECH AND SOUND: never write spoken words inside a "prompt". Every spoken line goes in the shot's "lines" with its speaker, about three words per second of the shot at most; a shot with no "lines" is rendered with nobody speaking. Describe ambience and physical sound in "soundscape".
 CAST AND PLACE: add characters and locations BEFORE the shots that use them, then name them in each shot's "cast" and "location" so their sheets are repeated in the compiled prompt.
 "opensOn": "previous" makes a shot start on the last frame of the shot before it (one continuous move, no cut); "text" is a fresh frame, a cut.

@@ -32,8 +32,12 @@ HOME = Path(os.environ.get("STUDIO_HOME", Path.home() / "TensorFoldStudio"))
 for name in ("projects", "uploads", "renders", "scouts", "exports"):
     (HOME / name).mkdir(parents=True, exist_ok=True)
 
+import lengths  # noqa: E402  (which frame counts the model takes, beside this file)
+
 FPS = 24
-DURATIONS = {5: 124, 8: 192, 10: 243, 15: 362}  # seconds -> frames (17n + 5)
+# seconds -> frames (17n + 5): the four lengths the app has always offered. A job may ask for any count the model takes
+# (lengths.py): by "frames", or by "seconds", which is brought to the nearest count.
+DURATIONS = lengths.CLASSIC
 # longer videos are chains of clips: each one opens on the last frame of the one before, and they are joined at the end
 LONG = {30: "30 s", 60: "1 min", 120: "2 min", 300: "5 min", 600: "10 min", 900: "15 min", 1800: "30 min"}
 LONGEST = max(DURATIONS)
@@ -105,12 +109,13 @@ CUSTOM_SIDES, CUSTOM_PIXELS, CUSTOM_STEPS = (256, 1536), 1344 * 768, (1, 50)
 LEAD = "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
 
 
-def lead(first: bool, last: bool, seconds: float = 5) -> str:
+def lead(first: bool, last: bool, seconds: float = 5, frames: int | None = None) -> str:
     """The line that opens a keyframe prompt: which picture stands at which moment of the clip. MiniMax's own form
     for a first frame is LEAD; an end frame is written the same way at the clip's last moment (Picture 2 beside a
-    first frame, Picture 1 alone). The pictures themselves are held as keyframes by the model whatever this says."""
+    first frame, Picture 1 alone), which is the clip's frame count over 24. The pictures themselves are held as
+    keyframes by the model whatever this says."""
 
-    end = f"{DURATIONS.get(int(seconds), round(float(seconds) * 24)) / 24:.2f}"
+    end = f"{(frames or lengths.nearest(float(seconds))) / FPS:.2f}"
     if first and last:
         return LEAD[:-1] + f"; at {end} seconds into the target video, <Picture 2> (from [Shot 1]) is fully referenced."
     if last:
@@ -472,7 +477,7 @@ def compose_references(fields: dict, count: int) -> str:
             + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()}\n\noverall_soundscape:\n{sound}")
 
 
-def compose(fields: dict, first_frame: bool, last_frame: bool = False, seconds: float = 5) -> str:
+def compose(fields: dict, first_frame: bool, last_frame: bool = False, seconds: float = 5, frames: int | None = None) -> str:
     """MiniMax H3's three-field prompt from the wizard's parts."""
 
     shot = " ".join(part.strip() for part in (fields.get("scene", ""), fields.get("camera", ""),
@@ -497,7 +502,7 @@ def compose(fields: dict, first_frame: bool, last_frame: bool = False, seconds: 
     music = (fields.get("music") or "N/A").strip()
     body = (f"integrated_multimodal_description: [Shot 1] {shot.strip()}\n\n"
             f"overall_soundscape: {sound}\n\nnon_diegetic_music: {music}")
-    opening = lead(first_frame, last_frame, seconds)
+    opening = lead(first_frame, last_frame, seconds, frames)
     return f"{opening}\n\n{body}" if opening else body
 
 
@@ -689,7 +694,7 @@ def references(params: dict) -> dict:
     return {**found, "video_sound": video_sound}
 
 
-def estimate(preset: str, quality: str, seconds: int, text_only: bool = False, referenced: bool = False,
+def estimate(preset: str, quality: str, seconds: float, text_only: bool = False, referenced: bool = False,
              ref_turbo: bool = False, ref_media: bool = False) -> int | None:
     if referenced and ref_media:
         return None  # a reference video or audio clip adds its own rows to every pass: the time depends on its length
@@ -730,6 +735,74 @@ def environment(extra: dict) -> dict:
     return env
 
 
+# The longest clip, in frames, by the pixels of the canvas it is generated at. On a DGX Spark the GPU and the system
+# share one pool of memory, so this is a measurement (see lengths.py and the README); the Mac keeps the model's own 15 s.
+SPARK_LONGEST = ((1376 * 768, lengths.LONGEST),)
+
+
+def longest_frames(env: dict) -> int:
+    """The longest clip this machine renders at the size in ``env``."""
+
+    if not SPARK:
+        return lengths.LONGEST
+    try:
+        pixels = int(env.get("WIDTH") or 864) * int(env.get("HEIGHT") or 480)
+    except (TypeError, ValueError):
+        return lengths.LONGEST
+    return next((frames for most, frames in SPARK_LONGEST if pixels <= most), SPARK_LONGEST[-1][1])
+
+
+def clip_frames(params: dict, env: dict | None = None) -> int:
+    """The frame count of a single clip, or 400 with the reason."""
+
+    try:
+        return lengths.of(params, longest_frames(env or {}))
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+
+
+def clip_seconds(params: dict) -> float:
+    """The length of a job for the time estimate: a long video's total, else the clip's own seconds (at most LONGEST,
+    over which the estimate counts a chain)."""
+
+    if params.get("total_seconds"):
+        return int(params["total_seconds"])
+    try:
+        frames = lengths.of(params)
+    except ValueError:
+        return 5.0
+    # the measured times are for the four classic lengths by their round names: 124 frames is "5 seconds"
+    return {count: named for named, count in DURATIONS.items()}.get(frames) or min(frames / FPS * 120 / 124, float(LONGEST))
+
+
+def media_tools() -> dict:
+    """Whether ffmpeg and ffprobe are on this machine, looked for where the jobs will look."""
+
+    path = environment({})["PATH"]
+    return {name: bool(shutil.which(name, path=path)) for name in ("ffmpeg", "ffprobe")}
+
+
+FFMPEG_HOW = "sudo apt install ffmpeg" if SPARK else "brew install ffmpeg"
+FFMPEG_NOTE = ("ffmpeg is not installed on this machine (" + FFMPEG_HOW + "). Without it: no long videos, no timeline export, "
+               "no frame taken from a clip (continue from a clip, end on a clip), no reference videos or audio, no silenced "
+               "sound track" + (", and a clip keeps ComfyUI's own sound track instead of the limited 256 kb/s one. Single clips, "
+                                "the 720p crop included, and pictures render without it." if SPARK else "."))
+
+
+def without_ffmpeg(kind: str, params: dict) -> str:
+    """Why this job cannot run on a machine without ffmpeg ("" when it can, or when ffmpeg is there): said before the
+    job is queued, not after its render."""
+
+    if media_tools()["ffmpeg"]:
+        return ""
+    what = ("joining the clips of a timeline" if kind == "export" else "joining the clips of a long video" if kind == "long"
+            else "taking the last frame of the clip this one continues from" if params.get("first_frame_from")
+            else "taking the first frame of the clip this one leads into" if params.get("last_frame_from")
+            else "reading reference videos and audio" if params.get("reference_videos") or params.get("reference_audios")
+            else "silencing the clip's sound track" if params.get("silent") else "")
+    return f"{what} needs ffmpeg, which is not installed on this machine: {FFMPEG_HOW}" if what else ""
+
+
 def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[str]]:
     """(command, environment, output paths) for one job."""
 
@@ -757,14 +830,16 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
         return edit_build(params, job_id)
     preset = params.get("preset", "small" if SPARK else "draft")
     quality = params.get("quality", "standard")
-    seconds = int(params.get("seconds", 5))
     chosen, _ = custom(params)
-    if seconds not in DURATIONS or (preset not in PRESETS and preset != "custom") or quality not in QUALITIES:
-        raise HTTPException(400, "unknown duration, preset or quality")
+    if (preset not in PRESETS and preset != "custom") or quality not in QUALITIES:
+        raise HTTPException(400, "unknown preset or quality")
+    sized = {**(PRESETS[preset][2] if preset in PRESETS else {}), **chosen}
+    # any length the model takes: "frames" (17n + 5), or "seconds" brought to the nearest such count
+    frames = clip_frames(params, sized)
     target = Path(params["output"]) if params.get("output") else HOME / "renders" / f"{job_id}.mp4"
     target = inside(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    env = {"SEED": seed, "FRAMES": DURATIONS[seconds], **(PRESETS[preset][2] if preset in PRESETS else {}), **QUALITIES[quality][1]}
+    env = {"SEED": seed, "FRAMES": frames, **(PRESETS[preset][2] if preset in PRESETS else {}), **QUALITIES[quality][1]}
     fast_h3 = SPARK or env.get("ENGINE") == "fasth3"
     prompt = params["prompt"]
     image = params.get("image")
@@ -950,6 +1025,57 @@ def gated(job: dict, clip: Path) -> bool:
     return job["status"] != "cancelled"
 
 
+SHOT_TAKES = 2  # like the QA gate: a clip that fails the shot check is rendered once more at the next seed, when asked
+
+
+def canvas_of(env: dict, preset: str) -> tuple[int, int]:
+    """The size a clip's keyframes were fitted to: the generation canvas, or one of its shape (shot.py only needs
+    the shape; the 2x decoder and a crop change the clip's size, not the canvas's proportions)."""
+
+    if env.get("QHD") or env.get("CROP") == "2560x1440":
+        return 2560, 1472
+    if env.get("TWOK"):
+        return 2048, 1152
+    if env.get("WIDTH") and env.get("HEIGHT"):
+        return int(env["WIDTH"]), int(env["HEIGHT"])
+    return PRESETS[preset][1] if preset in PRESETS else (1344, 768)
+
+
+def shot_checked(job: dict, clip: Path, env: dict) -> bool:
+    """The shot check on a single clip (shot.py): were its first and last frame held, and is there a cut inside a
+    clip asked for as one shot. The verdict goes beside the clip; with ``retake`` in the job's settings a clip that
+    fails is rendered once more at the next seed, and the failed take is kept. False when the job was cancelled."""
+
+    params, takes = job["params"], []
+    # the QA gate has its own retake: a clip it rendered twice, or will judge, is not rendered a third time here
+    may = bool(params.get("retake")) and "qa" not in job
+    for take in range(1, SHOT_TAKES + 1):
+        if take > 1:
+            kept = HOME / "qa" / f"{job['id']}-shot-take{take - 1}.mp4"  # the failed take is kept
+            kept.parent.mkdir(exist_ok=True)
+            shutil.copy(clip, kept)
+            takes[-1]["kept"] = relative(kept)
+            params["seed"] = int(params.get("seed", 0)) + 1
+            command, env, _ = build(job["kind"], params, job["id"])
+            if not run(job, command, env, f"take {take} · "):
+                return False
+        job["progress"] = {"stage": "shot check, take", "at": take, "of": SHOT_TAKES if may else 1}
+        first = env.get("IMAGE_FILE") or (str(clip.with_suffix(".png")) if job["kind"] == "studio" and clip.with_suffix(".png").is_file() else None)
+        try:
+            report = shot.check(clip, first, env.get("LAST_FRAME"), canvas_of(env, params.get("preset", "")), shot.one_shot(params.get("prompt") or ""), not SPARK)
+        except Exception as error:  # noqa: BLE001 - the clip is made; a check that cannot run does not lose it
+            job["shot"] = {"passed": None, "takes": takes, "error": str(error)[-300:]}
+            break
+        takes.append({**report, "take": take, "seed": int(params.get("seed", 0))})
+        job["shot"] = {"passed": report["passed"], "takes": takes}
+        if report["passed"] or job["status"] == "cancelled":
+            break
+        if not may:  # said beside the clip, with the seed a retake would use: the page offers it as a button
+            job["shot"]["offer"] = int(params.get("seed", 0)) + 1
+            break
+    return job["status"] != "cancelled"
+
+
 def long_take(job: dict) -> bool:
     """A video longer than one clip: render it piece by piece, each opening on the last frame of the one before, and join."""
 
@@ -1050,6 +1176,9 @@ def work() -> None:
                 if job["kind"] == "video" and params.get("preset") == "sharp" and params.get("qa", True):
                     if not gated(job, Path(outputs[0])):
                         continue
+                if job["kind"] in ("video", "studio") and params.get("shot_check", True):
+                    if not shot_checked(job, Path(outputs[0]), env):
+                        continue
                 if job["kind"] == "video" and params.get("silent"):
                     hush(Path(outputs[0]))
                 if job["kind"] == "video" and (params.get("reference_videos") or params.get("pace") in ("impacts", "flow")):
@@ -1070,7 +1199,8 @@ threading.Thread(target=work, daemon=True).start()
 
 def public(job: dict) -> dict:
     out = {k: job.get(k) for k in ("id", "kind", "status", "title", "outputs", "progress", "error", "created",
-                                    "started", "finished", "estimate", "engine", "qa", "passes", "pace", "source")}
+                                    "started", "finished", "estimate", "engine", "qa", "passes", "pace", "source", "shot",
+                                    "negations")}
     # by this machine's clock: the page may be open on another one
     out["elapsed"] = (job.get("finished") or time.time()) - job["started"] if job.get("started") else None
     out["log"] = job["log"][-3000:]
@@ -1090,6 +1220,11 @@ def state() -> dict:
             "reference_audio_limit": REFERENCE_AUDIO_LIMIT, "reference_total": REFERENCE_TOTAL,
             "text_encoders": sorted(text_encoders()), "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
             "platform": machine()[0], "platform_label": machine()[1], "last_frame": True,
+            # every clip length the model takes (lengths.py), and the longest this machine renders at each size
+            "lengths": {"fps": FPS, "step": lengths.STEP, "shortest": lengths.SHORTEST, "longest": lengths.LONGEST,
+                        "presets": {k: longest_frames(v[2]) for k, v in PRESETS.items()}, "custom": longest_frames({"WIDTH": 1344, "HEIGHT": 768})},
+            "ffmpeg": media_tools()["ffmpeg"], "ffmpeg_note": "" if media_tools()["ffmpeg"] else FFMPEG_NOTE,
+            "shot_check": True, "negation_reason": negation.REASON,
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
 
 
@@ -1100,9 +1235,23 @@ def compose_prompt(body: dict) -> dict:
         own = lora_flows.compose(body.get("loras") or (body.get("fields") or {}).get("loras"), body.get("fields", {}))
         if own:
             return {"prompt": own, "flow": True}
-        return {"prompt": compose_references(body.get("fields", {}), int(body.get("references") or 0))}
-    return {"prompt": compose(body.get("fields", {}), bool(body.get("first_frame")), bool(body.get("last_frame")),
-                              float(body.get("seconds") or 5))}
+        return {"prompt": compose_references(body.get("fields", {}), int(body.get("references") or 0)),
+                **negation.check_fields(body.get("fields", {}))}
+    try:
+        frames = lengths.of({"frames": body.get("frames"), "seconds": body.get("seconds") or 5})
+    except ValueError:
+        frames = lengths.nearest(5)
+    # the prompt is written as the fields say; what they forbid is listed beside it, never taken out (negation.py)
+    return {"prompt": compose(body.get("fields", {}), bool(body.get("first_frame")), bool(body.get("last_frame")), frames=frames),
+            **negation.check_fields(body.get("fields", {}))}
+
+
+@app.post("/api/prompt/check")
+def check_prompt(body: dict) -> dict:
+    """What a finished video prompt forbids by name (negation.py): for a prompt typed or edited by hand, before it is
+    queued. Nothing is changed."""
+
+    return negation.check(str(body.get("prompt") or ""))
 
 
 @app.post("/api/estimate")
@@ -1110,7 +1259,9 @@ def estimate_time(body: dict) -> dict:
     if body.get("preset") == "custom" or body.get("steps") not in (None, "") or body.get("loras"):
         return {"seconds": None}  # a LoRA changes which engine renders the clip: no time is measured for it
     return {"seconds": estimate(body.get("preset", "draft"), body.get("quality", "standard"),
-                                int(body.get("seconds", 5)), bool(body.get("text_only")), bool(body.get("referenced")),
+                                clip_seconds({"frames": body.get("frames"), "seconds": body.get("seconds", 5)})
+                                if float(body.get("seconds") or 5) <= LONGEST + 1 or body.get("frames") else int(body["seconds"]),
+                                bool(body.get("text_only")), bool(body.get("referenced")),
                                 bool(body.get("ref_turbo")), bool(body.get("ref_media")))}
 
 
@@ -1134,6 +1285,9 @@ def submit(body: dict) -> dict:
         raise HTTPException(400, "reference pictures are for single clips")
     if kind != "video" and (params.get("reference_videos") or params.get("reference_audios")):
         raise HTTPException(400, "reference videos and audio are for single clips")
+    missing = without_ffmpeg(kind, params)
+    if missing:
+        raise HTTPException(400, missing)
     found = references(params) if kind == "video" else {}
     referenced, ref_media = bool(found), bool(found and (found["videos"] or found["audios"]))
     if kind in ("video", "studio", "long") and not referenced and not str(params.get("quality", "standard")).startswith("fh") and not turbo_ready():
@@ -1145,13 +1299,16 @@ def submit(body: dict) -> dict:
            "source": action_source(kind, params) if kind in actions.KINDS else None,
            "outputs": [], "progress": None, "error": None, "log": "", "created": time.time(), "started": None,
            "finished": None, "estimate": None if params.get("preset") == "custom" or params.get("steps") not in (None, "") or params.get("loras") else estimate(params.get("preset", ""), params.get("quality", "standard"),
-                                                  int(params.get("total_seconds") or params.get("seconds", 5)),
+                                                  clip_seconds(params),
                                                   kind == "video" and not params.get("image")
                                                   and not params.get("first_frame_from"), referenced,
                                                   bool(params.get("ref_turbo")), ref_media)
            if kind in ("video", "studio", "long") else None}
     if referenced:  # the passes a reference clip runs: the number set by hand, or the model's 20, or the adapter's 4
         job["passes"] = int(params["steps"]) if params.get("steps") not in (None, "") else 4 if params.get("ref_turbo") else 20
+    if kind in ("video", "studio", "long"):
+        # said beside the job too, for a prompt that did not come through the wizard; the prompt goes as written
+        job["negations"] = negation.check(params.get("prompt") or "")["negations"] or None
     with lock:
         jobs[job_id] = job
         order.append(job_id)
@@ -1204,6 +1361,8 @@ def take_frame(body: dict) -> dict:
     source = inside(str(body.get("path") or ""))
     if not source.is_file() or source.suffix.lower() not in VIDEO_SUFFIXES:
         raise HTTPException(400, "a frame is taken from a video in the studio's folder")
+    if not media_tools()["ffmpeg"]:
+        raise HTTPException(400, f"taking a frame of a clip needs ffmpeg, which is not installed on this machine: {FFMPEG_HOW}")
     at = body.get("at", "last")
     name = f"{source.stem[:40]}_{'last' if at == 'last' else 'first' if at == 'first' else str(at).replace('.', 's')}_{uuid.uuid4().hex[:6]}.png"
     target = HOME / "uploads" / name
@@ -1258,6 +1417,8 @@ def discard(path: str) -> dict:
 @app.get("/api/probe")
 def probe(path: str) -> dict:
     target = inside(path)
+    if not media_tools()["ffprobe"]:
+        raise HTTPException(400, f"measuring a clip needs ffprobe, which comes with ffmpeg and is not installed on this machine: {FFMPEG_HOW}")
     out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
                           "stream=codec_type,width,height,nb_frames:format=duration", "-of", "json", str(target)],
                          capture_output=True, text=True, env=environment({}))
@@ -1355,6 +1516,8 @@ import picture_edit  # noqa: E402  (a picture re-drawn by the image model, with 
 edit_router, edit_build = picture_edit.attach(HOME, PACK, SPARK, lora_resolve, inside, relative)
 app.include_router(edit_router)
 import pace  # noqa: E402  (whether a clip's sound and motion agree, beside this file)
+import negation  # noqa: E402  (what a prompt forbids by name, shown before a job is queued, beside this file)
+import shot  # noqa: E402  (a clip's keyframes held and no cut inside it, beside this file)
 import qa  # noqa: E402  (Sam Wasserman's QA gate, beside this file)
 import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)
 
@@ -1368,6 +1531,9 @@ app.include_router(action_router)
 import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
 app.include_router(clear.attach(HOME, jobs, order, lock)[0])
 app.mount("/", StaticFiles(directory=HERE / "static", html=True), name="static")
+
+if not media_tools()["ffmpeg"]:
+    print("[studio] " + FFMPEG_NOTE, flush=True)
 
 if __name__ == "__main__":
     import uvicorn
