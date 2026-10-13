@@ -563,6 +563,60 @@ length. A segment can open on the last frame of the one before; one button rende
 **Library** lists every render, scout and export; *use* makes an image the first frame of a new clip, *+ timeline*
 sends a clip to the editor, and 🗑 moves a file to `~/TensorFoldStudio/trash`.
 
+### Library actions: Turnaround sheet, Upscale, Remove a person
+
+Three LoRAs of the hub each do one job that is not "make a clip", through a workflow their authors built. The Library
+has a button for each, under the file it works on, and queues it like any render. On a DGX Spark each runs its
+author's own ComfyUI nodes, cloned at a pinned commit by `spark/setup-workflows.sh` (`oneshot-setup-spark.sh --ref2va`
+runs it: three node packs, SAM 3.1 and the H3 latent upscaler, 2.5 GB); all three render on MiniMax H3 Ref2VA in
+bfloat16. Credit and licences: [CREDITS.md](CREDITS.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+| Action | On | Does | With | Mac | DGX Spark |
+|---|---|---|---|---|---|
+| **Turnaround** | a picture | Five views of the picture's subject, turning from where it faces now, made together so they agree. Each is a picture of its own: a first frame, or reference pictures of one character. | Turnaround LoRA by matlod; contact-sheet nodes by MATLOWAI | yes: the MLX engine packs and decodes the five views itself (`h3_generate.py --sheet`) | yes |
+| **Upscale** | a clip | The clip made larger and sharper: a latent upscale, then one light re-draw in tiles that the clip itself guides. Motion, mouths and the clip's own sound stay. | Video Upscaler LoRA and H3 Video Upsampler by dntpi; latent upscaler by LBH-123-AI | no: the upscaler is a ComfyUI node pack in PyTorch and the MLX engine has no latent upscaler or guide layout (a Mac doubles a clip with the 2x decoder: the 2K and QHD sizes) | yes |
+| **Remove a person** | a clip | One person taken out and the background drawn again. The person is found from a few words and followed through the clip; "1. Find the person" shows the mask alone first. | Person Remover LoRA and H3 Relay by Akatz Labs; SAM 3.1 by Meta | no: it needs SAM 3.1, a source clip fed in as a frame-aligned guide and windows that carry 18 frames of history, none of which the MLX engine has | yes |
+
+**Turnaround.** The LoRA's own instruction, "the camera orbits the subject of `<Picture 1>` ninety degrees
+clockwise", was read as a roll of the picture on some seeds, on both engines (the model without the LoRA always reads
+it so). The Studio's default says the orbit is level and the subject stays upright, which held on every subject and
+seed tried; the instruction box takes other wording. How far the subject turns varies: a toy robot went from front to
+back, a person in a fighting stance turned about a quarter. Sizes 512 (what the LoRA was trained at), 1024 and 2048.
+
+**Remove a person.** The graph and settings are those of the authors' example workflow (strength 1.0, windows of 22
+frames with 18 frames of history, 12 passes, mask grown by 5 points), on the bfloat16 weights. Their workflow asks for
+a first frame with the person already edited out. With "Build it for me" the Studio makes one: every masked point of
+the first frame takes the median of the frames where it is not masked (when the camera is still), the rest is filled
+in from its edges, and one window of the remover itself then draws that rough plate sharp. The clip is lengthened by
+eight copies of its last frame and the result cut back, because the last frames of the last window kept patches of
+green. The whole picture is drawn again, so details outside the person can change; the clip's own sound is put back,
+with the removed person's voice still in it unless "No sound" is ticked.
+After the windows, green that came back for a frame or two is painted over from the clean frames beside it (at most
+four frames away), and so is a frame that is a different picture altogether; what is left is counted and said on the
+job. The upscaler's and the remover's node packs each
+replace the layout of H3's packed sequence when they first run and do not share a server: after one of the two
+actions the other starts ComfyUI again, which costs the model load.
+
+![A turnaround sheet in the Library](samples/ui_action_turnaround.png)
+
+![Remove a person in the Library](samples/ui_action_remove.png)
+
+What was measured (2026-10-12, one run each unless said; Mac Studio M5 Ultra 256 GB; DGX Spark GB10 with the models
+already loaded unless said; the test pictures and the clip are generated ones):
+
+| Action | Input | Mac | DGX Spark | Lowest free memory (Spark) | By eye |
+|---|---|---|---|---|---|
+| Turnaround, 512 | a toy robot, a person in a stance, an animated knight | 42 to 51 s (28 passes at 1.1 s) | 45 s; 77 to 81 s with the model load | 35 GB | upright in all, same subject in all five; robot front to back, person about a quarter turn |
+| Turnaround, 1024 | the same | 150 to 162 s | 188 s | 36 GB | as at 512, sharper |
+| Upscale to 2 megapixels | 5 s at 864x480 | not available | 303 s, to 1984x1088 | 32 GB | wood grain, rope and lettering sharper; framing, motion and sound unchanged |
+| Upscale to 1 megapixel | the same | not available | 190 s through the app's queue | 31 GB | not looked at closely |
+| Find the person | 5 s at 864x480, "man in a blue shirt" | not available | 40 s | 38 GB | the whole man in every frame, hands included |
+| Remove a person, clean frame built | the same clip: the camera pushes in until the man fills a third of the frame | not available | 663 s in all: mask 40 s, clean frame 94 s, six windows 525 s | 28 GB | the man gone from every frame and the rooftop drawn again behind him, the push-in kept; green had flashed back on 22 of the 121 frames where his hand moved fast and was painted over from the frames beside them, which leaves a faint green tint on a few; the last three frames keep a dim green patch on the wall |
+| The same through the app's queue | the same | not available | 775 s | 13 GB (another agent's render was loaded beside it; 28 to 30 GB alone) | as above; the clip's very last frame came out as another picture altogether, which the repair now replaces from the frame before (checked on the saved clip, not by a new render) |
+
+Not tested: 2048 views, clips longer than 5 seconds, a clip with two people where one is removed, windows of 39 and
+56 frames, and any of it on a machine other than these two.
+
 ### Clearing prompts and deleting clips
 
 From 2.6. Nothing below erases a file except *Empty trash*.
@@ -649,7 +703,7 @@ author's, for credit.
 | LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
 |---|---|---|---|---|---|
 | Transformation | Ashmotv | Morphs one picture into another, element by element. | first and last frame | H3 Community | Mac (108 s), DGX Spark (158 s on FastH3) |
-| Turnaround | matlod | A five-view character sheet (front to back) from one reference picture. | its own workflow | H3 Community | not usable yet |
+| Turnaround | matlod | A five-view character sheet (front to back) from one reference picture. | the Library's *Turnaround* action | H3 Community | Mac (45 s), DGX Spark (45 to 80 s) at 512 |
 | Keyframe Animation | alvdansen | Hand-drawn animation on held frames: the next key drawing, an inbetween, or a short held sequence from one or two drawings. | reference pictures | Custom, gated | Mac (260 s), DGX Spark (315 s), 20 passes |
 
 **03 Character Editing**
@@ -657,7 +711,7 @@ author's, for credit.
 | LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
 |---|---|---|---|---|---|
 | Character Swap | Akatz Labs (akatz-ai) | Replaces a person in a source clip with the person in a reference picture, keeping the scene. | a source video | H3 Community | Mac (285 s), DGX Spark (215 s) |
-| Person Remover | Akatz Labs (akatz-ai) | Removes a chosen person from a video and rebuilds the background. | its own workflow | H3 Community | not usable yet |
+| Person Remover | Akatz Labs (akatz-ai) | Removes a chosen person from a video and rebuilds the background. | the Library's *Remove a person* action | H3 Community | DGX Spark (about 11 min for 5 s) |
 | Natural Face Speech | vpakarinen | More natural face muscles and clearer English speech for a person talking to the camera. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
 
 **04 Motion & Action**
@@ -683,21 +737,21 @@ author's, for credit.
 |---|---|---|---|---|---|
 | Natural Face Speech | vpakarinen | More natural face muscles and clearer English speech for a person talking to the camera. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
 | Motion Continuity Repair | JOKER141 | Keeps fast movement connected: fewer broken transitions, less unwanted slow motion, closer to the prompt. | text or a first frame | None stated | Mac (84 s), DGX Spark (150 s) |
-| Video Upscaler LoRA | dntpi | Doubles the size of a finished clip: a latent upscale, then one guided re-draw in tiles. | its own workflow | MIT code, weights other | not usable yet |
+| Video Upscaler LoRA | dntpi | Doubles the size of a finished clip: a latent upscale, then one guided re-draw in tiles. | the Library's *Upscale* action | MIT code, weights other | DGX Spark (5 min for 5 s to 2 MP) |
 
 **07 Fun**
 
 | LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
 |---|---|---|---|---|---|
-| Person Remover | Akatz Labs (akatz-ai) | Removes a chosen person from a video and rebuilds the background. | its own workflow | H3 Community | not usable yet |
+| Person Remover | Akatz Labs (akatz-ai) | Removes a chosen person from a video and rebuilds the background. | the Library's *Remove a person* action | H3 Community | DGX Spark (about 11 min for 5 s) |
 | VH5 Tape (VHS) | KennethFal | A 1980s home-video look with a damage dial: light wear, visible tape damage, or heavy tracking errors. | text or a first frame | H3 Community | Mac (138 s), DGX Spark (150 s) |
 | Wushu Action | Jojocodex | Kung fu and wushu moves with weight behind them: punches, kicks, spins, staff work. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
 | Multiple Angles (image) | akhaliq | Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. | a picture (image model) | Apache-2.0 | not usable yet |
 
 "Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a clip does
-not have in this version: its author's own workflow (Turnaround, Person Remover, Video Upscaler LoRA), or it is for
-the image model and re-shoots a picture you give it, which the image step cannot take yet (Multiple Angles). Its card
-says which. 3D Animation Style is approved download by download by its author.
+not have in this version: it is for the image model and re-shoots a picture you give it, which the image step cannot
+take yet (Multiple Angles). Its card says which. Three LoRAs are not for a clip at all and have a job of their own,
+which the Library runs as an action (see *Library actions*): Turnaround, Person Remover and Video Upscaler LoRA. 3D Animation Style is approved download by download by its author.
 
 **What a picked LoRA asks for.** A LoRA that needs more than a prompt says so in its own row and again in the Render
 step, each with a button to the step that takes it, and "Queue this clip" waits until nothing is missing: a last frame

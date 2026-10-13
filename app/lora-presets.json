@@ -211,11 +211,16 @@
   "category": [
    "transform"
   ],
-  "needs": "workflow",
+  "needs": "action",
   "what": "A five-view character sheet (front to back) from one reference picture.",
-  "status": "unsupported",
-  "why": "It makes still pictures, not a clip, through the author's own five-view sampler for ai-toolkit. The Studio has no such sampler.",
-  "notes": "Strength 1.0 for rotation, about 0.7 for likeness, on the Ref2VA model."
+  "status": "action",
+  "why": "Press Turnaround under a picture in the Library: one picture in, five views of its subject out, each a picture of its own.",
+  "notes": "1.0 turns furthest, about 0.7 keeps the look closest. Made on the Ref2VA model with the packing of MATLOWAI's contact-sheet sampler (their own ComfyUI nodes on a DGX Spark, the MLX engine on a Mac); not for clips (on a normal clip it breaks motion).",
+  "action": "turnaround",
+  "platforms": [
+   "mac",
+   "spark"
+  ]
  },
  {
   "id": "keyframe-animation",
@@ -314,11 +319,16 @@
    "character",
    "fun"
   ],
-  "needs": "workflow",
+  "needs": "action",
   "what": "Removes a chosen person from a video and rebuilds the background.",
-  "status": "unsupported",
-  "why": "It runs inside the author's ComfyUI workflow, which tracks the person with SAM 3.1, paints a green mask and needs a clean first frame. The Studio has no mask step.",
-  "notes": "Strength 1.0, 12 passes, windows of 22 frames."
+  "status": "action",
+  "why": "Press Remove a person under a clip in the Library: the person is found from a few words (SAM 3.1), painted green, and removed in windows of 22 frames through Akatz Labs' H3 Relay.",
+  "notes": "Strength 1.0, 12 passes, windows of 22 frames, as its author set them.",
+  "action": "remove",
+  "platforms": [
+   "spark"
+  ],
+  "mac": "DGX Spark only. The removal needs SAM 3.1 to track the person, a source clip fed in as a frame-aligned guide and windows that carry 18 frames of history; the Mac's MLX engine has no segmentation model, no aligned guide and no history relay."
  },
  {
   "id": "natural-face-speech",
@@ -579,11 +589,16 @@
   "category": [
    "finish"
   ],
-  "needs": "workflow",
+  "needs": "action",
   "what": "Doubles the size of a finished clip: a latent upscale, then one guided re-draw in tiles.",
-  "status": "unsupported",
-  "why": "It is one part of the author's ComfyUI upscale node, with a separate latent upscaler model, and is not a LoRA for making a clip. The Studio doubles a clip with its own 2x decoder (the 2K and QHD sizes).",
-  "notes": "620 MB."
+  "status": "action",
+  "why": "Press Upscale under a clip in the Library: the latent upscaler enlarges the clip, then one light re-draw in tiles is guided by the clip itself through this LoRA (dntpi's H3 Video Upsampler).",
+  "notes": "620 MB. Re-draw 0.1 is the author's tested setting.",
+  "action": "upscale",
+  "platforms": [
+   "spark"
+  ],
+  "mac": "DGX Spark only. The upscaler is a ComfyUI node pack in PyTorch (a latent upscaler network, then a re-draw in tiles guided through the LoRA's own layout); the Mac build has no ComfyUI and its MLX engine has neither. On a Mac the 2K and QHD sizes double a clip with the 2x decoder."
  },
  {
   "id": "vh5tape-vhs",

@@ -734,6 +734,8 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
     """(command, environment, output paths) for one job."""
 
     scripts = PACK / "scripts"
+    if kind in actions.KINDS:  # a Library action (actions.py): turnaround, upscale, mask, remove
+        return action_build(kind, params, job_id)
     seed = str(int(params.get("seed", 0)))
     if kind == "scout":
         folder = HOME / "scouts" / job_id
@@ -1066,7 +1068,7 @@ threading.Thread(target=work, daemon=True).start()
 
 def public(job: dict) -> dict:
     out = {k: job.get(k) for k in ("id", "kind", "status", "title", "outputs", "progress", "error", "created",
-                                    "started", "finished", "estimate", "engine", "qa", "passes", "pace")}
+                                    "started", "finished", "estimate", "engine", "qa", "passes", "pace", "source")}
     # by this machine's clock: the page may be open on another one
     out["elapsed"] = (job.get("finished") or time.time()) - job["started"] if job.get("started") else None
     out["log"] = job["log"][-3000:]
@@ -1114,7 +1116,7 @@ def estimate_time(body: dict) -> dict:
 def submit(body: dict) -> dict:
     kind = body.get("kind")
     params = dict(body.get("params") or {})
-    if kind not in ("scout", "video", "studio", "export", "long"):
+    if kind not in ("scout", "video", "studio", "export", "long") + actions.KINDS:
         raise HTTPException(400, "unknown job kind")
     if kind == "long" and (params.get("last_image") or params.get("last_same") or params.get("last_frame_from")):
         raise HTTPException(400, "a last frame is for single clips: a long video is a chain of clips")
@@ -1124,7 +1126,7 @@ def submit(body: dict) -> dict:
             raise HTTPException(400, f"a long video is over {LONGEST} seconds and at most {max(LONG) // 60} minutes")
         pieces = plan(total, int(params.get("segment_seconds", LONGEST)))
         build("video", {**params, "seconds": pieces[0], "output": None}, "check")
-    if kind != "export" and not (params.get("prompt") or "").strip():
+    if kind not in ("export",) + actions.KINDS and not (params.get("prompt") or "").strip():
         raise HTTPException(400, "a prompt is needed")
     if kind != "video" and params.get("references"):
         raise HTTPException(400, "reference pictures are for single clips")
@@ -1137,7 +1139,8 @@ def submit(body: dict) -> dict:
     job_id = time.strftime("%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     if kind not in ("export", "long"):
         build(kind, params, job_id)  # reject bad settings now, not when the job's turn comes
-    job = {"id": job_id, "kind": kind, "status": "queued", "title": body.get("title") or kind, "params": params,
+    job = {"id": job_id, "kind": kind, "status": "queued", "title": body.get("title") or (action_title(kind, params) if kind in actions.KINDS else kind), "params": params,
+           "source": action_source(kind, params) if kind in actions.KINDS else None,
            "outputs": [], "progress": None, "error": None, "log": "", "created": time.time(), "started": None,
            "finished": None, "estimate": None if params.get("preset") == "custom" or params.get("steps") not in (None, "") or params.get("loras") else estimate(params.get("preset", ""), params.get("quality", "standard"),
                                                   int(params.get("total_seconds") or params.get("seconds", 5)),
@@ -1354,6 +1357,9 @@ app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, RE
                                 lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}))
 import motion  # noqa: E402  (Motion Previs: a Python port of Sam Wasserman's Motion Previs Studio analysis, beside this file)
 app.include_router(motion.attach(HOME, PACK, SPARK))
+import actions  # noqa: E402  (Turnaround sheet, Upscale and Remove a person: Library actions, beside this file)
+action_router, action_build, action_title, action_source = actions.attach(HOME, PACK, SPARK, inside, relative)
+app.include_router(action_router)
 import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
 app.include_router(clear.attach(HOME, jobs, order, lock)[0])
 app.mount("/", StaticFiles(directory=HERE / "static", html=True), name="static")
