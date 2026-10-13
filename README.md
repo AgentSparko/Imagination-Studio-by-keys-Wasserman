@@ -199,14 +199,18 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 
 ## What changed
 
-> **2.6.3 (in progress, 2026-10-13): the LoRA hub with twenty-one community LoRAs, a last frame, LoRAs on clips from references.**
-> - **Keys and Wasserman LoRA Hub** in seven groups, with the one-command essential bundle (`oneshot-essential-bundle.sh`).
+> **2.6.3 (2026-10-13): the LoRA hub with twenty-one community LoRAs, a last frame, LoRAs on clips from references, and Library actions.**
+> - **Keys and Wasserman LoRA Hub** in seven groups (01 Camera & Viewpoint to 06 Support & Finishing, and 07 Fun), with
+>   the one-command essential bundle (`oneshot-essential-bundle.sh`): thirteen LoRAs from one hosted package per
+>   platform, the rest from their authors' pages, every file checked, then no network needed again.
 > - **A last frame**: a clip can end on a picture; 360° Orbit and Transformation use it.
 > - **LoRAs on a clip from references**: Character Swap, Lineart Anime (with *Make line art of Video 1*), Keyframe
 >   Animation and the Anime Slider.
+> - **Library actions**: a Turnaround sheet from a picture, Upscale a clip, and Remove a person from a clip.
 > - **In the wizard**: camera moves as a choice, a slider centred on 0, and one list of what a picked LoRA still needs.
-> - **Tested through both apps' own queues** (the table under *Keys and Wasserman LoRA Hub*). Not in yet: Person
->   Remover, Video Upscaler and Turnaround (their own actions), and Multiple Angles (the image step takes no picture).
+> - **Tested through both apps' own queues** (the table under *Keys and Wasserman LoRA Hub*). Not in yet: Multiple
+>   Angles (the image step takes no picture; it follows), and 3D Animation Style installs once its author approves
+>   the download.
 > - `oneshot-setup.sh --upgrade` keeps a helper folder that is not a clone (a prefix layered on another install).
 >
 > **2.6.2 (2026-10-12): a fresh DGX Spark install, checked from a clean clone.**
