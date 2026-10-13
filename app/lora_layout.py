@@ -6,10 +6,12 @@ A LoRA for the H3 transformer is a pair of small matrices per adapted linear lay
             diffusion_model.<module>.lora_down.weight / .lora_up.weight with .alpha)
   peft      <module>.lora_A.<adapter>.weight / .lora_B.<adapter>.weight  DiffSynth-Studio and raw PEFT saves, the
             adapter name is usually `default`; no prefix, no alpha (the scale is 1)
+  kohya     lora_unet_<module with _ for .>.lora_down.weight / .lora_up.weight / .alpha    kohya's and musubi-tuner's
+            own saves (lora_unet_blocks_0_attn_qkv_proj); ComfyUI reads these names as they are
   runner    <module>.lora_A.weight / .lora_B.weight, scale folded into B  what the Mac engine's --lora reads
                                                                            (scripts/convert-lora.py writes it)
 
-<module> is the checkpoint's own name in all three (blocks.N.attn.qkv_proj, blocks.N.mlp.fc1, token_refiner.blocks.N…,
+<module> is the checkpoint's own name in all of them (blocks.N.attn.qkv_proj, blocks.N.mlp.fc1, token_refiner.blocks.N…,
 blocks.N.adaln_proj.linear, final_layer.adaln_proj.linear). ComfyUI's loader reads the comfy layout only: a peft file
 loaded as it is matches no key and changes nothing, without a warning. `to_comfy` renames the keys and copies the
 tensors' bytes as they are. One kind of pair needs more than a name: a LoRA on an adaln projection, made on MiniMax's
@@ -25,6 +27,8 @@ from pathlib import Path
 
 PEFT = re.compile(r"^(?P<module>.+)\.lora_(?P<side>[AB])\.(?P<adapter>[A-Za-z0-9_-]+)\.weight$")
 PLAIN = re.compile(r"^(?P<module>.+)\.(?:lora_[AB]|lora_down|lora_up)\.weight$")
+KOHYA = re.compile(r"^lora_unet_(?P<flat>[A-Za-z0-9_]+)\.(?P<part>lora_down\.weight|lora_up\.weight|alpha)$")
+FLAT = re.compile(r"^(?P<refiner>token_refiner_)?blocks_(?P<n>\d+)_(?P<group>attn|mlp|adaln_proj)_(?P<leaf>qkv_proj|out_proj|fc[12]|linear)$")
 # the linear layers of the H3 transformer a LoRA can sit on, under the checkpoint's names
 MODULE = re.compile(r"^(?:token_refiner\.)?blocks\.\d+\.(?:attn\.(?:qkv_proj|out_proj)|mlp\.fc[12]|adaln_proj\.linear)$"
                     r"|^final_layer\.(?:adaln_proj\.linear|video_out|audio_out)$"
@@ -43,10 +47,21 @@ def header(path: Path) -> tuple[dict, dict, int]:
     return tensors, tensors.pop("__metadata__", None) or {}, 8 + size
 
 
+def kohya_module(flat: str) -> str | None:
+    """blocks_0_attn_qkv_proj -> blocks.0.attn.qkv_proj: the checkpoint's name of a kohya-named layer, or None."""
+
+    hit = FLAT.match(flat)
+    if not hit:
+        return {"final_layer_adaln_proj_linear": "final_layer.adaln_proj.linear"}.get(flat)
+    return f"{'token_refiner.' if hit['refiner'] else ''}blocks.{hit['n']}.{hit['group']}.{hit['leaf']}"
+
+
 def layout(names) -> str:
-    """comfy, peft, runner or unknown, from a file's tensor names."""
+    """comfy, peft, kohya, runner or unknown, from a file's tensor names."""
 
     names = [n for n in names if n != "__metadata__"]
+    if any(KOHYA.match(n) for n in names):
+        return "kohya"
     if any(PEFT.match(n) for n in names):
         return "peft"
     low = [n for n in names if PLAIN.match(n)]
@@ -60,6 +75,10 @@ def modules(names) -> list[str]:
 
     found = set()
     for name in names:
+        flat = KOHYA.match(name)
+        if flat:
+            found.add(kohya_module(flat["flat"]) or "lora_unet_" + flat["flat"])
+            continue
         hit = PEFT.match(name) or PLAIN.match(name)
         if hit:
             module = hit["module"]
@@ -85,6 +104,20 @@ def comfy_names(names) -> dict[str, str]:
         renamed[name] = f"diffusion_model.{module}.lora_{hit['side']}.weight"
     if len(set(renamed.values())) != len(renamed):
         raise ValueError("two tensors would take the same name")
+    return renamed
+
+
+def kohya_names(names) -> dict[str, str]:
+    """{name in a kohya file: name in the comfy layout}, the .alpha of each pair kept beside it."""
+
+    ends = {"lora_down.weight": "lora_A.weight", "lora_up.weight": "lora_B.weight", "alpha": "alpha"}
+    renamed = {}
+    for name in names:
+        hit = KOHYA.match(name)
+        module = kohya_module(hit["flat"]) if hit else None
+        if module is None:
+            raise ValueError(f"{name} is not a LoRA matrix on a layer of MiniMax H3's transformer")
+        renamed[name] = f"diffusion_model.{module}.{ends[hit['part']]}"
     return renamed
 
 
@@ -168,7 +201,7 @@ def curve_table(checkpoint: Path):
 
 
 def to_comfy(source: Path, target: Path, basis=None, offset=None) -> dict:
-    """Write `source` (peft or comfy layout) as `target` in the comfy layout: {"modules", "adaln", "layout"}.
+    """Write `source` (peft, kohya or comfy layout) as `target` in the comfy layout: {"modules", "adaln", "layout"}.
 
     Names change; every tensor keeps its bytes, type and shape, except a pair on an adaln projection when `basis`
     and `offset` (curve_basis) are given: its A is carried onto the pruned checkpoint's 8-number time code and a
@@ -182,6 +215,8 @@ def to_comfy(source: Path, target: Path, basis=None, offset=None) -> dict:
         renamed = comfy_names(list(tensors))
     elif kind == "comfy":
         renamed = {name: name for name in tensors}
+    elif kind == "kohya":
+        renamed = kohya_names(list(tensors))
     else:
         raise ValueError(f"a {kind} file is not rewritten for ComfyUI")
     carried = sorted(name[: -len(".lora_A.weight")] for name in renamed.values()

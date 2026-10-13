@@ -549,12 +549,12 @@
   "page": "huggingface.co/SOLRICKS/3D-Animation-Style-MiniMax-H3",
   "sha256": "28b56d2240990436fba8d9a1fa06310c971a7ef95d3046059118445e0c0a4ef0",
   "size": 298260424,
-  "trigger": "",
+  "trigger": "3dsrx",
   "styles": {},
-  "strength": 1.0,
+  "strength": 0.8,
   "range": [
-   0.5,
-   1.2
+   0.4,
+   1.0
   ],
   "base": "MiniMax H3",
   "licence": "The weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement, with its territory limits, commercial terms and Acceptable Use Policy. Read the licence on the LoRA's page before downloading.",
@@ -564,9 +564,9 @@
   ],
   "needs": "text",
   "what": "The look of a 3D animated feature.",
-  "status": "gated",
-  "why": "Waiting for the author's approval of your access request: the author approves each download by hand. Ask on the LoRA's page with your Hugging Face account; once approved, Install (or the essential bundle) fetches it with that account's token.",
-  "notes": "Not tested by us: the author's approval is needed to download it. Trigger word and settings are on the author's page once you have access."
+  "status": "ready",
+  "notes": "Start the prompt with 3dsrx. The author's settings: 0.8 for people from text, 1.0 for animals, fantasy characters and places, 0.4 from a first frame. Tested on a DGX Spark at 1.0 (same seed with and without: the clip turns into a 3D animated film). On a Mac the file is rewritten for the engine, but no clip has been rendered with it yet. The author approves each download by hand: ask on the LoRA's page with your Hugging Face account, then Install fetches it with that account's token.",
+  "tested": "DGX Spark"
  },
  {
   "id": "video-upscaler",
