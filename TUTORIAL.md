@@ -132,11 +132,16 @@ A LoRA is a small file that teaches the video model one thing: a camera move, a 
    `bash oneshot-essential-bundle.sh` (the installer runs it) every usable LoRA is already installed; otherwise press
    **⤓ Install** on a card, or **Install all in this category**.
 3. Press **Use on this clip**. A row appears with **Strength** (the author's range is in its tooltip) and, when the
-   LoRA has them, a **Look**. Its trigger word is written into the prompt for you. Up to four can be stacked.
+   LoRA has them, a choice: a **Look**, or for *Camera Motion* a **Camera move** (push-in, pull-back, handheld
+   follow, orbit, crane reveal, tilt, pan). Its trigger word is written into the prompt for you. Up to four can be
+   stacked. If the LoRA needs something of the clip (a last frame, a source video, a picture), its row says
+   **Needs:** with a button that takes you to the step, and step 5 will not queue the clip until it is there.
 4. Write the prompt the way the card's note says, then render as usual. A clip with a LoRA takes a slower path and
    shows no time estimate.
 
-A slider LoRA such as *Anime Slider* also takes minus values: 3 for flat 2D anime, -3 for a photographic look.
+A slider LoRA such as *Anime Slider* has a track centred on 0: drag right for flat 2D anime (3 is plenty on a clip
+from text), left for a photographic look, or press *Off (0)*. On a Mac, a slider on a clip *from references* pulls
+about half as hard as on a DGX Spark: use about twice the strength there.
 *Equirectangular 360°* wants the Custom size 1120x480; the clip is the whole sphere, to be resized to 2:1 for a VR
 player.
 

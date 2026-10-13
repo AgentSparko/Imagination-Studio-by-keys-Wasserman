@@ -25,7 +25,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.6.2** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.6.3** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -199,6 +199,16 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 
 ## What changed
 
+> **2.6.3 (in progress, 2026-10-13): the LoRA hub with twenty-one community LoRAs, a last frame, LoRAs on clips from references.**
+> - **Keys and Wasserman LoRA Hub** in seven groups, with the one-command essential bundle (`oneshot-essential-bundle.sh`).
+> - **A last frame**: a clip can end on a picture; 360° Orbit and Transformation use it.
+> - **LoRAs on a clip from references**: Character Swap, Lineart Anime (with *Make line art of Video 1*), Keyframe
+>   Animation and the Anime Slider.
+> - **In the wizard**: camera moves as a choice, a slider centred on 0, and one list of what a picked LoRA still needs.
+> - **Tested through both apps' own queues** (the table under *Keys and Wasserman LoRA Hub*). Not in yet: Person
+>   Remover, Video Upscaler and Turnaround (their own actions), and Multiple Angles (the image step takes no picture).
+> - `oneshot-setup.sh --upgrade` keeps a helper folder that is not a clone (a prefix layered on another install).
+>
 > **2.6.2 (2026-10-12): a fresh DGX Spark install, checked from a clean clone.**
 > - **Tested:** a clone of the `v2.6.1` tag installed into an empty prefix on a DGX Spark with
 >   `oneshot-setup-spark.sh --ref2va --motion` (the weights already on the disk, so no weight was downloaded; every
@@ -632,7 +642,7 @@ author's, for credit.
 | Camera Motion | Jojocodex | Camera moves the base model tends to miss: push-in, pull-back, orbit, tracking, aerial, crane, pan, macro. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
 | Head-mounted FPV | neph1 | A first-person view from a camera on the head, with the bob of walking or running. | text or a first frame | H3 Community | Mac (84 s), DGX Spark (150 s) |
 | Equirectangular 360° | shamanic | A full-sphere 360° panorama video with sound, for VR players. | text or a first frame | H3 Community | Mac (108 s), DGX Spark (180 s) |
-| 360° Orbit | pablodawson | One photo becomes a frozen-moment 360° orbit that ends on the frame it started from. | first and last frame | H3 Community | Mac, DGX Spark (147 s on FastH3) |
+| 360° Orbit | pablodawson | One photo becomes a frozen-moment 360° orbit that ends on the frame it started from. | first and last frame | H3 Community | Mac (140 s), DGX Spark (230 s), 768x768 |
 
 **02 Transformation & Morphing**
 
@@ -640,13 +650,13 @@ author's, for credit.
 |---|---|---|---|---|---|
 | Transformation | Ashmotv | Morphs one picture into another, element by element. | first and last frame | H3 Community | Mac (108 s), DGX Spark (158 s on FastH3) |
 | Turnaround | matlod | A five-view character sheet (front to back) from one reference picture. | its own workflow | H3 Community | not usable yet |
-| Keyframe Animation | alvdansen | Hand-drawn animation on held frames: the next key drawing, an inbetween, or a short held sequence from one or two drawings. | reference pictures | Custom, gated | not usable yet |
+| Keyframe Animation | alvdansen | Hand-drawn animation on held frames: the next key drawing, an inbetween, or a short held sequence from one or two drawings. | reference pictures | Custom, gated | Mac (260 s), DGX Spark (315 s), 20 passes |
 
 **03 Character Editing**
 
 | LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
 |---|---|---|---|---|---|
-| Character Swap | Akatz Labs (akatz-ai) | Replaces a person in a source clip with the person in a reference picture, keeping the scene. | a source video | H3 Community | not usable yet |
+| Character Swap | Akatz Labs (akatz-ai) | Replaces a person in a source clip with the person in a reference picture, keeping the scene. | a source video | H3 Community | Mac (285 s), DGX Spark (215 s) |
 | Person Remover | Akatz Labs (akatz-ai) | Removes a chosen person from a video and rebuilds the background. | its own workflow | H3 Community | not usable yet |
 | Natural Face Speech | vpakarinen | More natural face muscles and clearer English speech for a person talking to the camera. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
 
@@ -664,7 +674,7 @@ author's, for credit.
 | LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
 |---|---|---|---|---|---|
 | Anime Slider | adf99 | A slider between flat 2D anime (plus) and photorealism (minus). | text or a first frame | None stated | Mac (90 s), DGX Spark (150 s) |
-| Lineart Anime | DiffSynth-Studio | Colours a line-art video into finished anime. | a source video | Apache-2.0 | not usable yet |
+| Lineart Anime | DiffSynth-Studio | Colours a line-art video into finished anime. | a source video | Apache-2.0 | Mac (280 s), DGX Spark (205 s) |
 | 3D Animation Style | SOLRICKS | The look of a 3D animated feature. | text or a first frame | H3 Community, gated | not tested (gated) |
 
 **06 Support & Finishing**
@@ -684,13 +694,19 @@ author's, for credit.
 | Wushu Action | Jojocodex | Kung fu and wushu moves with weight behind them: punches, kicks, spins, staff work. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
 | Multiple Angles (image) | akhaliq | Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. | a picture (image model) | Apache-2.0 | not usable yet |
 
-"Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a hub clip
-does not have in this version: reference pictures or a
-source video on the reference path (Keyframe Animation, Character Swap, Lineart Anime), or its author's own workflow
-(Turnaround, Person Remover, Video Upscaler LoRA), or it is for the image model (Multiple Angles). Its card says which.
-360° Orbit and Transformation need a last frame beside the first, which step 2 of Create now takes (see *A last frame:
-the clip ends on a picture*). 3D Animation Style is approved download by
-download by its author.
+"Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a clip does
+not have in this version: its author's own workflow (Turnaround, Person Remover, Video Upscaler LoRA), or it is for
+the image model and re-shoots a picture you give it, which the image step cannot take yet (Multiple Angles). Its card
+says which. 3D Animation Style is approved download by download by its author.
+
+**What a picked LoRA asks for.** A LoRA that needs more than a prompt says so in its own row and again in the Render
+step, each with a button to the step that takes it, and "Queue this clip" waits until nothing is missing: a last frame
+for 360° Orbit and Transformation (see *A last frame: the clip ends on a picture*), a source video, a picture or 20
+passes for the LoRAs made for a clip from references (below). **Camera Motion** has a *Camera move* choice with its
+author's own phrases (push-in, pull-back, handheld follow, orbit, crane reveal, tilt, pan; the author's note on how
+steady each is sits beside it), and **Head-mounted FPV** a *View* choice in the Studio's wording, since its author
+gives none. A **slider LoRA** has a track centred on 0 with its two ends named (for Anime Slider: photographic at -5,
+2D anime at +5), the number beside it, and *Off (0)*.
 
 What was tested (2026-10-12, one seed each, 5 seconds at 864x480, FastH3 8 passes, text to video; 1120x480 for the 360°
 LoRA): each usable LoRA was installed through the hub and rendered twice at the same seed, at 0.01 (the same engine
@@ -769,6 +785,30 @@ another kind of render loads it again; its lowest free memory in these runs was 
 model already swaps a person and already colours line art from the prompt, so Character Swap and Lineart Anime change
 the result less than Keyframe Animation and the slider do. Why the slider's +3 is milder on the Mac than on the
 Spark was not found (same file, same strength; the Mac runs these passes on its int8 kernels).
+
+**Through the apps (2026-10-13, 2.6.3 on both machines, one seed).** Each clip below was set up in the create wizard
+of the running app in a browser (headless Chromium), queued with "Queue this clip" and rendered by the app's own
+queue, one at a time; every result was looked at on a contact sheet. 5 seconds at 864x480 unless noted; FastH3 8
+passes for the clips from text or frames, the Ref2VA Turbo adapter (4 passes) for the clips from references.
+
+| Clip | Mac (M5 Ultra) | DGX Spark | What came out |
+|---|---|---|---|
+| First and last frame (a teapot, a bonsai) | 100 s | 130 s | ends on the bonsai picture |
+| 360° Orbit, first = last, 768x768, the author's prompt | 140 s | 230 s | a full orbit of the statue, back to the first view |
+| Transformation, the author's prompt | 100 s | 165 s | the teapot breaks into painted ribbons that form the tree |
+| Character Swap (a clip and a picture of a woman) | 285 s | 215 s | she is at the dummy in his place, the rooftop and the move kept |
+| Lineart Anime, after *Make line art of Video 1* | 280 s | 205 s | the clip redrawn as anime on its own outlines |
+| Keyframe Animation, two drawings, 20 passes | 260 s | 315 s | a moving line drawing |
+| Anime Slider on a clip from text: -3 / 0 / +3 | 85 / 70 / 90 s | 150 / 125 / 150 s | photographic / the base look / flat 2D anime |
+| A last frame made from a prompt (step 2) | 12 s | 23 s | the picture lands in the Last frame slot |
+
+Lowest free memory on the DGX Spark across its ten jobs: 29 GB of 121.
+
+**Known difference: the slider on a Mac clip from references.** On a clip from text the slider pulls the same on both
+machines. On a clip made *from references* (Ref2VA), the same file at +3 gives full 2D anime on the DGX Spark and only
+a painterly lean on the Mac; the Mac at +6 looks like the Spark at +3. It is not the int8 kernels (`INT8=0`, the same
+weak pull), not the Turbo adapter (20 passes without it, the same) and not the file's scale (the text path agrees).
+The cause is not found: on a Mac, use about twice the strength for a slider on a clip from references.
 
 #### Essential LoRA bundle
 

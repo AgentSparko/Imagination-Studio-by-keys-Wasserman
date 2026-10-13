@@ -145,6 +145,8 @@ ARGS=("$H3_MODEL_DIR" -o "$OUT" --width "$W" --height "$H" --frames "${FRAMES:-1
 # pass at 864x480. REF_INT8=1 puts the kernels back.
 if [ "$ADAPTER" != none ] && [ "${#REF_CLIPS[@]}" -gt 0 ] && [ "${REF_INT8:-0}" != 1 ]; then
   echo "[tensorfold] reference video with the Turbo adapter: passes in bfloat16, without the int8 kernels"
+elif [ "${INT8:-1}" = 0 ]; then
+  echo "[tensorfold] INT8=0: passes in bfloat16, without the int8 kernels"
 else
   ARGS+=(--int8-mlp --int8-qkv --int8-out)
 fi

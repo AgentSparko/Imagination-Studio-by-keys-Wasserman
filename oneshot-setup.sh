@@ -190,6 +190,12 @@ ok "Qwen-Image-2.1-Turbo at $QWEN_MODEL_DIR ($(du -shL "$QWEN_MODEL_DIR" | cut -
 
 if [ "$VIDEO" = 1 ]; then
   step "Text encoder, audio decoder and MP4 writer for H3: minimax-h3-mlx @ ${REF_COMMIT:0:8}"
+  # a prefix layered on another install can hold minimax-h3-mlx as a folder that is not a clone: kept when it imports
+  if [ -d "$PREFIX/minimax-h3-mlx" ] && [ ! -d "$PREFIX/minimax-h3-mlx/.git" ] && [ -n "$(ls -A "$PREFIX/minimax-h3-mlx")" ]; then
+    PYTHONPATH="$PREFIX/minimax-h3-mlx" "$PREFIX/venv/bin/python" -c "import minimax_h3_mlx.text_encoder, minimax_h3_mlx.media" \
+      || die "$PREFIX/minimax-h3-mlx is not a clone and does not import: move it aside and run this again"
+    ok "minimax-h3-mlx at $PREFIX/minimax-h3-mlx (not a clone of ours: kept as it is)"
+  else
   if [ ! -d "$PREFIX/minimax-h3-mlx/.git" ]; then
     [ "$MODE" = "--verify" ] && die "minimax-h3-mlx is not at $PREFIX/minimax-h3-mlx"
     git clone -q "$REF_REPO" "$PREFIX/minimax-h3-mlx"
@@ -199,6 +205,7 @@ if [ "$VIDEO" = 1 ]; then
   PYTHONPATH="$PREFIX/minimax-h3-mlx" "$PREFIX/venv/bin/python" -c "import minimax_h3_mlx.text_encoder, minimax_h3_mlx.media" \
     || die "minimax-h3-mlx does not import"
   ok "minimax-h3-mlx $(git -C "$PREFIX/minimax-h3-mlx" rev-parse --short HEAD)"
+  fi
 
   # FastH3 replaces MiniMax H3's transformer and keeps the rest of its pipeline: the text encoder and both decoders
   if [ "$TURBO" = 1 ]; then step "MiniMax H3 weights (FL2VA partition, 134 GB) -> $H3_MODEL_DIR"; SKIP=()
