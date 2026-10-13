@@ -265,7 +265,9 @@ def attach(home: Path, pack: Path, spark: bool):
 
     def public(recipe: dict) -> dict:
         state = busy.get(recipe["id"])
-        return {**recipe, "installed": ready(recipe["id"]).is_file() and not state, "installing": state,
+        installed = ready(recipe["id"]).is_file() and not state
+        # usable: its file is here and this machine has what it runs on (a clip, a Library action or Edit a picture)
+        return {**recipe, "installed": installed, "installing": state, "usable": installed and recipe.get("status") != "unsupported",
                 "flow": lora_flows.public(recipe["id"]) if recipe.get("flow") else None}
 
     def prepare(lora_id: str) -> None:

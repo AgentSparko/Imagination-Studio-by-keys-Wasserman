@@ -334,16 +334,33 @@ def main(argv: list[str]) -> int:
                         "state": states.get(recipe["id"], "already there" if here else "missing")})
     if not args.verify and not args.dry_run:
         (dest / "bundle.json").write_text(json.dumps({"version": 1, "groups": groups, "loras": entries}, indent=1, ensure_ascii=False) + "\n")
+    here = "mac" if sys.platform == "darwin" else "spark"
+
+    def studio_use(r: dict) -> str:
+        """How the Studio uses a preset: on a clip, in Edit a picture, or as a Library action (and on which machine)."""
+
+        if r.get("status") == "gated":
+            return "its author approves each download"
+        if r.get("status") == "action":
+            return "a Library action" + ("" if "mac" in r.get("platforms", ()) else " (DGX Spark only)")
+        if r.get("status", "ready") != "ready":
+            return "needs a Studio feature"
+        return "works in Edit a picture" if r.get("target") == "image" else "works in the Studio"
+
+    def usable(r: dict) -> bool:
+        runs = r.get("status", "ready") in ("ready", "gated") or (r.get("status") == "action" and (here == "spark" or "mac" in r.get("platforms", ())))
+        return runs and present(r)
+
     menu = [{"id": g["id"], "name": g["name"], "folder": g["folder"],
              "loras": [{"id": r["id"], "name": r["name"], "author": r["author"], "state": states[r["id"]],
-                        "studio": {"ready": "works in the Studio", "gated": "its author approves each download"}.get(r["status"], "needs a Studio feature")}
+                        "studio": studio_use(r)}
                        for r in chosen if g["id"] in r["category"]]} for g in groups]
     menu = [g for g in menu if g["loras"]]
     bad = [r["id"] for r in chosen if not present(r) and states[r["id"]] != "gated by its author" and states[r["id"]] != "to fetch"]
     gated = [r["id"] for r in chosen if states[r["id"]] == "gated by its author"]
     summary = {"dest": str(dest), "loras": len(chosen), "present": sum(present(r) for r in chosen), "fetched": sum(states[r["id"]] == "ok" for r in chosen),
                "bytes": sum(place(r).stat().st_size for r in chosen if place(r).is_file()), "seconds": round(time.time() - started, 1),
-               "unavailable": bad, "gated": gated, "states": states, "menu": menu}
+               "unavailable": bad, "gated": gated, "usable_here": sum(usable(r) for r in chosen), "platform": here, "states": states, "menu": menu}
     if args.json:
         print(json.dumps(summary, indent=1, ensure_ascii=False))
     else:
@@ -353,7 +370,8 @@ def main(argv: list[str]) -> int:
             for item in g["loras"]:
                 say(f"    {item['name']:26} by {item['author']:22} {item['state']}" + ("" if item["studio"] == "works in the Studio" else f" · {item['studio']}"))
         say(f"\n{summary['present']} of {summary['loras']} present, {summary['fetched']} fetched now, {summary['bytes'] / 1e9:.1f} GB, {summary['seconds']} s"
-            + (f"; gated by their authors: {', '.join(gated)}" if gated else "") + (f"; UNAVAILABLE: {', '.join(bad)}" if bad else ""))
+            + (f"; gated by their authors: {', '.join(gated)}" if gated else "") + (f"; UNAVAILABLE: {', '.join(bad)}" if bad else "")
+            + f"; {summary['usable_here']} of {summary['loras']} usable on this {'Mac' if here == 'mac' else 'DGX Spark'}")
     return 1 if bad else 0
 
 
