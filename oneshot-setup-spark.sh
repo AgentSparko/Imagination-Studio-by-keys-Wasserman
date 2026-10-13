@@ -5,6 +5,8 @@
 #   bash oneshot-setup-spark.sh --no-render   # skip the test clip
 #   bash oneshot-setup-spark.sh --ref2va      # add MiniMax H3 Ref2VA (reference pictures hold a face), 39 GB more
 #   bash oneshot-setup-spark.sh --motion      # add the Motion Previs tab's analysis: pose, camera solve and AI depth (0.5 GB, own environment)
+#   bash oneshot-setup-spark.sh --no-loras    # skip the essential LoRA bundle (about 4 GB from the LoRAs' authors; --loras=camera,style
+#                                       # takes some groups, --lora-bundle=PATH installs from a bundle on disk with no other network)
 #   bash oneshot-setup-spark.sh --verify      # check an existing install, download nothing
 #   bash oneshot-setup-spark.sh --upgrade     # after `git pull`: move an existing install to this version (environment, ComfyUI pin,
 #                                             # engine, Motion Previs environment), fetch no weights, then --verify. Safe to run twice.
@@ -24,10 +26,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MODELS="${SPARK_MODELS:-$HOME/spark-studio-models}"
 COMFY_COMMIT=a4b5a045e56fc334903db8457b728b64e006119c
-IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; UPGRADE=0
+IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""
 for arg in "$@"; do
   case "$arg" in
     --ref2va) REF2VA=1;; --motion) MOTION=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;; --upgrade) UPGRADE=1; RENDER=0; MOTION=1;;
+    --loras) LORAS=all;; --loras=*) LORAS="${arg#--loras=}";; --no-loras) LORAS=none;; --lora-bundle=*) LORA_BUNDLE="${arg#--lora-bundle=}";;
     *) echo "unknown option $arg" >&2; exit 2;;
   esac
 done
@@ -170,6 +173,15 @@ fi
 if [ "$UPGRADE" = 1 ]; then
   say "Upgraded: $INSTALLED -> $(cat "$PREFIX/VERSION"). Checking the install (restart the app to serve the new pages: scripts/app.sh)"
   exec bash "$HERE/oneshot-setup-spark.sh" --verify $([ "$IMAGE_ONLY" = 0 ] || echo --image-only) $([ "$REF2VA" = 0 ] || echo --ref2va)
+fi
+# The essential LoRA bundle: every preset of the LoRA hub, fetched once from its author's page into one folder laid out
+# by the hub's groups, then installed (oneshot-essential-bundle.sh). --loras=GROUPS takes some groups, --lora-bundle=PATH
+# (or LORA_BUNDLE) takes the files from another copy of a bundle with no other network, --no-loras skips it.
+if [ "$LORAS" != none ] && [ "$IMAGE_ONLY" = 0 ] && [ "$VERIFY" != 1 ]; then
+  echo; echo "== Essential LoRA bundle${LORA_BUNDLE:+ from $LORA_BUNDLE}"
+  PREFIX="$PREFIX" H3_MODEL_DIR="${H3_MODEL_DIR:-$HOME/h3-models/MiniMax-H3}" bash "$HERE/oneshot-essential-bundle.sh" \
+    $([ -z "$LORAS" ] || [ "$LORAS" = all ] || echo "--categories=$LORAS") $([ -z "${LORA_BUNDLE:-}" ] || echo "--source=$LORA_BUNDLE") 2>&1 | sed 's/^/  /' \
+    || echo "  ! some LoRAs could not be fetched (listed above): the rest are installed, and bash oneshot-essential-bundle.sh tries again"
 fi
 if [ "$RENDER" = 1 ]; then
   say "Test render"

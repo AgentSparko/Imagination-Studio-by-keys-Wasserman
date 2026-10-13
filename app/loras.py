@@ -5,6 +5,11 @@ looks, the strength it was made for. The presets that ship with the pack are in 
 recipes a user adds are kept in ~/TensorFoldStudio/loras/hub.json. No weights ship with the pack: a LoRA's file is
 downloaded from its author's own page when the user installs it, under that file's own licence.
 
+A preset also says where it sits in the hub (`category`, one or two of GROUPS), what kind of clip it is for (`needs`)
+and whether the Studio can use it (`status`: ready, gated behind its author's approval, or unsupported with `why`).
+`python app/loras.py install camera,style` downloads the ready presets of those groups (the one-shot installers'
+`--loras`).
+
 A job carries `loras: [{"id", "strength", "style"}]`. On a Mac the file is rewritten once into the layout the MLX
 engine merges at load (scripts/convert-lora.py); on a DGX Spark ComfyUI merges the file as it is.
 """
@@ -21,6 +26,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -29,6 +35,132 @@ from fastapi import APIRouter, HTTPException
 PRESETS = Path(__file__).with_name("lora-presets.json")
 FIELDS = ("name", "author", "url", "page", "sha256", "trigger", "styles", "strength", "range", "base", "licence", "notes")
 LIMIT = 4  # LoRAs on one clip
+# the hub's sections, in the order they are shown (lora-groups.json, which the essential bundle's folders follow)
+SECTIONS = json.loads(Path(__file__).with_name("lora-groups.json").read_text())
+GROUPS = tuple((g["id"], g["name"]) for g in SECTIONS) + (("mine", "My LoRAs"),)
+FOLDERS = {g["id"]: g["folder"] for g in SECTIONS}
+
+
+# Adapted builds hosted for the Studio's two engines (lora-host.json lists them). LORA_HOST_BASE is the address of that
+# hosted folder; it is empty until one exists, and then an install goes: the local bundle, the hosted build, the
+# author's own file (rewritten here on a Mac).
+HOSTED = json.loads(Path(__file__).with_name("lora-host.json").read_text()).get("loras", {})
+
+
+def hosted(lora_id: str, platform: str) -> dict | None:
+    base = os.environ.get("LORA_HOST_BASE", "").strip().rstrip("/")
+    build = (HOSTED.get(lora_id) or {}).get(platform)
+    return {"url": f"{base}/{build['file']}", "sha256": build["sha256"]} if base and build else None
+
+
+def token() -> str:
+    """The user's own Hugging Face token, for a file its author gates. Sent to huggingface.co only."""
+
+    found = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or ""
+    saved = Path.home() / ".cache/huggingface/token"
+    return found.strip() or (saved.read_text().strip() if saved.is_file() else "")
+
+
+def check(path: Path) -> int:
+    """The number of adapted modules, after making sure the file is a low-rank LoRA for MiniMax H3's transformer."""
+
+    with open(path, "rb") as handle:
+        head = handle.read(8)
+        size = struct.unpack("<Q", head)[0] if len(head) == 8 else 0
+        if not 0 < size < 50_000_000:
+            raise ValueError("not a safetensors file")
+        names = [k for k in json.loads(handle.read(size)) if k != "__metadata__"]
+    low = [k for k in names if k.endswith((".lora_A.weight", ".lora_down.weight"))]
+    if not low or not any(re.search(r"(^|\.)blocks\.\d+\.(attn|mlp)\.", k) for k in low):
+        raise ValueError("not a LoRA for MiniMax H3's transformer (no lora_A tensors on blocks.N.attn / blocks.N.mlp)")
+    return len(low)
+
+
+def bundle() -> str:
+    """Where a LoRA bundle is, if there is one: LORA_BUNDLE (a folder, or the base address of a copy of one), else
+    the folder lora-bundle in the studio's home. scripts/lora-bundle.py builds one."""
+
+    named = os.environ.get("LORA_BUNDLE", "").strip()
+    if named:
+        return named.rstrip("/")
+    local = Path(os.environ.get("STUDIO_HOME", str(Path.home() / "TensorFoldStudio"))) / "lora-bundle"
+    return str(local) if local.is_dir() else ""
+
+
+def bundled(recipe: dict) -> Path | None:
+    """The recipe's file in a bundle folder on this machine, when it is there."""
+
+    where = bundle()
+    if not where or where.startswith(("http://", "https://")) or not recipe.get("url"):
+        return None
+    name, first = recipe["url"].rsplit("/", 1)[-1], (recipe.get("category") or ["mine"])[0]
+    for found in (Path(where).expanduser() / FOLDERS.get(first, "") / recipe["id"] / name, Path(where).expanduser() / recipe["id"] / name):
+        if found.is_file():
+            return found
+    return None
+
+
+def download(recipe: dict, target: Path, state: dict) -> None:
+    """The recipe's file into `target`, checked against the recipe's sha256 and layout: from a LoRA bundle when one
+    holds it (no network), else from its author's page."""
+
+    part = target.with_name(target.name + ".part")
+    headers = {"User-Agent": "TensorFoldStudio"}
+    if recipe.get("status") == "gated" and "huggingface.co/" in recipe["url"] and token():
+        headers["Authorization"] = "Bearer " + token()
+    try:
+        digest = hashlib.sha256()
+        local, where = bundled(recipe), bundle()
+        try:
+            if local:
+                reply = open(local, "rb")
+                state["of"] = local.stat().st_size
+            else:
+                reply = None
+                if where.startswith(("http://", "https://")):
+                    try:
+                        mirror = f"{where}/{FOLDERS.get((recipe.get('category') or ['mine'])[0], '')}/{recipe['id']}/{recipe['url'].rsplit('/', 1)[-1]}"
+                        reply = urllib.request.urlopen(urllib.request.Request(mirror, headers={"User-Agent": "TensorFoldStudio"}), timeout=60)
+                    except (urllib.error.URLError, OSError):
+                        reply = None  # not in that bundle: the author's page is next
+                if reply is None and hosted(recipe["id"], "spark") and os.environ.get("LORA_OFFLINE") != "1":
+                    try:  # the hosted copy of the author's file (the same bytes, checked below)
+                        reply = urllib.request.urlopen(urllib.request.Request(hosted(recipe["id"], "spark")["url"], headers={"User-Agent": "TensorFoldStudio"}), timeout=60)
+                    except (urllib.error.URLError, OSError):
+                        reply = None
+                if reply is None:
+                    if os.environ.get("LORA_OFFLINE") == "1":
+                        raise RuntimeError("not in the LoRA bundle, and LORA_OFFLINE=1 keeps this off the network")
+                    reply = urllib.request.urlopen(urllib.request.Request(recipe["url"], headers=headers), timeout=60)
+        except urllib.error.HTTPError as error:
+            if error.code in (401, 403):
+                raise RuntimeError("its author gates this file: " + (recipe.get("why") or "ask for access on the LoRA's page")) from None
+            raise
+        with reply, open(part, "wb") as out:
+            if not local:
+                state["of"] = int(reply.headers.get("Content-Length") or 0)
+            while chunk := reply.read(1 << 20):
+                out.write(chunk)
+                digest.update(chunk)
+                state["done"] += len(chunk)
+        if recipe.get("sha256") and digest.hexdigest() != recipe["sha256"]:
+            raise RuntimeError("the downloaded file does not match the recipe's sha256")
+        check(part)
+        part.replace(target)
+    finally:
+        part.unlink(missing_ok=True)
+
+
+def convert(source: Path, ready: Path, pack: Path) -> None:
+    """On a Mac: the author's file rewritten once into the layout the MLX engine merges at load."""
+
+    model = os.environ.get("H3_MODEL_DIR", str(Path.home() / "h3-models/MiniMax-H3"))
+    part = ready.with_name(ready.name.replace(".mlx.safetensors", ".part.safetensors"))  # the writer adds .safetensors to any other name
+    done = subprocess.run([sys.executable, str(pack / "scripts/convert-lora.py"), str(source), str(part), model],
+                          capture_output=True, text=True)
+    if done.returncode:
+        raise RuntimeError((done.stderr or done.stdout).strip()[-300:])
+    part.replace(ready)
 
 
 def attach(home: Path, pack: Path, spark: bool):
@@ -46,9 +178,17 @@ def attach(home: Path, pack: Path, spark: bool):
             return []
 
     def recipes() -> list[dict]:
-        built = [{**r, "builtin": True} for r in json.loads(PRESETS.read_text())]
+        built = [{"status": "ready", "category": ["mine"], **r, "builtin": True} for r in json.loads(PRESETS.read_text())]
         taken = {r["id"] for r in built}
-        return built + [{**r, "builtin": False} for r in added() if r.get("id") not in taken]
+        where = bundle()
+        if where and not where.startswith(("http://", "https://")):  # a bundle newer than this pack brings its own cards
+            try:
+                extra = json.loads((Path(where).expanduser() / "bundle.json").read_text()).get("loras", [])
+            except (OSError, ValueError, AttributeError):
+                extra = []
+            built += [{"status": "ready", "needs": "text", **r, "builtin": True} for r in extra if r.get("id") and r.get("url") and r["id"] not in taken]
+            taken = {r["id"] for r in built}
+        return built + [{"status": "ready", "category": ["mine"], "needs": "text", **r, "builtin": False} for r in added() if r.get("id") not in taken]
 
     def find(lora_id: str) -> dict:
         found = next((r for r in recipes() if r["id"] == lora_id), None)
@@ -68,58 +208,68 @@ def attach(home: Path, pack: Path, spark: bool):
         state = busy.get(recipe["id"])
         return {**recipe, "installed": ready(recipe["id"]).is_file() and not state, "installing": state}
 
-    def check(path: Path) -> int:
-        """The number of adapted modules, after making sure the file is a low-rank LoRA for MiniMax H3's transformer."""
-
-        with open(path, "rb") as handle:
-            head = handle.read(8)
-            size = struct.unpack("<Q", head)[0] if len(head) == 8 else 0
-            if not 0 < size < 50_000_000:
-                raise ValueError("not a safetensors file")
-            names = [k for k in json.loads(handle.read(size)) if k != "__metadata__"]
-        low = [k for k in names if k.endswith((".lora_A.weight", ".lora_down.weight"))]
-        if not low or not any(re.search(r"(^|\.)blocks\.\d+\.(attn|mlp)\.", k) for k in low):
-            raise ValueError("not a LoRA for MiniMax H3's transformer (no lora_A tensors on blocks.N.attn / blocks.N.mlp)")
-        return len(low)
-
     def prepare(lora_id: str) -> None:
-        if spark or ready(lora_id).is_file():
-            return
-        model = os.environ.get("H3_MODEL_DIR", str(Path.home() / "h3-models/MiniMax-H3"))
-        part = folder / f"{lora_id}.part.safetensors"  # the writer adds .safetensors to any other name
-        done = subprocess.run([sys.executable, str(pack / "scripts/convert-lora.py"), str(source(lora_id)), str(part), model],
-                              capture_output=True, text=True)
-        if done.returncode:
-            raise RuntimeError((done.stderr or done.stdout).strip()[-300:])
-        part.replace(ready(lora_id))
+        if not spark and not ready(lora_id).is_file():
+            convert(source(lora_id), ready(lora_id), pack)
+
+    def prebuilt(recipe: dict, state: dict) -> bool:
+        """On a Mac with no file from a bundle: the hosted build already in the MLX engine's layout, when there is one."""
+
+        build = None if spark or source(recipe["id"]).is_file() or bundled(recipe) else hosted(recipe["id"], "mac")
+        if not build or os.environ.get("LORA_OFFLINE") == "1":
+            return False
+        part = ready(recipe["id"]).with_name(recipe["id"] + ".hosted.part")
+        try:
+            digest = hashlib.sha256()
+            with urllib.request.urlopen(urllib.request.Request(build["url"], headers={"User-Agent": "TensorFoldStudio"}), timeout=60) as reply, open(part, "wb") as out:
+                state["of"] = int(reply.headers.get("Content-Length") or 0)
+                while chunk := reply.read(1 << 20):
+                    out.write(chunk)
+                    digest.update(chunk)
+                    state["done"] += len(chunk)
+            if digest.hexdigest() != build["sha256"]:
+                return False
+            part.replace(ready(recipe["id"]))
+            return True
+        except (urllib.error.URLError, OSError):
+            return False
+        finally:
+            part.unlink(missing_ok=True)
+
+    def adopt() -> None:
+        """At start: every usable preset a local bundle holds becomes installed, with no click and no network."""
+
+        for recipe in recipes():
+            lora_id = recipe["id"]
+            if recipe.get("status") == "unsupported" or ready(lora_id).is_file() or not (bundled(recipe) or source(lora_id).is_file()):
+                continue
+            with lock:
+                if lora_id in busy:
+                    continue
+                busy[lora_id] = {"stage": "preparing", "done": 0, "of": 0}
+            fetch(recipe)
+            if busy.get(lora_id, {}).get("stage") == "failed":
+                busy.pop(lora_id, None)  # a preset nobody asked for does not show an error; Install says why
 
     def fetch(recipe: dict) -> None:
         lora_id, state = recipe["id"], busy[recipe["id"]]
-        part = folder / f"{lora_id}.part"
         try:
-            if not source(lora_id).is_file():
-                request = urllib.request.Request(recipe["url"], headers={"User-Agent": "TensorFoldStudio"})
-                digest = hashlib.sha256()
-                with urllib.request.urlopen(request, timeout=60) as reply, open(part, "wb") as out:
-                    state["of"] = int(reply.headers.get("Content-Length") or 0)
-                    while chunk := reply.read(1 << 20):
-                        out.write(chunk)
-                        digest.update(chunk)
-                        state["done"] += len(chunk)
-                if recipe.get("sha256") and digest.hexdigest() != recipe["sha256"]:
-                    raise RuntimeError("the downloaded file does not match the recipe's sha256")
-                check(part)
-                part.replace(source(lora_id))
-            state["stage"] = "preparing"
-            prepare(lora_id)
+            if not prebuilt(recipe, state):
+                if not source(lora_id).is_file():
+                    download(recipe, source(lora_id), state)
+                state["stage"] = "preparing"
+                prepare(lora_id)
             busy.pop(lora_id, None)
         except Exception as error:  # noqa: BLE001 - shown on the hub's button
-            part.unlink(missing_ok=True)
             busy[lora_id] = {"stage": "failed", "error": str(error)[-300:], "done": 0, "of": 0}
 
     @router.get("/api/loras")
     def listing() -> list[dict]:
         return [public(r) for r in recipes()]
+
+    @router.get("/api/loras/groups")
+    def groups() -> list[dict]:
+        return [{"id": key, "name": name} for key, name in GROUPS]
 
     @router.post("/api/loras")
     def add(body: dict) -> dict:
@@ -161,6 +311,8 @@ def attach(home: Path, pack: Path, spark: bool):
     @router.post("/api/loras/{lora_id}/install")
     def install(lora_id: str) -> dict:
         recipe = find(lora_id)
+        if recipe.get("status") == "unsupported":
+            raise HTTPException(400, f"{recipe['name']} is not supported in the Studio yet. {recipe.get('why', '')}".strip())
         with lock:
             state = busy.get(lora_id)
             if not ready(lora_id).is_file() and (state is None or state["stage"] == "failed"):
@@ -198,11 +350,16 @@ def attach(home: Path, pack: Path, spark: bool):
                 strength = float(item.get("strength") if item.get("strength") not in (None, "") else recipe.get("strength", 1.0))
             except (TypeError, ValueError):
                 raise HTTPException(400, "a LoRA's strength is a number")
-            if not 0 < strength <= 2:
-                raise HTTPException(400, "a LoRA's strength is above 0 and at most 2")
+            low, high = (list(recipe.get("range") or []) + [0.1, 2])[:2] if len(recipe.get("range") or []) == 2 else (0.1, 2)
+            low, high = (low if low < 0 else 0.0), max(high, 2)  # a slider LoRA takes minus values; the rest go up to 2
+            if not strength or not low <= strength <= high:
+                raise HTTPException(400, f"the strength of {recipe['name']} is between {low:g} and {high:g}, and not 0")
+            if recipe.get("status") == "unsupported":
+                raise HTTPException(400, f"{recipe['name']} is not supported in the Studio yet. {recipe.get('why', '')}".strip())
             phrase = (recipe.get("styles") or {}).get(str(item.get("style") or ""), "")
             lead = ", ".join(part for part in (recipe.get("trigger", ""), phrase) if part)
-            out.append({"path": str(ready(recipe["id"])), "strength": strength, "trigger": recipe.get("trigger", ""), "lead": lead})
+            out.append({"path": str(ready(recipe["id"])), "strength": strength, "trigger": recipe.get("trigger", ""), "lead": lead,
+                        "comma": bool(recipe.get("comma"))})
         if len(out) > LIMIT:
             raise HTTPException(400, f"at most {LIMIT} LoRAs on one clip")
         return out
@@ -210,10 +367,55 @@ def attach(home: Path, pack: Path, spark: bool):
     def lead(prompt: str, picked: list[dict]) -> str:
         """The prompt with each LoRA's trigger and look phrase at the start of the shot, unless it is there already."""
 
-        words = " ".join(p["lead"] if p["lead"].endswith(".") else p["lead"] + "." for p in picked
-                         if p["lead"] and (not p["trigger"] or p["trigger"] not in prompt))
+        # most triggers open the shot as a sentence; one whose author writes "trigger, subject, ..." keeps its comma
+        words = " ".join(p["lead"] + "," if p.get("comma") else p["lead"] if p["lead"].endswith(".") else p["lead"] + "."
+                         for p in picked if p["lead"] and (not p["trigger"] or p["trigger"] not in prompt))
         if not words:
             return prompt
         return prompt.replace("[Shot 1] ", f"[Shot 1] {words} ", 1) if "[Shot 1] " in prompt else f"{words} {prompt}"
 
+    threading.Thread(target=adopt, daemon=True).start()
     return router, resolve, lead
+
+
+def main(argv: list[str]) -> int:
+    """`loras.py install GROUP[,GROUP...]|all`: the ready presets of those groups, from their authors' pages."""
+
+    if len(argv) < 2 or argv[0] != "install":
+        print("usage: loras.py install all|" + ",".join(key for key, _ in GROUPS[:-1]), file=sys.stderr)
+        return 2
+    wanted = {key for key, _ in GROUPS} if argv[1] == "all" else set(argv[1].split(","))
+    unknown = wanted - {key for key, _ in GROUPS}
+    if unknown:
+        print("no LoRA group " + ", ".join(sorted(unknown)), file=sys.stderr)
+        return 2
+    folder = Path(os.environ.get("STUDIO_HOME", str(Path.home() / "TensorFoldStudio"))) / "loras"
+    folder.mkdir(parents=True, exist_ok=True)
+    failed = 0
+    for recipe in json.loads(PRESETS.read_text()):
+        if not wanted & set(recipe.get("category") or []) or recipe.get("status", "ready") == "unsupported":
+            continue
+        target = folder / f"{recipe['id']}.safetensors"
+        if not target.is_file() and not bundled(recipe) and os.environ.get("LORA_OFFLINE") == "1":
+            continue  # only what the bundle holds
+        if recipe.get("status") == "gated" and not target.is_file() and not bundled(recipe) and not token():
+            print(f"gated {recipe['name']}: its author approves each download ({recipe['page']}); set HF_TOKEN once you have access")
+            continue
+        mlx = folder / f"{recipe['id']}.mlx.safetensors"
+        try:
+            if target.is_file():
+                print(f"have  {recipe['name']}")
+            else:
+                came = "the bundle" if bundled(recipe) or bundle().startswith("http") else recipe["page"]
+                download(recipe, target, {"done": 0, "of": 0})
+                print(f"got   {recipe['name']} by {recipe['author']} ({target.stat().st_size >> 20} MB), from {came}")
+            if sys.platform == "darwin" and not mlx.is_file():
+                convert(target, mlx, Path(__file__).resolve().parent.parent)
+        except Exception as error:  # noqa: BLE001 - one author's page being down does not stop the rest
+            failed += 1
+            print(f"skip  {recipe['name']}: {error}", file=sys.stderr)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

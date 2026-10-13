@@ -109,6 +109,12 @@ a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:under
 /* the active tab glows like low sun; Home goes back to step 1 of Create */
 .hub { margin:10px 0; } .hub .chips { margin:6px 0; } button.lora.on { background:rgba(255,196,84,.16); border-color:rgba(255,205,110,.8); color:#ffe9b8; box-shadow:0 0 12px rgba(255,186,60,.35); }
 .lorarow { align-items:flex-end; margin-top:6px; }
+.hubtabs { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; } .hubtabs button.on { border-color:rgba(255,205,110,.8); color:#ffe9b8; background:rgba(255,196,84,.12); }
+.hubgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:10px; margin-top:8px; }
+.hubcard { background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; font-size:13px; }
+.hubcard.on { border-color:rgba(255,205,110,.8); box-shadow:0 0 12px rgba(255,186,60,.25); } .hubcard.off { opacity:.72; }
+.hubcard .by { color:var(--dim); font-size:12px; } .hubcard .tags { display:flex; flex-wrap:wrap; gap:4px; } .hubcard .acts { display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; }
+.hubcard .tag { font-size:11px; padding:2px 7px; border-radius:999px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; } .hubcard .tag.warn { color:var(--warn); border-color:rgba(255,196,84,.5); }
 header h1 small.by { font-size:11px; font-weight:500; color:var(--dim); letter-spacing:.04em; margin-left:6px; white-space:nowrap; }
 button.sharp { border-color:rgba(255,205,110,.55); color:#ffe9b8; white-space:nowrap; }
 button.sharp.on { background:rgba(255,196,84,.16); box-shadow:inset 0 0 0 1px rgba(255,205,110,.8),0 0 14px rgba(255,186,60,.45); }
@@ -323,8 +329,10 @@ function sharpCreate() { if (isRef()) C.start = "text";
 const encoderOf = () => C.textEncoder === "__own" ? String(C.textEncoderPath || "").trim() : (S && (S.text_encoders || []).includes(C.textEncoder)) ? C.textEncoder : "";
 const encoderName = f => f.split("/").pop().replace(/\.safetensors$/, "").replace(/^qwen3vl_32b_minimax_h3_/, "").replace(/[_-]+/g, " ");
 const lorasOf = obj => (obj.loras || []).filter(p => LORAS.some(r => r.id === p.id && r.installed));
-async function loadLoras() { try { LORAS = await api("/api/loras"); } catch { LORAS = []; } }
-const HUB = { open: false, form: { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" }, timer: null };
+async function loadLoras() { try { LORAS = await api("/api/loras"); if (!HUB.groups.length) HUB.groups = await api("/api/loras/groups"); } catch { LORAS = []; } }
+// what a LoRA works from, as the card's first tag
+const LORA_NEEDS = { text: "Text or first frame", "first-last": "First + last frame", reference: "Reference pictures", "source-video": "Source video", workflow: "Its own workflow" };
+const HUB = { open: false, browse: false, tab: "all", q: "", mine: false, groups: [], form: { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" }, timer: null };
 function hubWatch(redraw) { if (HUB.timer || !LORAS.some(r => r.installing && r.installing.stage !== "failed")) return;
   HUB.timer = setInterval(async () => { await loadLoras(); if (!LORAS.some(r => r.installing && r.installing.stage !== "failed")) { clearInterval(HUB.timer); HUB.timer = null; } redraw(); }, 1500); }
 // obj.loras is the list a clip, a board or a film renders with; save runs after every change
@@ -340,7 +348,7 @@ function loraHub(obj, save = () => {}, redraw = render) { if (!obj.loras) obj.lo
   const row = p => { const r = LORAS.find(x => x.id === p.id); if (!r) return null; const range = r.range || [0.1, 2];
     return el("div", { class: "row lorarow" }, el("div", { class: "fit", style: "min-width:210px" }, el("b", {}, r.name), el("div", { class: "note" }, (r.author ? "by " + r.author : "") + (r.trigger ? " · trigger " + r.trigger + ", added to the prompt for you" : "") + (r.installed ? "" : " · not installed yet: it is left out of the render"))),
       Object.keys(r.styles || {}).length ? el("div", { class: "fit", style: "width:150px" }, el("label", {}, "Look"), select(p, "style", Object.fromEntries(Object.keys(r.styles).map(k => [k, k])), save)) : null,
-      el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Strength"), bind(p, "strength", el("input", { type: "number", step: 0.1, min: 0.1, max: 2, title: "Made for " + (r.strength || 1) + "; " + range[0] + " is subtle, " + range[1] + " is strong" }), save)),
+      el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Strength"), bind(p, "strength", el("input", { type: "number", step: 0.1, min: Math.min(range[0], 0.1), max: Math.max(range[1], 2), title: "Made for " + (r.strength || 1) + "; the author's range is " + range[0] + " to " + range[1] + (range[0] < 0 ? " (minus values turn the effect the other way)" : "") }), save)),
       r.builtin ? null : el("button", { class: "fit small", title: "Take this LoRA out of the hub (its file goes to the trash folder)", onclick: async () => { if (!confirm("Remove “" + r.name + "” from the hub?")) return; try { await api("/api/loras/" + r.id, undefined, "DELETE"); obj.loras = obj.loras.filter(x => x.id !== r.id); await loadLoras(); done(); } catch (e) { toast(e.message); } } }, "🗑")); };
   const f = HUB.form, up = el("input", { type: "file", accept: ".safetensors", onchange: async () => { if (!up.files[0]) return; const data = new FormData(); data.append("file", up.files[0]); try { const r = await (await fetch("/api/upload", { method: "POST", body: data })).json(); f.file = r.path; toast("Uploaded " + up.files[0].name); } catch (e) { toast(e.message); } } });
   const form = !HUB.open ? null : el("div", { class: "group" }, el("div", { class: "note" }, "A recipe for a MiniMax H3 LoRA: where its file comes from and how it is used. It becomes a button in the hub on this machine."),
@@ -354,10 +362,51 @@ function loraHub(obj, save = () => {}, redraw = render) { if (!obj.loras) obj.lo
         HUB.form = { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" }; HUB.open = false; hubWatch(redraw); done(); } catch (e) { toast(e.message); } } }, "Add to the hub"),
       el("button", { class: "fit", onclick: () => { HUB.open = false; redraw(); } }, "Cancel")));
   const failed = LORAS.filter(r => r.installing && r.installing.stage === "failed");
+  const use = r => { if (picked(r.id)) obj.loras = obj.loras.filter(p => p.id !== r.id); else obj.loras.push({ id: r.id, strength: r.strength || 1, style: Object.keys(r.styles || {})[0] || "" }); done(); };
+  const terms = r => "“" + r.name + "”" + (r.author ? " by " + r.author : "") + (r.size ? " (" + sizeText(r.size) + ")" : "") + "\n" + (r.licence || "The file is the author's, under its own licence: read it on the LoRA's page first.") + (r.page ? "\n" + r.page : "");
+  const install = async list => { if (!list.length) return toast("Nothing to download here");
+    if (!confirm("Install on this machine?\n\n" + list.map(terms).join("\n\n"))) return;
+    for (const r of list) { try { await api("/api/loras/" + r.id + "/install", {}); } catch (e) { toast(e.message); } }
+    await loadLoras(); hubWatch(redraw); redraw(); };
+  const inTab = r => HUB.tab === "all" || (r.category || ["mine"]).includes(HUB.tab);
+  const words = HUB.q.trim().toLowerCase(), hit = r => !words || [r.name, r.author, r.what, r.notes, r.trigger].join(" ").toLowerCase().includes(words);
+  const shown = LORAS.filter(r => inTab(r) && hit(r) && (!HUB.mine || r.installed));
+  const card = r => { const on = picked(r.id), st = r.installing, busy = st && st.stage !== "failed", dead = r.status === "unsupported";
+    return el("div", { class: "hubcard" + (on ? " on" : "") + (dead ? " off" : ""), "data-lora": r.id },
+      el("div", {}, el("b", {}, r.name), el("div", { class: "by", title: "The author's own page, for credit and for the file's licence" }, (r.author ? "by " + r.author : "") + (r.page ? " · " + r.page : ""))),
+      el("div", {}, r.what || r.notes || ""),
+      el("div", { class: "tags" }, el("span", { class: "tag" + (dead ? " warn" : "") }, LORA_NEEDS[r.needs] || LORA_NEEDS.text),
+        r.licence_tag ? el("span", { class: "tag" + (/none|gated|custom/i.test(r.licence_tag) ? " warn" : ""), title: r.licence || "" }, r.licence_tag) : null,
+        r.size ? el("span", { class: "tag" }, sizeText(r.size)) : null,
+        r.trigger ? el("span", { class: "tag", title: "Added to the prompt for you" }, "trigger: " + r.trigger) : null,
+        r.tested ? el("span", { class: "tag", title: "Where we rendered a clip with it" }, "tested: " + r.tested) : null),
+      dead || r.status === "gated" ? el("div", { class: "note" + (dead ? "" : ""), style: dead ? "color:var(--warn)" : "" }, (dead ? "Not supported in the Studio yet. " : "") + (r.why || "")) : null,
+      r.notes && !dead ? el("div", { class: "note" }, r.notes) : null,
+      st && st.stage === "failed" ? el("div", { class: "note", style: "color:var(--bad)" }, st.error) : null,
+      el("div", { class: "acts" },
+        dead ? null :
+        busy ? el("button", { type: "button", class: "small", disabled: true }, st.stage + (st.of ? " " + Math.round(100 * st.done / st.of) + "%" : "…")) :
+        !r.installed ? el("button", { type: "button", class: "small", title: r.page || "", onclick: () => install([r]) }, "⤓ Install") :
+        el("button", { type: "button", class: "small lora" + (on ? " on" : ""), onclick: () => use(r) }, on ? "✓ On this clip" : "Use on this clip"),
+        r.installed && !busy ? el("button", { type: "button", class: "small", title: "Moves this LoRA's file to the trash folder" + (r.builtin ? "; the preset stays in the hub" : " and takes it out of the hub"), onclick: async () => { if (!confirm("Remove the file of “" + r.name + "” from this machine?")) return; try { await api("/api/loras/" + r.id, undefined, "DELETE"); obj.loras = obj.loras.filter(x => x.id !== r.id); await loadLoras(); done(); } catch (e) { toast(e.message); } } }, "Remove") : null)); };
+  const count = id => LORAS.filter(r => id === "all" || (r.category || ["mine"]).includes(id)).length;
+  const tabs = [{ id: "all", name: "All" }, ...HUB.groups].filter(g => g.id === "all" || count(g.id));
+  const search = el("input", { type: "search", placeholder: "Search the hub: orbit, anime, fight, speech…", value: HUB.q, style: "max-width:320px", oninput: e => { HUB.q = e.target.value; const at = e.target.selectionStart; redraw(); const again = document.querySelector(".hub input[type=search]"); if (again) { again.focus(); again.setSelectionRange(at, at); } } });
+  const toInstall = shown.filter(r => !r.installed && r.status !== "unsupported" && !(r.installing && r.installing.stage !== "failed"));
+  const browser = !HUB.browse ? null : el("div", { class: "group", id: "lorabrowser" },
+    el("div", { class: "hubtabs" }, tabs.map(g => el("button", { type: "button", class: "small" + (HUB.tab === g.id ? " on" : ""), onclick: () => { HUB.tab = g.id; redraw(); } }, g.name + " (" + count(g.id) + ")"))),
+    el("div", { class: "row", style: "align-items:center" }, search,
+      el("label", { class: "fit", style: "display:flex;gap:6px;align-items:center;margin:0" }, el("input", { type: "checkbox", checked: HUB.mine, style: "width:auto", onchange: e => { HUB.mine = e.target.checked; redraw(); } }), "Installed only"),
+      HUB.tab !== "all" && toInstall.length ? el("button", { type: "button", class: "fit small", onclick: () => install(toInstall) }, "⤓ Install all " + toInstall.length + " in this category") : null,
+      el("button", { type: "button", class: "fit small", onclick: () => { HUB.open = !HUB.open; redraw(); } }, "+ Add your own LoRA")),
+    el("div", { class: "note" }, "Each LoRA is its author's work, under that file's own licence; the page named on a card is where it comes from and who to credit. Install takes the file from the LoRA bundle on this machine when there is one (no network), and otherwise from the author's page, and checks it. " + (S.platform === "spark" ? "" : "On a Mac the file is then rewritten once for the MLX engine. ") + "LoRAs from the hub are for text-to-video and first-frame clips; a clip made from reference pictures or videos does not take them yet."),
+    shown.length ? el("div", { class: "hubgrid" }, shown.map(card)) : el("div", { class: "note", style: "padding:10px" }, "Nothing here matches."));
+  const quick = LORAS.filter(r => r.installed || picked(r.id) || (r.installing && r.installing.stage !== "failed"));
   return el("div", { class: "hub" }, el("label", {}, "Keys and Wasserman LoRA Hub"),
-    el("div", { class: "chips" }, LORAS.map(chip), el("button", { type: "button", class: "small", onclick: () => { HUB.open = !HUB.open; redraw(); } }, "+ Add LoRA")),
-    failed.map(r => el("div", { class: "note", style: "color:var(--bad)" }, r.name + ": " + r.installing.error)),
-    obj.loras.map(row), form,
+    el("div", { class: "chips" }, quick.map(chip),
+      el("button", { type: "button", class: "small" + (HUB.browse ? " on lora" : ""), id: "lorabrowse", onclick: () => { HUB.browse = !HUB.browse; redraw(); } }, HUB.browse ? "▾ Close the hub" : "▸ Browse the hub (" + LORAS.length + " LoRAs in " + (tabs.length - 1) + " groups)")),
+    failed.filter(r => !HUB.browse).map(r => el("div", { class: "note", style: "color:var(--bad)" }, r.name + ": " + r.installing.error)),
+    browser, obj.loras.map(row), form,
     obj.loras.length ? el("div", { class: "note" }, S.platform === "spark" ? "With a LoRA the clip renders on ComfyUI's own blocks with the full-precision weights, not the TensorFold engine: slower, and no time estimate." : "With a LoRA, FastH3 renders on the MLX engine, not the native one: slower, and no time estimate. MiniMax H3 at 20 steps is what most LoRAs were made for.") : null); }
 function videoControls(after) {
   const two = bind(C, "up", el("input", { type: "checkbox", disabled: !UPSCALED[C.res] }), changed);
@@ -872,6 +921,9 @@ function lessons() {
       { t: "Install and pick one", d: ["Each LoRA is a button. One with a ⤓ mark is not on this machine yet: the first click shows its licence and downloads the file from its author's page. After that, a click picks it (✓) and another click drops it.", "The first preset is the Wasserman-80's Horror LORA by Sam Wasserman: the look of a 1970s-80s horror movie."], tip: "Weights are never part of this app. Each LoRA's file comes from its author under its own licence; read it before you download.", go: go(0, "Keys and Wasserman LoRA Hub") },
       { t: "Look and strength", d: ["A picked LoRA shows a row. “Look” chooses between its looks when it has several (VHS or 16mm film for the 80s horror LoRA). “Strength” is how hard it pushes: start at the value it was made for, go lower for a hint, higher for more.", "The trigger word and the look phrase are added to the start of your prompt for you. Do not type them yourself."], eg: "80s horror: strength 1.0 is the standard, 0.6 is subtle, 1.3 is strong.", go: go(0, "Keys and Wasserman LoRA Hub") },
       { t: "Write the prompt for it", d: ["Write the scene as usual: the light and the place, what happens and the turn, one camera move, the sound. Leave out words for the look itself, such as “film grain” or “retro”: the LoRA brings those."], eg: "Cold fluorescent mall light, a dead shopping mall after hours. A mannequin in a prom dress steps off its pedestal and walks stiffly toward the camera.", go: go(0, "Describe the scene") },
+      { t: "Browse the hub by group", d: ["“▸ Browse the hub” opens the whole library in groups: Wasserman, 01 Camera & Viewpoint, 02 Transformation & Morphing, 03 Character Editing, 04 Motion & Action, 05 Art Style, 06 Support & Finishing. Pick a group, or type in the search box (orbit, anime, fight, speech).", "Each card says what the LoRA does, who made it, what it works from, its licence and its size. “⤓ Install” puts it on this machine; “Use on this clip” adds it to the clip you are making, with its trigger word written into the prompt for you.", "A card marked “Not supported in the Studio yet” says why: some LoRAs need a last frame, reference clips or their author's own workflow."], tip: "“Installed only” shows what is on this machine. “Install all in this category” takes a whole group at once.", go: on("Create", "LoRA Hub") },
+      { t: "A slider LoRA", d: ["Most LoRAs take a strength between about 0.3 and 1.2. A slider LoRA, such as Anime Slider, also takes minus values: plus leans one way (2D anime), minus the other (photographic). The Strength box of a picked LoRA shows its author's range."], eg: "Anime Slider at 3 for flat 2D anime, at -3 for a photographic look.", go: on("Create", "LoRA Hub") },
+      { t: "Offline: the LoRA bundle", d: ["A LoRA bundle is a folder with every preset's file in it (scripts/lora-bundle.py builds one from the authors' pages). With a folder named lora-bundle in your studio folder, or LORA_BUNDLE set, the hub installs from it with no network, and a fresh install has every usable preset ready at the first start.", "The page on each card is the author's: it is there for credit and for the file's licence."], go: on("Create", "LoRA Hub") },
       { t: "What changes in the render", d: ["A clip with a LoRA takes a slower path and shows no time estimate. On a Mac, FastH3 moves from the native engine to the MLX engine; MiniMax H3 at 20 steps is what most LoRAs were made for. On a DGX Spark the render server restarts first, to keep memory safe.", "LoRAs are not applied to reference-to-video clips. You can stack up to four."], tip: "Compare with and without: render once with the LoRA, drop it, and render again with the same seed." },
       { t: "Add your own", d: ["“+ Add LoRA” opens a recipe form: a name, the download address of the .safetensors file or an uploaded file, the trigger word, the strength, and optional looks written as name = phrase. “Add to the hub” makes it a button on this machine, next to the presets."], tip: "The file has to be a LoRA for MiniMax H3. One made for another model is refused when you add it.", go: go(0, "+ Add LoRA") } ] },
     { id: "motion", track: "Motion Previs", title: "Motion Previs, from a shot to a new clip", sub: "analyse a shot, then make a clip that moves like it", steps: [

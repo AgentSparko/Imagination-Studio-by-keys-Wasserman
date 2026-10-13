@@ -16,6 +16,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -537,7 +538,7 @@ def video(args) -> None:
     for spec in args.lora:
         # a style LoRA is merged by ComfyUI at run time, which only works on the bf16 file and on ComfyUI's own
         # blocks: the 8-bit file's weights are rotated, and the TensorFold engine reads its own copy of the weights
-        path, _, strength = spec.rpartition(":") if spec.rsplit(":", 1)[-1].replace(".", "", 1).isdigit() else (spec, "", "1.0")
+        path, _, strength = spec.rpartition(":") if re.fullmatch(r"-?\d+(\.\d+)?", spec.rsplit(":", 1)[-1]) else (spec, "", "1.0")  # a slider LoRA takes minus values
         source = Path(path).resolve()
         if not source.is_file():
             sys.exit(f"no LoRA at {path}")
