@@ -84,7 +84,16 @@ def transcribe(clip: Path) -> str | None:
         try:
             from faster_whisper import WhisperModel  # Sam Wasserman's own gate runs on this
             model = WhisperModel(os.environ.get("QA_WHISPER_MODEL", "large-v3-turbo"), device="cpu", compute_type="int8")
-            parts, _ = model.transcribe(str(sound), beam_size=5)
+            # the samples themselves, read here: handed the file, faster-whisper opens it with PyAV, and with the PyAV
+            # of the Spark build that fails ("open() got an unexpected keyword argument 'metadata_errors'"), which
+            # had the audio gate skipped on every clip there
+            import wave
+
+            import numpy as np
+
+            with wave.open(str(sound)) as handle:
+                samples = np.frombuffer(handle.readframes(handle.getnframes()), np.int16).astype(np.float32) / 32768.0
+            parts, _ = model.transcribe(samples, beam_size=5)
             return " ".join(part.text.strip() for part in parts)
         except ImportError:
             pass
