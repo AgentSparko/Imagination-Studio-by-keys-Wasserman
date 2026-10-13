@@ -553,8 +553,11 @@ function settingsRow(obj, after, keep = {}) {
     field("Quality", select(obj, "quality", qualities, after)),
     el("div", { class: "fit", style: "width:110px" }, el("label", {}, "Seed"), bind(obj, "seed", el("input", { type: "number", min: 0 }))));
 }
-async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, ...lengthOf(obj), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_media: obj === C && refMedia(), ref_turbo: obj === C && isRef() && C.refPasses === "4", ...(obj === C ? { steps: String(C.steps).trim() } : {}), loras: obj === C && isRef() ? [] : lorasOf(obj) });
-  node.textContent = r.seconds ? "≈ " + mmss(r.seconds) + (S.platform === "spark" ? " on a DGX Spark, models loaded" : " on an M5 Ultra") : ""; } catch { node.textContent = ""; } }
+async function showEstimate(obj, node) { try { const r = await api("/api/estimate", { preset: obj.preset, quality: obj.quality, ...lengthOf(obj), text_only: obj === C && noFrame(), referenced: obj === C && isRef(), ref_media: obj === C && refMedia(), ref_turbo: obj === C && isRef() && C.refPasses === "4", ...(obj === C ? { steps: String(C.steps).trim() } : {}), loras: obj === C && isRef() ? [] : lorasOf(obj), with_lora: lorasOf(obj).length > 0, ...(obj.preset === "custom" && obj.cw ? { width: Number(obj.cw), height: Number(obj.ch) } : {}), references: obj === C && isRef() ? C.refs.length : 0 });
+  node.textContent = r.seconds ? "≈ " + mmss(r.seconds) + (S.platform === "spark" ? " on a DGX Spark, models loaded" : " on an M5 Ultra") : "";
+  // a DGX Spark's memory guard (spark/memory_guard.py): said here, before the clip is queued, with what fits
+  if (r.memory && r.memory.fits === false) put(node, el("div", { class: "tip", style: "margin-top:6px" }, el("b", {}, "This clip will be refused: memory"), el("div", {}, r.memory.reason)));
+  else if (r.memory && r.memory.need_mb) put(node, el("span", { title: "Estimated from measured peaks; the server is stopped if the machine runs low all the same." }, (r.seconds ? " · " : "") + "about " + Math.round(r.memory.need_mb / 1000) + " GB of this machine's memory")); } catch { node.textContent = ""; } }
 
 /* ---------- Motion reference: Motion Previs on <Video 1> of a reference clip ---------- */
 // C.motion: the analysis of the first reference video (a Motion Previs pack), what to carry over of it, and which

@@ -28,6 +28,8 @@ import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import memory_guard  # noqa: E402  (what a clip needs and whether this machine has it, beside this file)
 PREFIX = Path(os.environ.get("PREFIX", Path.home() / ".local/opt/tensorfold-studio"))
 URL = os.environ.get("SPARK_COMFY_URL", "http://127.0.0.1:" + os.environ.get("SPARK_COMFY_PORT", "8190"))  # the port spark/comfy.sh starts it on
 STATE = PREFIX / "comfy.kind"
@@ -93,6 +95,39 @@ def ensure_server(kind: str) -> None:
         # the picture and video models together would not leave room for the render itself in 128 GB
         call("/free", {"unload_models": True, "free_memory": True})
     STATE.write_text(kind)
+
+
+def fresh_server(why: str) -> None:
+    """Stop the ComfyUI server and wait until its memory is back: the next render starts with nothing loaded."""
+
+    print(f"[tensorfold] restarting ComfyUI: {why}", flush=True)
+    subprocess.run(["bash", str(HERE / "comfy.sh"), "stop"], check=False)
+    for _ in range(60):
+        if not up():
+            break
+        time.sleep(1)
+    before = -1
+    for _ in range(90):  # the memory comes back a little after the process is gone
+        free = memory_guard.meminfo().get("MemAvailable", 0)
+        if free - before < 200:
+            break
+        before = free
+        time.sleep(1)
+
+
+def fits_or_exit(args, lora: bool = False, references: bool = False, base: bool = False, pictures: int = 0,
+                 reference_frames: int = 0) -> None:
+    """The memory check before anything is loaded (memory_guard.py): a clip whose estimated peak would leave this
+    machine under its floor is refused here, with the nearest size and length that fit, whoever started the render."""
+
+    found = memory_guard.check(args.width, args.height, args.frames, lora, references, base, args.engine == "tensorfold",
+                               pictures, reference_frames)
+    if found.get("route") is None:
+        return
+    print(f"[tensorfold] memory: about {found['need_mb'] / 1000:.0f} GB at the peak (give or take {found['error_mb'] / 1000:g}) of "
+          f"{found['available_mb'] / 1000:.0f} GB, floor {found['floor_mb'] / 1000:.0f} GB", flush=True)
+    if not found["fits"]:
+        sys.exit("refused before anything was loaded: " + found["reason"])
 
 
 def upload(image: str) -> str:
@@ -484,18 +519,9 @@ def reference(args) -> None:
         # After a FastH3 clip the server still holds what ComfyUI's own unloading does not give back (TensorFold's
         # engine keeps its int8 weights): measured, a reference render that followed one ran with 14 GB free
         # instead of 38. A server with nothing loaded is the safe start; it costs the load again.
-        print("[tensorfold] restarting ComfyUI: a reference render starts from a server with nothing loaded", flush=True)
-        subprocess.run(["bash", str(HERE / "comfy.sh"), "stop"], check=False)
-        for _ in range(60):
-            if not up():
-                break
-            time.sleep(1)
-        for _ in range(90):  # the memory comes back a little after the process is gone
-            with open("/proc/meminfo") as handle:
-                free = next(int(line.split()[1]) for line in handle if line.startswith("MemAvailable")) // 1024
-            if free > 70000:
-                break
-            time.sleep(1)
+        fresh_server("a reference render starts from a server with nothing loaded")
+    fits_or_exit(args, bool(loras) or args.ref_mode == "turbo", True, pictures=len(pictures),
+                 reference_frames=sum(min(args.frames, int(round((probe["seconds"] or 0) * FPS))) for _, probe in probes))
     ensure_server("ref2va")
     mode = args.ref_mode
     # a LoRA (the Turbo adapter, or one from the hub) is merged at run time, which needs the bf16 file: merged into
@@ -642,13 +668,8 @@ def video(args) -> None:
         # On a Spark the GPU and the system share one pool. With the bf16 weights (42 GB) a text encoder (26 GB) that
         # comes back for a new prompt makes ComfyUI move the model aside and load it again, and the two copies do not
         # fit: measured, free memory fell from 50 GB to 8. A server with nothing loaded keeps about 30 GB free.
-        print("[tensorfold] restarting ComfyUI: a LoRA render starts from a server with nothing loaded", flush=True)
-        subprocess.run(["bash", str(HERE / "comfy.sh"), "stop"], check=False)
-        for _ in range(60):
-            if not up():
-                break
-            time.sleep(1)
-        time.sleep(3)
+        fresh_server("a LoRA render starts from a server with nothing loaded")
+    fits_or_exit(args, bool(loras), False, base)
     ensure_server("video" + ("+h3base" if base else "") + ("+lora" if loras else ""))
     if base and not installed("unet", H3_FL2VA):
         sys.exit(f"MiniMax H3's own transformer ({H3_FL2VA}) is not installed: oneshot-setup-spark.sh --h3-base adds it "
@@ -841,16 +862,17 @@ def main() -> None:
 
 
 def stopped() -> str:
-    """Why the ComfyUI server ended, when its own log says so: spark/comfy.sh stops it when free memory runs low."""
+    """Why the ComfyUI server ended, when its own log says so: the memory guard beside it (memory_guard.py watch)
+    stops it when the machine runs low."""
 
     try:
         tail = (PREFIX / "comfy.log").read_text(errors="replace")[-4000:].splitlines()
     except OSError:
         return ""
     for line in reversed(tail):
-        if "free memory is" in line and "stopping ComfyUI" in line:
-            return ("the render was stopped to protect the machine: " + line.split("] ", 1)[-1].strip()
-                    + ". Use a shorter clip, a shorter or fewer reference videos, or a smaller size.")
+        if "stopping ComfyUI" in line and ("memory floor:" in line or "free memory is" in line):
+            return ("the render was stopped to protect the machine: " + line.split("] ", 1)[-1].replace("memory floor: ", "").strip()
+                    + ". Use a shorter clip, a shorter or fewer reference videos, or a smaller size; a LoRA clip needs more memory than one without.")
     return ""
 
 

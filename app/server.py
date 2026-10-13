@@ -33,6 +33,8 @@ for name in ("projects", "uploads", "renders", "scouts", "exports"):
     (HOME / name).mkdir(parents=True, exist_ok=True)
 
 import lengths  # noqa: E402  (which frame counts the model takes, beside this file)
+sys.path.insert(0, str(PACK / "spark"))
+import memory_guard  # noqa: E402  (a DGX Spark's memory: what a clip needs and whether this machine has it, in spark/)
 
 FPS = 24
 # seconds -> frames (17n + 5): the four lengths the app has always offered. A job may ask for any count the model takes
@@ -775,6 +777,24 @@ def clip_seconds(params: dict) -> float:
     return {count: named for named, count in DURATIONS.items()}.get(frames) or min(frames / FPS * 120 / 124, float(LONGEST))
 
 
+def memory_of(params: dict, env: dict, frames: int, lora: bool, found: dict | None = None) -> dict:
+    """Whether a clip fits this machine's memory (spark/memory_guard.py; a DGX Spark only, everything fits on a Mac):
+    the size it is generated at, its frames, whether a LoRA or references put it on ComfyUI's own bfloat16 blocks."""
+
+    if not SPARK:
+        return {"fits": True, "reason": ""}
+    try:
+        width, height = int(env.get("WIDTH") or 864), int(env.get("HEIGHT") or 480)
+    except (TypeError, ValueError):
+        width, height = 864, 480
+    found = found or {}
+    videos = found.get("videos") or []
+    return memory_guard.check(width, height, frames, lora=lora or bool(found and params.get("ref_turbo")), references=bool(found),
+                              base=env.get("SPARK_BASE") == "h3", engine=SPARK_ENGINE_LIB.exists(),
+                              pictures=len(found.get("pictures") or []),
+                              reference_frames=sum(min(frames, int(round((media_seconds(path)[0] or frames / FPS) * FPS))) for path in videos))
+
+
 def media_tools() -> dict:
     """Whether ffmpeg and ffprobe are on this machine, looked for where the jobs will look."""
 
@@ -881,6 +901,9 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
             if params.get("ref_turbo"):
                 env["REF_TURBO"] = "1"
         env.update(passes(chosen, SPARK or (fast_h3 and not pictures)))  # Ref2VA runs on MiniMax H3
+        room = memory_of(params, env, frames, bool(styles), pictures)
+        if not room["fits"]:
+            raise HTTPException(400, room["reason"])
         if image:
             return (["bash", str(scripts / "studio.sh"), "", prompt, str(target)],
                     {**env, "IMAGE_FILE": str(inside(image)), "RAW_PROMPT": "1"}, [str(target)])
@@ -895,6 +918,9 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
         return ["bash", str(scripts / "video.sh"), prompt, str(target)], plain, [str(target)]
     if kind == "studio":  # text to image to video in one go
         env.update(passes(chosen, fast_h3))
+        room = memory_of(params, env, frames, bool(styles))
+        if not room["fits"]:
+            raise HTTPException(400, room["reason"])
         return (["bash", str(scripts / "studio.sh"), params["image_prompt"], prompt, str(target)],
                 {**env, "RAW_PROMPT": "1"}, [str(target), str(target.with_suffix(".png"))])
     raise HTTPException(400, f"unknown job kind {kind}")
@@ -1256,13 +1282,27 @@ def check_prompt(body: dict) -> dict:
 
 @app.post("/api/estimate")
 def estimate_time(body: dict) -> dict:
+    """The time a clip is expected to take (None where none was measured) and, on a DGX Spark, whether it fits the
+    machine's memory: {"fits", "reason", "need_mb", ...} from spark/memory_guard.py, shown before the job is queued."""
+
+    room = None
+    if SPARK and float(body.get("seconds") or 5) <= LONGEST + 1:
+        try:
+            chosen, _ = custom(body)
+            sized = {**(PRESETS[body["preset"]][2] if body.get("preset") in PRESETS else {}), **chosen}
+            count = int(body.get("references") or 0)
+            room = memory_of(body, sized, lengths.of({"frames": body.get("frames"), "seconds": body.get("seconds") or 5}), bool(body.get("loras") or body.get("with_lora")),
+                             {"pictures": [None] * count, "videos": []} if body.get("referenced") else None)
+            room = {key: room.get(key) for key in ("fits", "reason", "need_mb", "error_mb", "left_mb", "floor_mb", "available_mb", "nearest")}
+        except (HTTPException, ValueError, KeyError):
+            room = None  # the settings are refused for another reason when the job is queued
     if body.get("preset") == "custom" or body.get("steps") not in (None, "") or body.get("loras"):
-        return {"seconds": None}  # a LoRA changes which engine renders the clip: no time is measured for it
+        return {"seconds": None, "memory": room}  # a LoRA changes which engine renders the clip: no time is measured for it
     return {"seconds": estimate(body.get("preset", "draft"), body.get("quality", "standard"),
                                 clip_seconds({"frames": body.get("frames"), "seconds": body.get("seconds", 5)})
                                 if float(body.get("seconds") or 5) <= LONGEST + 1 or body.get("frames") else int(body["seconds"]),
                                 bool(body.get("text_only")), bool(body.get("referenced")),
-                                bool(body.get("ref_turbo")), bool(body.get("ref_media")))}
+                                bool(body.get("ref_turbo")), bool(body.get("ref_media"))), "memory": room}
 
 
 @app.post("/api/jobs")

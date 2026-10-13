@@ -196,8 +196,58 @@ What is different from the Mac build:
 - **Why int8.** The GB10's tensor cores run int8 products at 245 TOPS and bf16 ones at 122 (measured on registers).
   PyTorch's stock int8 routine reaches about 52; the engine's own kernel 150 to 175 on FastH3's shapes.
 - ComfyUI keeps running with the models loaded after a render (`bash spark/comfy.sh stop` frees the memory). It runs
-  at low priority and is stopped if free memory falls under 4 GB, because a Spark that runs out can become
-  unreachable.
+  at low priority with a memory guard beside it, because a Spark that runs out can become unreachable: see
+  *The memory guard* below.
+
+### The memory guard (DGX Spark)
+
+On a Spark the GPU and the system share one pool of memory. On 2026-10-13 one clip with a LoRA at 1376x768 took a
+worker Spark down: the app accepted it, and the server's check (once a second, against 4 GB) did not act. The guard
+in `spark/memory_guard.py` replaces that check, in three layers that every way of starting a render goes through
+(the app, `scripts/video.sh`, `spark_generate.py`, a worker's copy of this folder):
+
+1. **Before a clip is queued, and again before anything is loaded**, its peak is estimated from measured peaks. A
+   clip that would leave the machine under its floor is refused, with the reason and the nearest size and length
+   that fit. In the app the settings step shows the same line before you queue; a clip that fits shows "about N GB of
+   this machine's memory".
+2. **While the server runs**, the guard reads the machine's memory twenty times a second. It stops the server when
+   available memory is under the floor (a tenth of the machine: 12.4 GB; `SPARK_MEMORY_FLOOR_MB`), or is falling so
+   fast that it would be under a third of the floor within a second, or when the kernel reports work stalled on
+   memory. The job fails with that reason. It also gives the model files' page cache back when little memory is
+   free (`SPARK_MEMORY_FREE_MB`, 8.3 GB): the GPU driver takes its memory from what is free, not from what is
+   available.
+3. The server is marked as the first process the kernel ends if memory runs out all the same.
+
+| Measured on a 124.5 GB Spark, nothing else running (118.7 GB available) | Rows a pass | Taken at the lowest point |
+|---|---|---|
+| TensorFold int8 engine, 864x480, 124 frames | 15.4K | 57.6 GB |
+| TensorFold int8 engine, 1376x768, 124 frames | 39.2K | 62.2 GB (62.1 to 64.2 in a production run) |
+| TensorFold int8 engine, 1376x768, 192 and 243 frames (that run, sampled every 11 s) | 59.9K, 75.3K | 67.1 GB, 69.0 to 70.9 GB |
+| With a LoRA (ComfyUI's own blocks, bfloat16), 864x480, 56 and 124 frames | 7.3K, 15.4K | 75.4 GB, 75.9 GB |
+| With a LoRA, 1280x736, 22, 56, 90, 107 and 124 frames | 7.4K to 35.0K | 74.8, 75.8 to 76.2, 76.2, 76.5, 76.6 GB |
+
+The estimate is a straight line through those points for each route plus 6 GB (no point is more than 1.7 GB from its
+line; most are one run). Three things it does not know, said plainly:
+
+- **A clip with a LoRA is refused above the largest one measured**, 1280x736 at 124 frames (35.0K rows), whatever
+  the line says: 1344x768 and the Sharp Spec size take a LoRA at no length, 864x480 up to 277 frames (11.5 s). By
+  the line the clip that took the Spark down needs 77 GB and leaves 41, and that is what the machine showed for a
+  minute before it was lost, so its end is not explained by how much memory the clip takes and the size is not
+  offered. Its logs were never read; what is known is in the next paragraph.
+- Reference clips (Ref2VA), MiniMax H3's own transformer and a Spark without the engine were not measured here; they
+  are estimated on the LoRA line with their references' rows added.
+- Pictures, edits and Library actions are not estimated: the running guard covers them.
+
+What was found about the old check: memory falls far faster than once a second can follow (7.2 GB a second while
+ComfyUI loads a model from the page cache, 13 GB in half a second while TensorFold's engine loads its weights), and
+"available" counts the page cache. With a LoRA, ComfyUI loads until nothing is free: free memory sat at 1.2 to 2.5 GB
+through every such render while 43 GB read as available, and the kernel logged the GPU driver being refused memory
+(`NVRM ... NV_ERR_NO_MEMORY`) at 2 GB free and 54 GB available. With the guard beside the server the same renders
+kept 8 GB or more free, took the same time (146 s against 145 s), and the driver logged nothing. Proof of the two
+refusals, without a machine near its limit: the app and `scripts/video.sh` both refuse the lost clip before anything
+loads, and a server started with `SPARK_MEMORY_FLOOR_MB=70000` was stopped during a small clip's load at 69.8 GB
+available (lowest point 69.77 GB while memory fell at 28 GB a second; gone in 0.5 s, the job failed with the reason).
+`python3 spark/memory_guard.py check --width 1376 --height 768 --frames 124 --lora` prints a verdict.
 
 Longer clips on the engine: 10 seconds at 1280x720 (243 frames) took 444 s, a pass 43.7 s, against 378 s on an M5 Ultra
 for the same prompt; a 30 second chained clip at 864x480 (two 15 second parts) took 611 s.
@@ -592,8 +642,9 @@ moment in a last-frame prompt is the clip's true length. Production segments and
 same way. The longest clip stays the model's 15 seconds on every size of both builds. On a DGX Spark that was
 measured at the largest canvas, 1376x768 with a first and a last frame: 362 frames rendered with 29.7 GB of the
 machine's 121 GB still free at the lowest point (one run, TensorFold's int8 engine, 4 passes; the memory does not
-depend on the passes). A clip with a LoRA renders on ComfyUI's own bfloat16 blocks and needs more memory: that
-case was not measured at 15 seconds, and the server stops a render that runs the machine low, as before. On the Mac
+depend on the passes). A clip with a LoRA renders on ComfyUI's own bfloat16 blocks and needs more memory: it
+is taken up to 1280x736 at 124 frames (or as many rows a pass at a smaller size) and refused above that with the
+reason and what fits (*The memory guard*, in the DGX Spark section). On the Mac
 22, 141 and 345 frames were rendered at 864x480 through the app (26 s, 72 s and 226 s a job on an M5 Ultra, native
 engine, 8 passes); its limits are the ones it had.
 

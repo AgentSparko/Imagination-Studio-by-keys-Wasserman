@@ -115,7 +115,8 @@ Rules:
   with the control-video prompt (`motion_template` in `app/server.py`: structural template,
   first-frame anchor, legend, "labels only", and the negative): keep that wording, and do not promise figures: one shot was
   measured. Do not promise an exact copy of a voice from reference audio either. On this machine every render runs through the
-  ComfyUI server of `spark/comfy.sh`, never as standalone model code: the server's loop is the only memory guard.
+  ComfyUI server of `spark/comfy.sh`, never as standalone model code: the guard beside the server (`spark/memory_guard.py watch`, started by `comfy.sh`) is the
+  only run-time memory guard.
 - On a DGX Spark reference to video is `oneshot-setup-spark.sh --ref2va` and the same `REF_IMAGES` / `REF_TURBO=1`
   (`spark_generate.py video --ref`): ComfyUI's `MiniMaxH3ReferenceToVideo` on its own blocks, never
   `TensorFoldH3Blocks`. The adapter is merged at run time, so it needs the bf16 transformer: on an 8-bit
@@ -142,6 +143,13 @@ Rules:
   new measurements. A failed check never fails the job; the retake at the next seed is the user's choice.
 - On a DGX Spark a crop (the 720p preset) is made inside the workflow (`crop_frames` in `spark/spark_generate.py`),
   not with ffmpeg afterwards. What needs ffmpeg is refused when it is queued (`without_ffmpeg` in `app/server.py`).
+- DGX Spark memory (`spark/memory_guard.py`; the README's *The memory guard*): a clip is checked before it is queued
+  (`memory_of` in `app/server.py`) and again in `spark_generate.py` before anything loads, and the guard stands beside
+  every server `comfy.sh` starts. Never start ComfyUI another way. `ESTIMATES`, `MEASURED_ROWS` and `MEASURED_PIXELS`
+  are measurements: a clip with a LoRA is refused above 1280x736 at 124 frames because a 1376x768 one took a Spark
+  down and nobody knows why from its logs. Raise them only by measuring from below on a worker Spark, in small steps,
+  under a second watchdog that kills your own server at 25 GB available; never by trying the size that failed, and
+  never on a machine with `vm.panic_on_oom=1`. Do not lower the floor to make a job fit.
 - mflux and minimax-h3-mlx are pinned by commit and used at run time. Do not unpin.
 
 **Credits:** keep CREDITS.md in sync. Qwen team (Qwen-Image-2.1), MiniMax (H3), Ash Hart (TensorFold), antirez (h3.c),
