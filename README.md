@@ -1314,6 +1314,7 @@ it was given (0.3 to 0.5 is what an unrelated frame of the same scene scores):
 | DGX Spark | FastH3 8 passes, TensorFold int8 blocks | first + last | 130 s | 0.90 | ends on the picture |
 | DGX Spark | the same | first only (same seed) | 86 s | 0.32 | a tree grows, in the teapot |
 | DGX Spark | the same | last only | 85 s | 0.90 | arrives at the picture |
+| DGX Spark | the same, queued through the app's job API (`image` + `last_image`, prompt from `/api/compose`) | first + last | 126 s | 0.90 | ends on the picture |
 
 ![First and last frame, first only, last only (DGX Spark), last only and FastH3 first and last (Mac)](samples/last_frame_plain.jpg)
 
