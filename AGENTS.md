@@ -65,7 +65,10 @@ Rules:
 - Qwen-Image-2.1-Turbo is non-commercial (Qwen Research License). MiniMax H3 has territory limits.
   Do not redistribute weights, and say so when asked to use the outputs commercially.
 - Image sizes are multiples of 16. For the studio chain both models must accept the canvas: multiples of 32, at most
-  768x1344 pixels in total. Video frames must be `17n + 5` (56, 73, 90, 124, 192, 243, 362).
+  768x1344 pixels in total. Video frames must be `17n + 5`, from 22 to 362 (`app/lengths.py`): the app takes any
+  of the 21 counts (`frames`, or `seconds` brought to the nearest) and always shows the exact seconds, frames / 24.
+  "10 s" is 243 frames, 10.125 s. Do not add a length the model does not take, and do not raise the 15 s limit
+  without measuring the memory on a Spark (362 frames at 1376x768 left 29.7 GB free on TensorFold's int8 engine).
 - Preferred flow: scout at 1280x736, let the person pick, then `IMAGE_FILE=... TWOK=1` (2048x1152, 2.5 min) or `QHD=1` (2560x1440, 6 min) for the 2K final; `X2=1` for a
   one-minute 1344x768 draft. `X2=1` needs WIDTH and HEIGHT in multiples of 64. 720-row canvases are not valid for the
   video model: use the QHD preset, which generates 736 rows and crops.
@@ -127,6 +130,18 @@ Rules:
 - Merge adapters with the tools (`--lora`), never by hand into bfloat16.
 - The fast path is M5-only (Metal 4 tensor operations).
 - The two models never load together; `studio.sh` runs them one after the other.
+- Edit a picture (`edit_plan.py`, read by `qwen_image_edit.py` and `spark/spark_edit.py`): the noise is drawn for the
+  seed and the pictures together (`noise_seed`). Never seed it with the user's seed alone: an edit that starts from
+  the noise its picture was made from returns that picture, over-sharpened. The result has the first picture's own
+  size; up to ten pictures go in one edit, and the model knows them as image 1, image 2, ...
+- The video model has no negative prompt on any route. `app/negation.py` lists what a prompt forbids by name and the
+  page shows the list before the job is queued; never rewrite the user's prompt, and do not add "no X" lines to the
+  prompts the app writes for the picture (the ones about the sound track are measured and stay).
+- `app/shot.py` checks a finished single clip: first and last frame held, no cut inside one shot. Its thresholds are
+  set from one production run and are written out, with the figures, at the top of the file: change them only with
+  new measurements. A failed check never fails the job; the retake at the next seed is the user's choice.
+- On a DGX Spark a crop (the 720p preset) is made inside the workflow (`crop_frames` in `spark/spark_generate.py`),
+  not with ffmpeg afterwards. What needs ffmpeg is refused when it is queued (`without_ffmpeg` in `app/server.py`).
 - mflux and minimax-h3-mlx are pinned by commit and used at run time. Do not unpin.
 
 **Credits:** keep CREDITS.md in sync. Qwen team (Qwen-Image-2.1), MiniMax (H3), Ash Hart (TensorFold), antirez (h3.c),

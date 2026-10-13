@@ -13,6 +13,10 @@ TensorFold's CUDA engine), neither of which the prompt asked for:
 - A hard cut inside the clip, to a close-up that is in neither keyframe (9 of the 32 clips, the three dining-hall
   ones among them, 12 cuts in all).
 
+What is not seen here: the same move to a close-up made by a dissolve through a double exposure, without a cut
+(3 of 8 renders of one such clip did that). Half a second of it measures like half a second of fast movement in the
+run's honest clips, so there is nothing to set a threshold between.
+
 Both are measured here on small grey copies of the frames (160 pixels wide), and reported beside the clip like the QA
 gate's verdict; server.py renders the clip once more at the next seed when the job asks for that. Nothing here fails
 a clip that was made, and a machine that cannot read the frames reports the check as not run.

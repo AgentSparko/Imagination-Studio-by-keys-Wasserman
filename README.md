@@ -125,6 +125,14 @@ bash oneshot-setup.sh            # the same command as on a Mac: on Linux it run
 bash scripts/app.sh              # http://127.0.0.1:7870
 ```
 
+ffmpeg is part of the install, and the installer stops without it. A Spark that was set up some other way (a copy of
+another Spark's folders, say) may lack it: the app then starts, says so in its log and in the page's header, and
+refuses the jobs that need it when they are queued. The 720p preset is not one of them any more: it generates
+1280x736 and crops to 1280x720, and the crop is now made inside the ComfyUI workflow, before the clip is encoded
+(one encode instead of two); in 2.6.5 it was an ffmpeg pass after the render, and a Spark without ffmpeg lost the
+finished clip there. Without ffmpeg a clip also keeps ComfyUI's own sound track instead of the limited 256 kb/s one,
+and the render says so.
+
 #### Upgrade from 2.5 or 2.6 (DGX Spark)
 
 ```bash
@@ -559,12 +567,79 @@ and roughly how long it takes.
 | **Quality** (MiniMax H3, with `--turbo`) | Turbo 5 + base sound (the standard), Turbo 3, 20 steps with the fast recipe, or plain 20 steps. |
 | **Resolution** | 480p (864x480), 720p (1280x720), or the fixed outputs Draft, 2K 2048x1152 and Native 1344x768. |
 | **2x upscale** | For 480p and 720p: the 2x decoder turns 480p into 1728x960 and 720p into 2560x1440, for about 10 s more. |
-| **Length** | 5, 8, 10 or 15 s as one clip; 30 s to 30 min as a chain of clips (below). |
+| **Length** | 5, 8, 10 or 15 s as one clip, or *Another length…* for any length the model takes (below); 30 s to 30 min as a chain of clips (further below). |
 | **Seed** | Same seed and settings give the same clip. |
 
 Then write the scene, what happens to the characters, and optionally the camera move. Steps 3 to 5: add spoken or sung lines and
 the soundscape, review the exact prompt the model will receive (edit it freely), and queue the render. The **Queue**
 on the right shows progress by pass, a time estimate, the log, and a cancel button.
+
+### Clip lengths: any length the model takes
+
+MiniMax H3 and FastH3 make clips of `17n + 5` frames at 24 frames a second and nothing in between. The four usual
+lengths are four of those counts, and their names are rounded: "10 s" is 243 frames, 10.125 s. *Another length…*
+in the Length box opens a slider over every count, and the page writes the frames and the exact seconds beside it.
+
+| | Frames | Seconds |
+|---|---|---|
+| Shortest | 22 | 0.917 |
+| The usual four | 124, 192, 243, 362 | 5.167, 8, 10.125, 15.083 |
+| All 21 | 22, 39, 56, 73, 90, 107, 124, 141, 158, 175, 192, 209, 226, 243, 260, 277, 294, 311, 328, 345, 362 | frames / 24 |
+
+Through the API a job carries `frames` (one of the counts; another number is refused with the two nearest) or
+`seconds` (any number from 0.9 to 15.1, brought to the nearest count: `seconds: 6` is 141 frames, 5.875 s). The end
+moment in a last-frame prompt is the clip's true length. Production segments and Slate shots take any length the
+same way. The longest clip stays the model's 15 seconds on every size of both builds. On a DGX Spark that was
+measured at the largest canvas, 1376x768 with a first and a last frame: 362 frames rendered with 29.7 GB of the
+machine's 121 GB still free at the lowest point (one run, TensorFold's int8 engine, 4 passes; the memory does not
+depend on the passes). A clip with a LoRA renders on ComfyUI's own bfloat16 blocks and needs more memory: that
+case was not measured at 15 seconds, and the server stops a render that runs the machine low, as before. On the Mac
+22, 141 and 345 frames were rendered at 864x480 through the app (26 s, 72 s and 226 s a job on an M5 Ultra, native
+engine, 8 passes); its limits are the ones it had.
+
+### What the app tells you about a prompt and a clip
+
+**Words that forbid.** The video model is run without a negative prompt, so every word in a prompt is something to
+show. In the production run that led to this check, a clip told "No photographs or portraits appear anywhere" hung
+the wall with photographs, twice, and came out clean once every mention of photographs was gone. Step 4 and step 5 of
+*Create* (and a Slate shot's preflight) now list what a prompt forbids by name ("no X", "without X", "not X",
+"never X") with the reason, in the box it was written in. Nothing is taken out or rewritten: the prompt goes as you
+wrote it, and the job in the queue repeats the list. The Studio's own sentences about the sound track ("Nobody
+speaks.", "No voices, no speech.") are not listed; they were measured to work. No route of the app has a negative
+prompt field: FastH3, MiniMax H3 Turbo and Qwen-Image-2.1-Turbo all run one forward a pass.
+`POST /api/prompt/check {"prompt": "..."}` gives the same list for a prompt written by hand.
+
+**The shot check.** After a single clip is rendered the app looks at its frames (`app/shot.py`) and writes the
+verdict beside the clip in the queue:
+
+- *First frame, last frame.* A keyframe is something the model reads, not a frame written into the clip, and
+  almost always the clip opens and ends on it. In the same run 63 of 64 keyframes were held (a mean difference of
+  1.4 to 3.9 grey levels of 255 between the frame and the picture); one clip opened on another picture (74.4), so its
+  join with the clip before jumped. Rendered again on another Spark at the same seed it came out the same, frame for
+  frame: it is what the model does at that seed. The check compares frame 0 with the first picture and the last frame
+  with the last, and says "not held" over 12 grey levels.
+- *A cut inside the shot.* FastH3 sometimes cuts to a close-up that is in neither keyframe: 12 cuts in 9 of that
+  run's 32 clips. The check finds a frame that is unlike the one before it (a correlation under 0.70) and changes at
+  least 1.75 times as much as the frames around it; it found all 12 and nothing else in the 7081 frame pairs. A
+  prompt that writes a `[Shot 2]` asks for a cut and is not checked for one. A cross-fade is not a cut.
+  No wording or setting we tried stops it. One of those clips (a couple dancing in a hall, small in a wide frame,
+  8 seconds at 1280x736) was rendered again at its own seed eight ways: as it was; with a camera line in plain
+  positive words ("one continuous wide shot from a locked-off camera…"); with the run's "No cut, no close-up" line;
+  on ComfyUI's own bfloat16 blocks in place of TensorFold's int8 engine; with dense attention; at 20 passes; at 5
+  seconds; and with the first frame alone. All eight left the wide shot for close-ups of the two faces. Five did it
+  with a hard cut, which the check reports. Three (the "no close-up" line, the first frame alone, 20 passes) did it
+  with a dissolve through a double exposure, **which the check does not see**: half a second of a dissolve measures
+  like half a second of honest fast movement in the run's other clips, so there is no threshold to set. The plain
+  positive camera line was also tried on the two other dining-hall clips at their seeds: both cut, twice each. So
+  look at a clip yourself, whatever the check says: it reports hard cuts and nothing subtler.
+- *The retake.* Tick "If the shot check fails, render it once more at the next seed" in step 5 (`retake: true` in a
+  job), and a clip that fails is rendered a second time at seed + 1, like the Sharp Spec QA gate; the failed take is
+  kept in the `qa` folder. Without the tick the verdict comes with a button, *Render it again at seed N*. The
+  thresholds come from one run on one model at one size; `shot_check: false` in a job turns the check off.
+
+**Without ffmpeg.** The header shows a line when ffmpeg is missing, with what then does not work (long videos, the
+timeline export, a frame taken from a clip, reference videos and audio), and such a job is refused when it is queued,
+with the command that installs ffmpeg, not after its render. Single clips and pictures render without it.
 
 ### Image only
 
@@ -589,6 +664,25 @@ latents, and the model draws the picture again as the prompt describes it.
   Pick angles one by one or take a set (*Five views around*, *Full orbit*, *Four heights*, *Wide and close*): each
   angle is one picture from one load of the model, up to 12 a job. The ring writes the author's captions, such as
   `<mva> right side view, high-angle shot close-up`.
+- **Several pictures.** The model takes several pictures at once, so two references need no side-by-side montage
+  made elsewhere. Under the picture, *Further pictures* adds up to nine more. The first picture is the one that is
+  edited and is image 1 to the model; the others are image 2, image 3, … in the order listed. Name them that way:
+  "The man of image 2 stands beside the bed in the bedroom of image 1". Each further picture adds its rows to every
+  step: at 1280x736 with Turbo's 8 steps, one picture took 9 s on the Mac (M5 Ultra) and 15 s on the DGX Spark, two
+  13 and 22 s, three 15 and 30 s, ten 36 and 230 s (the Mac's peak was 41 GiB up to three pictures and 55 GiB with
+  ten; the Spark had 40.7 GB of 121 free at its lowest with ten). One set of pictures and one seed each. Give the
+  pictures that are needed: with ten, several of them showing the same two people, the two were drawn twice.
+- **The size of the result** is the picture's own: a 1280x736 picture comes back 1280x736 (2.6.5 returned 1344x768,
+  the model's own "about 1024x1024, in the picture's shape"). A side that is not a multiple of 32 is edited on the
+  model's grid and brought back (1280x720 is made at 1280x704). A picture under 512x512 or over 1536x1536 pixels in
+  all is edited at the nearest of the two in its own shape and comes back at that size, and the log says so
+  (2560x1472 came back 2016x1152); nothing is enlarged afterwards. *Size of the result* also offers the model's own
+  sizes, and a job may carry `width` and `height`.
+- **The seed.** The noise an edit starts from is drawn for the seed and the pictures together. Before, it was drawn
+  for the seed alone, and an edit made with the seed its picture had been made with started from that picture's own
+  noise: it came back as the same picture, over-sharpened (12 of 71 edits in one production run). Any seed now
+  gives an edit. The same seed, pictures and prompt still give the same result; a seed gives another picture than
+  it did in 2.6.5.
 - **Results** go to the Library. Under each: *first frame* opens a clip on it, *last frame* ends a clip on it, *edit
   again* feeds it back in. A front and a back view of one subject are a first and a last frame for a turn.
 
@@ -1532,7 +1626,12 @@ LORA=~/TensorFoldStudio/loras/qwen-multiple-angles.safetensors:0.9 \
   bash scripts/edit.sh photo.png "<mva> right side view, high-angle shot" side.png
 SET_FILE=edits.json bash scripts/edit.sh photo.png          # [["prompt", "out.png"], ...] from one load
 BASE=1 bash scripts/edit.sh photo.png "..." out.png         # 40 steps, base model (--image-edit)
+IMAGES="person.png" bash scripts/edit.sh room.png "The person of image 2 sits on the sofa of image 1" out.png   # up to nine more, one a line
+SIZE=model RESOLUTION=1024 bash scripts/edit.sh photo.png "..." out.png   # the model's own size; the default is the picture's own
 ```
+
+The result has the size of the first picture (`WIDTH` and `HEIGHT` ask for another). The noise is drawn for `SEED`
+and the pictures together, so the seed a picture was made with is as good as any other for editing it.
 
 ### Video only, or from your own image
 
@@ -1550,7 +1649,9 @@ aspect ratio.
 MiniMax H3's first-and-last-frame mode holds a picture at the end of the clip the way it holds one at the start: the
 end keyframe is encoded as a condition latent at the clip's last latent frame and kept at every pass. `LAST_FRAME`
 works with `FIRST_FRAME`, or alone (the clip then arrives at the picture). Beside a first frame the last one is fitted
-by a centre crop, so give both the clip's aspect ratio.
+by a centre crop, so give both the clip's aspect ratio. A keyframe is read by the model, not written into the clip:
+in one production run 63 of 64 were held and one first frame was not, and FastH3 cut to a close-up inside 9 of 32
+such clips. The app checks both after the render (see [the shot check](#what-the-app-tells-you-about-a-prompt-and-a-clip)).
 
 ```bash
 FIRST_FRAME=teapot.png LAST_FRAME=bonsai.png bash scripts/video.sh "The teapot opens and a bonsai grows out of it" out.mp4
