@@ -91,7 +91,7 @@ def make_package(args, dest: Path, presets: list, hosted: dict, folder_of: dict,
                 continue
             home = dest / folder_of[recipe["category"][0]] / recipe["id"]
             inside = f"{folder_of[recipe['category'][0]]}/{recipe['id']}"
-            if platform == "spark":
+            if platform == "spark" or recipe.get("target") == "image":  # a picture LoRA is read as its author wrote it, on a Mac too
                 build, name = home / recipe["url"].rsplit("/", 1)[-1], recipe["url"].rsplit("/", 1)[-1]
             else:
                 name = recipe["id"] + ".mlx.safetensors"
@@ -115,7 +115,7 @@ def make_package(args, dest: Path, presets: list, hosted: dict, folder_of: dict,
         for extra in ("README.md", "LICENCES.md"):
             if notes and (notes / extra).is_file():
                 members.append((notes / extra, extra))
-        archive = out / f"keys-studio-lora-essential-{platform}-{stamp}.tar"
+        archive = out / f"keys-studio-lora-essential-{platform}-{args.tag or stamp}.tar"
         with tarfile.open(archive, "w") as tar:
             for path, name in members:
                 tar.add(path, arcname=name)
@@ -191,6 +191,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--package", default=os.environ.get("LORA_PACKAGE", ""), help="an essential package (.tar file or address) to unpack into the bundle first")
     parser.add_argument("--make-package", default="", metavar="OUTDIR", help="write the package archives of the hosted set from this bundle")
+    parser.add_argument("--tag", default="", help="with --make-package: the archives' name ends in this (default: today's date)")
+    parser.add_argument("--host-json", default="", help="with --make-package: the hosted set to pack, when it is not app/lora-host.json yet")
     parser.add_argument("--mlx-dir", default="", help="with --make-package: where the Mac builds (ID.mlx.safetensors) are")
     parser.add_argument("--notes-dir", default="", help="with --make-package: a folder laid out like the bundle with SOURCE.md files, README.md and LICENCES.md to include")
     try:
@@ -230,7 +232,7 @@ def main(argv: list[str]) -> int:
     def good(recipe: dict, path: Path) -> bool:
         return path.is_file() and (not recipe.get("sha256") or sha(path) == recipe["sha256"])
 
-    hosted = json.loads((APP / "lora-host.json").read_text()).get("loras", {})
+    hosted = json.loads((Path(args.host_json).expanduser() if args.host_json else APP / "lora-host.json").read_text()).get("loras", {})
     if args.make_package:
         return make_package(args, dest, presets, hosted, folder_of, groups, say)
     if args.package and not args.verify and not args.dry_run:

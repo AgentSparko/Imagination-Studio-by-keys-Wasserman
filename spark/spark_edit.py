@@ -9,6 +9,8 @@ the sequence as latents (ComfyUI's TextEncodeQwenImage21). The Turbo checkpoint 
 
 Credit: the Qwen team for Qwen-Image-2.1 and Qwen-Image-2.1-Turbo, ComfyUI for the runtime.
 """
+import time
+import subprocess
 import argparse
 import json
 import sys
@@ -76,6 +78,17 @@ def main() -> None:
     edits = json.loads(Path(args.set[1:]).read_text() if args.set.startswith("@") else args.set) if args.set else [[args.prompt, args.output]]
     if not edits or any(not str(p).strip() or not o for p, o in edits):
         sys.exit("give --prompt and -o, or --set with a prompt and an output for each edit")
+    # After a Library action (Ref2VA in bfloat16, SAM, the latent upscaler) ComfyUI's own unloading leaves too little
+    # for Qwen-Image beside it (measured: 12.7 GB free during an edit): that edit starts from a server with nothing loaded.
+    last = sg.STATE.read_text().strip() if sg.STATE.exists() else ""
+    if sg.up() and last.startswith("workflow"):
+        print("[tensorfold] restarting ComfyUI: a picture edit after a Library action starts from a server with nothing loaded", flush=True)
+        subprocess.run(["bash", str(sg.HERE / "comfy.sh"), "stop"], check=False)
+        for _ in range(60):
+            if not sg.up():
+                break
+            time.sleep(1)
+        time.sleep(5)
     sg.ensure_server("image")
     if args.base and not sg.installed("unet", sg.QWEN_BASE):
         sys.exit("the base model is not installed: oneshot-setup-spark.sh --image-edit fetches Qwen-Image-2.1 (14 GB; Qwen Research License, non-commercial)")

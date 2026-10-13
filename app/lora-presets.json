@@ -686,7 +686,7 @@
   "needs": "image",
   "what": "Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. It works in Create, Edit a picture, where it adds a camera ring.",
   "status": "ready",
-  "notes": "Prompt shape: '<mva> front-right quarter view, eye-level shot'; the camera ring writes it. v2, step 1500, is the file the author recommends. Trained on single objects and characters: side and back views often come back on a plain background. Lower the strength towards 0.8 if a result copies your picture.",
+  "notes": "Prompt shape: '<mva> front-right quarter view, eye-level shot'; the camera ring writes it. v2, step 1500, is the file the author recommends. Trained on single objects and characters: side and back views often come back on a plain background. Lower the strength towards 0.8 if a result copies your picture. Measured here on Turbo's 8 steps: the quarter views turn the way asked, but a straight left side view and a straight right side view can come out facing the same way. The author's own setting is 40 steps on the base model (the installers' --image-edit adds it; not measured here).",
   "target": "image",
   "tested": "Mac, DGX Spark"
  }
