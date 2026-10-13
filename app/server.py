@@ -766,8 +766,8 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
     image = params.get("image")
     styles = lora_resolve(params.get("loras"))  # the LoRA hub (loras.py): files to merge, and their trigger words
     if styles:
-        if kind == "video" and references(params):
-            raise HTTPException(400, "a LoRA from the hub is for MiniMax H3 and FastH3 clips, not for reference to video")
+        # merged at load into the weights the clip runs on: FastH3's or MiniMax H3's for a clip from text or a first
+        # frame, the Ref2VA transformer's for a clip from references (bfloat16 on a Spark, see spark_generate.py)
         env["LORA"] = "\n".join(f"{one['path']}:{one['strength']:g}" for one in styles) + "\n"
         prompt = lora_lead(prompt, styles)
     # the end keyframe (MiniMax H3's first-and-last-frame mode): a picture of its own, or the first frame again
@@ -782,7 +782,15 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
         env["LAST_FRAME"] = str(inside(ending))
     if kind == "video":  # text to video, or from an image the user already has
         pictures = references(params)
+        if styles:
+            # a LoRA made for one job on the reference model says what the clip must hold (lora_flows.py)
+            missing = lora_flows.fits(params.get("loras"), len(pictures["pictures"]) if pictures else 0,
+                                      len(pictures["videos"]) if pictures else 0, bool(pictures and params.get("ref_turbo")))
+            if missing:
+                raise HTTPException(400, missing)
         if pictures:
+            if styles and lora_flows.plain(params.get("loras")):
+                env["REF_PLAIN"] = "1"  # the prompt as written: no `Use <Video 1> as the subject.` ahead of it
             # Ref2VA takes neither the Turbo adapter nor FastH3: the quality setting does not apply
             env = {k: v for k, v in env.items() if k not in QUALITIES[quality][1]}
             # one per line, so a path may hold spaces
@@ -1084,6 +1092,10 @@ def state() -> dict:
 @app.post("/api/compose")
 def compose_prompt(body: dict) -> dict:
     if body.get("references") or body.get("referenced"):
+        # a picked LoRA with its own caption style (Character Swap, Lineart Anime, Keyframe Animation) writes the prompt
+        own = lora_flows.compose(body.get("loras") or (body.get("fields") or {}).get("loras"), body.get("fields", {}))
+        if own:
+            return {"prompt": own, "flow": True}
         return {"prompt": compose_references(body.get("fields", {}), int(body.get("references") or 0))}
     return {"prompt": compose(body.get("fields", {}), bool(body.get("first_frame")), bool(body.get("last_frame")),
                               float(body.get("seconds") or 5))}
@@ -1328,9 +1340,12 @@ async def errors(_, error: HTTPException):
     return JSONResponse({"error": error.detail}, status_code=error.status_code)
 
 
+import lineart  # noqa: E402  (a line-art copy of a clip, for a line-art LoRA)
+import lora_flows  # noqa: E402  (what a hub LoRA needs of a clip)
 import loras  # noqa: E402  (Keys and Wasserman LoRA Hub, beside this file)
 lora_router, lora_resolve, lora_lead = loras.attach(HOME, PACK, SPARK)
 app.include_router(lora_router)
+app.include_router(lineart.attach(HOME))
 import pace  # noqa: E402  (whether a clip's sound and motion agree, beside this file)
 import qa  # noqa: E402  (Sam Wasserman's QA gate, beside this file)
 import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)

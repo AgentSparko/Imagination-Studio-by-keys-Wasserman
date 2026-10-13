@@ -720,7 +720,55 @@ studio shot into a worn 4:3 tape recording. The numbers say the clip changed, no
 How it renders: on a Mac the file is rewritten once (`scripts/convert-lora.py`) and merged at load by the MLX engine,
 for MiniMax H3 at any quality and for FastH3 (which then runs on the MLX engine, not the native one). On a DGX Spark
 ComfyUI merges it into FastH3's full-precision weights and its own blocks render the clip, not the TensorFold engine.
-Both are slower than the usual path and have no time estimate. A LoRA is not applied to reference-to-video clips.
+Both are slower than the usual path and have no time estimate.
+
+**LoRAs on a clip from references.** The hub is also offered on a clip made from references (MiniMax H3 Ref2VA), and
+the LoRA is merged into that transformer: by the MLX engine on a Mac, and on a DGX Spark by ComfyUI into the
+full-precision (bfloat16) Ref2VA file, with or without the Turbo adapter. A LoRA merged into the Spark's 8-bit file
+would corrupt the clip without an error (its weights are stored rotated), so a reference clip with a LoRA never runs
+on it; it starts from a ComfyUI server with nothing loaded. Three presets were made for one job on the reference
+model, and the row of a picked one says what the clip needs, whether it has it, and writes the Review prompt the way
+its author trained it (`app/lora_flows.py`, each from the LoRA's own model card):
+
+| LoRA | The clip holds | Prompt | Passes |
+|---|---|---|---|
+| **Character Swap** (Akatz Labs) | your clip as `<Video 1>` (4 to 5 s held best for the author), a picture of the new character as `<Picture 1>` | `Replace only <who> in <Video 1> with the character in <Picture 1>. ...`, with who is replaced taken from "Who or what it shows" of Video 1 | Turbo 4 or 20 |
+| **Lineart Anime** (DiffSynth-Studio) | one video, line art (white lines on black) at the clip's own size, and no picture | Scene and Action as plain sentences, sent as written | Turbo 4 or 20 (the author: 20) |
+| **Keyframe Animation** (Alvdansen Labs) | one drawing (the current key) or two (first drawing and end extreme) as pictures | `Create the next keyframe in the sequence. SCENE: ... MOVEMENT: ... STATIC: ...` | 20 (the author: not on a Turbo adapter) |
+| **Anime Slider** (adf99) | anything: text, a first frame or references | yours | any |
+
+*Make line art of Video 1* (in Lineart Anime's row) draws the line art of any clip with ffmpeg alone (`app/lineart.py`:
+an edge-preserving blur, then each pixel's difference to its brightest neighbour; fine, medium or outlines only). No
+model is involved. The author publishes no extractor; this one was matched by eye to the author's example clip.
+
+**Layouts.** Most H3 LoRAs are saved in ComfyUI's layout. DiffSynth-Studio's are raw PEFT saves
+(`blocks.N....lora_A.default.weight`, no prefix), which ComfyUI loads without matching a single key and without a
+warning. `app/lora_layout.py` tells the layouts apart and rewrites such a file at install, on a Mac through
+`scripts/convert-lora.py` and on a DGX Spark as `<id>.comfy.safetensors`. One kind of pair needs more than a new name
+on a Spark. ComfyUI's `pruned` H3 checkpoints drop the time embedder: each adaln projection reads 8 numbers a
+timestep from a table where MiniMax's own weights read 2,688. A LoRA pair made on the full adaln weights is carried
+over with the affine map between the two (solved from the table and MiniMax's time embedder; fit error 1.4e-5 on the
+real weights, and the update of a real pair agrees to 2.9e-5), `A' = A @ basis.T` with the rest in a bias term.
+The basis is worked out once, from the model on the machine, a LoRA bundle that holds `ref2va-adaln-basis.npy`, or
+the first 64 MB of MiniMax's own Ref2VA file (a ranged read of the public page; `LORA_OFFLINE=1` forbids it).
+
+**Measured** (5 s at 864x480, seed 7, the same request without and with the LoRA; a generated clip of a man at a
+wooden dummy as the source, a generated picture of a woman as the new character, two line drawings made from the
+clip as the keys; one seed each, looked at on contact sheets):
+
+| LoRA | Passes | Mac M5 Ultra: without / with | By eye | DGX Spark: without / with | By eye |
+|---|---|---|---|---|---|
+| Character Swap, 1.0 | Turbo 4 | 281 s / 287 s | the swap holds either way; with the LoRA her pose sits a little closer to the source's | 210 s / 516 s | the same: both swap her in on the same rooftop, small differences in hands |
+| Lineart Anime, 1.0 | Turbo 4 | 271 s / 278 s | both colour the line art as anime on the lines; with the LoRA flatter cel shading | 541 s / 331 s | the same |
+| Lineart Anime, 1.0 | 20 | - / 706 s | on the lines, but darker and closer to 3D than at Turbo 4 | - / 605 s | anime on the lines, as clean as at Turbo 4 |
+| Keyframe Animation (sequence), 1.0 | 20 | 258 s / 302 s | without: a photographed man, the drawings ignored; with: the line drawing itself moves, held on white | 315 s / 306 s | a moving line drawing on white both times (without the adapter the Spark ran its 8-bit file); small differences in line weight |
+| Anime Slider, +3 / -3 | Turbo 4 | 91 s / 92 s / 92 s | +3 smoother and flatter, -3 more photographic; mild next to the Spark | 235 s / 110 s / 110 s | +3 flat 2D anime with a drawn background, -3 photographic |
+
+The Spark's times include starting ComfyUI and loading the 40 GB bfloat16 Ref2VA file, and a render that follows
+another kind of render loads it again; its lowest free memory in these runs was 33 GB of 121. On this clip the base
+model already swaps a person and already colours line art from the prompt, so Character Swap and Lineart Anime change
+the result less than Keyframe Animation and the slider do. Why the slider's +3 is milder on the Mac than on the
+Spark was not found (same file, same strength; the Mac runs these passes on its int8 kernels).
 
 #### Essential LoRA bundle
 

@@ -32,6 +32,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+import lora_flows
+import lora_layout
+
 PRESETS = Path(__file__).with_name("lora-presets.json")
 FIELDS = ("name", "author", "url", "page", "sha256", "trigger", "styles", "strength", "range", "base", "licence", "notes")
 LIMIT = 4  # LoRAs on one clip
@@ -62,18 +65,51 @@ def token() -> str:
 
 
 def check(path: Path) -> int:
-    """The number of adapted modules, after making sure the file is a low-rank LoRA for MiniMax H3's transformer."""
+    """The number of adapted modules, after making sure the file is a low-rank LoRA for MiniMax H3's transformer, in
+    any of the layouts LoRAs are published in (lora_layout.py)."""
 
-    with open(path, "rb") as handle:
-        head = handle.read(8)
-        size = struct.unpack("<Q", head)[0] if len(head) == 8 else 0
-        if not 0 < size < 50_000_000:
-            raise ValueError("not a safetensors file")
-        names = [k for k in json.loads(handle.read(size)) if k != "__metadata__"]
-    low = [k for k in names if k.endswith((".lora_A.weight", ".lora_down.weight"))]
-    if not low or not any(re.search(r"(^|\.)blocks\.\d+\.(attn|mlp)\.", k) for k in low):
+    names = list(lora_layout.header(path)[0])
+    found = lora_layout.modules(names)
+    if lora_layout.layout(names) == "unknown" or not any(re.search(r"(^|\.)blocks\.\d+\.(attn|mlp)\.", name) for name in found):
         raise ValueError("not a LoRA for MiniMax H3's transformer (no lora_A tensors on blocks.N.attn / blocks.N.mlp)")
-    return len(low)
+    return len(found)
+
+
+def rewritten(path: Path) -> bool:
+    """On a DGX Spark: whether ComfyUI needs this file rewritten. A PEFT save (DiffSynth-Studio's layout) matches no
+    key as it is, and a pair on an adaln projection was made on weights ComfyUI's pruned checkpoints do not have."""
+
+    names = list(lora_layout.header(path)[0])
+    return lora_layout.layout(names) == "peft" or any(lora_layout.ADALN.search(name) for name in lora_layout.modules(names))
+
+
+def adaln_basis(folder: Path):
+    """(basis, offset) that carries an adaln pair onto the pruned Ref2VA checkpoint (lora_layout.curve_basis), kept
+    in the hub's folder once worked out. It comes from a LoRA bundle that holds it, else from the checkpoint's own
+    table and MiniMax H3's time embedder: that of the model on this machine, or the first 64 MB of MiniMax's file."""
+
+    import numpy as np
+
+    kept = folder / "ref2va-adaln-basis.npy"
+    where = bundle()
+    for place in (kept, Path(where).expanduser() / kept.name if where and not where.startswith(("http://", "https://")) else None):
+        if place is not None and place.is_file():
+            both = np.load(place)
+            return both[:-1], both[-1]
+    models = Path(os.environ.get("SPARK_MODELS", str(Path.home() / "spark-studio-models")))
+    checkpoint = next(iter(sorted(models.glob("**/minimax_h3_ref2va_pruned_bf16.safetensors"))), None)
+    table = lora_layout.curve_table(checkpoint) if checkpoint else None
+    if table is None:
+        return None, None  # no pruned Ref2VA here: a checkpoint with the full time embedder takes the pair as it is
+    local = Path(os.environ.get("H3_MODEL_DIR", str(Path.home() / "h3-models/MiniMax-H3"))) / "Ref2VA/transformer/model-00001-of-00013.safetensors"
+    if not local.is_file() and os.environ.get("LORA_OFFLINE") == "1":
+        raise RuntimeError("this LoRA adapts the model's time layers, and moving it onto the DGX Spark's checkpoint takes 64 MB of "
+                           "MiniMax H3 from MiniMax's page once (or ref2va-adaln-basis.npy in the LoRA bundle); LORA_OFFLINE=1 keeps this off the network")
+    basis, offset, error = lora_layout.curve_basis(table, lora_layout.embedder(local if local.is_file() else None))
+    if error > 1e-3:
+        raise RuntimeError(f"the checkpoint's time table does not follow MiniMax H3's time embedder (fit error {error:.1e}): the LoRA is not moved onto it")
+    np.save(kept, np.concatenate([basis, offset[None]], axis=0))
+    return basis, offset
 
 
 def bundle() -> str:
@@ -202,15 +238,29 @@ def attach(home: Path, pack: Path, spark: bool):
     def ready(lora_id: str) -> Path:
         """The file a render reads: the author's on a Spark, the rewritten one on a Mac."""
 
-        return source(lora_id) if spark else folder / f"{lora_id}.mlx.safetensors"
+        if not spark:
+            return folder / f"{lora_id}.mlx.safetensors"
+        given, made = source(lora_id), folder / f"{lora_id}.comfy.safetensors"
+        try:
+            return made if made.is_file() or (given.is_file() and rewritten(given)) else given
+        except (OSError, ValueError):
+            return given
 
     def public(recipe: dict) -> dict:
         state = busy.get(recipe["id"])
-        return {**recipe, "installed": ready(recipe["id"]).is_file() and not state, "installing": state}
+        return {**recipe, "installed": ready(recipe["id"]).is_file() and not state, "installing": state,
+                "flow": lora_flows.public(recipe["id"]) if recipe.get("flow") else None}
 
     def prepare(lora_id: str) -> None:
-        if not spark and not ready(lora_id).is_file():
+        if ready(lora_id).is_file():
+            return
+        if not spark:
             convert(source(lora_id), ready(lora_id), pack)
+        elif source(lora_id).is_file() and rewritten(source(lora_id)):
+            # ComfyUI's layout, and any adaln pair moved onto the pruned checkpoint (lora_layout.py)
+            names = lora_layout.modules(list(lora_layout.header(source(lora_id))[0]))
+            basis, offset = adaln_basis(folder) if any(lora_layout.ADALN.search(name) for name in names) else (None, None)
+            lora_layout.to_comfy(source(lora_id), ready(lora_id), basis, offset)
 
     def prebuilt(recipe: dict, state: dict) -> bool:
         """On a Mac with no file from a bundle: the hosted build already in the MLX engine's layout, when there is one."""
@@ -366,7 +416,7 @@ def attach(home: Path, pack: Path, spark: bool):
                 raise HTTPException(400, f"{recipe['name']} is not supported in the Studio yet. {recipe.get('why', '')}".strip())
             phrase = (recipe.get("styles") or {}).get(str(item.get("style") or ""), "")
             lead = ", ".join(part for part in (recipe.get("trigger", ""), phrase) if part)
-            out.append({"path": str(ready(recipe["id"])), "strength": strength, "trigger": recipe.get("trigger", ""), "lead": lead,
+            out.append({"id": recipe["id"], "name": recipe["name"], "path": str(ready(recipe["id"])), "strength": strength, "trigger": recipe.get("trigger", ""), "lead": lead,
                         "comma": bool(recipe.get("comma"))})
         if len(out) > LIMIT:
             raise HTTPException(400, f"at most {LIMIT} LoRAs on one clip")

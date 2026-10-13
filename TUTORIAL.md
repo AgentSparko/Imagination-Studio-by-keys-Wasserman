@@ -140,6 +140,25 @@ A slider LoRA such as *Anime Slider* also takes minus values: 3 for flat 2D anim
 *Equirectangular 360°* wants the Custom size 1120x480; the clip is the whole sphere, to be resized to 2:1 for a VR
 player.
 
+### LoRAs for a clip made from references
+
+Three LoRAs in the hub do one job each on a clip made from references (step 1 of Create, *From references*). Pick
+one and its row says what the clip needs and whether it has it; *Go to References* takes you there.
+
+| LoRA | Put under References | Then |
+|---|---|---|
+| **Character Swap** | your clip as Video 1, a picture of the new character | under Video 1, in "who or what it shows", say who is replaced: *the man in the blue jacket* |
+| **Lineart Anime** | any clip as Video 1, and no picture | press *Make line art of Video 1* in the LoRA's row (fine, medium or outlines only), then describe the finished picture in Scene and Action |
+| **Keyframe Animation** | one drawing, or two (the first drawing and where the action ends) | choose 20 passes; Scene is the framing and the medium (*clean line on white*), Action is the movement |
+
+The prompt in Review is then written the way that LoRA's author trained it; you can still edit it. The **Anime
+Slider** works on any clip, references or not: plus leans to flat 2D anime, minus to a photographic look.
+
+Worked example, Lineart Anime: add a clip of a man practising at a wooden dummy as Video 1, pick Lineart Anime,
+press *Make line art of Video 1*, and write Scene "A young martial artist with short black hair in a dark blue
+jacket on a rooftop at dusk, red paper lanterns", Action "He strikes a wooden training dummy". The clip comes back
+drawn as anime on the same outlines and timing.
+
 ## 9. Motion Previs: make a clip that moves like another
 
 The analysis in the **Motion Previs** tab is a port, modified, of Motion Previs Studio by Sam Wasserman
