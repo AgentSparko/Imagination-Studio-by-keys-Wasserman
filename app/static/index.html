@@ -108,7 +108,7 @@ a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:under
 ::-webkit-scrollbar { width:10px; height:10px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.12); border-radius:10px; border:2px solid transparent; background-clip:padding-box; }
 /* the active tab glows like low sun; Home goes back to step 1 of Create */
 .hub { margin:10px 0; } .hub .chips { margin:6px 0; } button.lora.on { background:rgba(255,196,84,.16); border-color:rgba(255,205,110,.8); color:#ffe9b8; box-shadow:0 0 12px rgba(255,186,60,.35); }
-.lorarow { align-items:flex-end; margin-top:6px; }
+.lorarow { align-items:flex-end; margin-top:6px; } .loraslide { flex:1; min-width:200px; width:auto; accent-color:var(--accent, #f5b942); }
 .hubtabs { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; } .hubtabs button.on { border-color:rgba(255,205,110,.8); color:#ffe9b8; background:rgba(255,196,84,.12); }
 .hubgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:10px; margin-top:8px; }
 .hubcard { background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; font-size:13px; }
@@ -365,9 +365,22 @@ const encoderName = f => f.split("/").pop().replace(/\.safetensors$/, "").replac
 const lorasOf = obj => (obj.loras || []).filter(p => LORAS.some(r => r.id === p.id && r.installed));
 // A LoRA made for one job on the reference model (Character Swap, Lineart Anime, Keyframe Animation): what the clip
 // must hold, whether it does, and the way there. The server checks the same rule (lora_flows.py) when the clip is queued.
+// what a LoRA with a flow still lacks of the clip in Create ("" when it has everything)
+function flowLacks(r) { const f = r.flow, vids = C.refVideos.length, pics = C.refs.length;
+  return !isRef() ? "Choose “From references” for this clip." : vids < f.videos[0] ? "Add the video under References." : pics < f.pictures[0] ? "Add the picture under References." : vids > f.videos[1] || pics > f.pictures[1] ? "This LoRA takes " + (f.videos[1] ? "one video" : "no video") + " and " + (f.pictures[1] ? "up to " + f.pictures[1] + " picture" + (f.pictures[1] > 1 ? "s" : "") : "no picture") + "." : !f.turbo && C.refPasses === "4" ? "Choose 20 passes: this LoRA is for the full model, not the Turbo adapter." : ""; }
+function flowGo(r) { Object.assign(C, { goes: "video", start: "refs", step: 1 }); if (!r.flow.turbo) C.refPasses = "20"; changed(); }
+// every input the clip's LoRAs still wait for: [{ name, text, label, go }]; the Review step holds Queue while there is one
+function loraWants() { const out = [];
+  for (const p of lorasOf(C)) { const r = LORAS.find(x => x.id === p.id); if (!r || !r.installed) continue;
+    if (r.flow && r.flow.asks.length) { const lacks = flowLacks(r); if (lacks) out.push({ name: r.name, text: lacks, label: "Go to References", go: () => flowGo(r) }); }
+    else if (r.needs === "first-last") {
+      if (isRef()) out.push({ name: r.name, text: "It works on a clip that starts from a first frame, not from references.", label: "Start from a first frame", go: () => { Object.assign(C, { goes: "video", start: "own", step: 1 }); changed(); } });
+      else if (!lastOf()) out.push({ name: r.name, text: "Add a last frame" + (r.same_first_last ? " (for an orbit, “Same as the first frame”)" : "") + ".", label: "Go to the last frame", go: () => { C.step = 1; changed(); } }); }
+    else if (r.status === "unsupported" || r.needs === "workflow" || r.needs === "image") out.push({ name: r.name, text: "It is not a LoRA for a clip made here: " + (r.needs === "image" ? "it belongs to the image model." : "it runs through its own action.") + " Take it out of this clip.", label: "Take it out", go: () => { C.loras = C.loras.filter(x => x.id !== r.id); changed(); } }); }
+  return out; }
 function flowRow(obj, r, done) { if (!C.lineart) C.lineart = "medium"; const f = r.flow, own = obj === C, vids = own ? C.refVideos.length : 0, pics = own ? C.refs.length : 0;
-  const lacks = !own ? "This LoRA works in Create, on a clip from references." : !isRef() ? "Choose “From references” for this clip." : vids < f.videos[0] ? "Add the video under References." : pics < f.pictures[0] ? "Add the picture under References." : vids > f.videos[1] || pics > f.pictures[1] ? "This LoRA takes " + (f.videos[1] ? "one video" : "no video") + " and " + (f.pictures[1] ? "up to " + f.pictures[1] + " picture" + (f.pictures[1] > 1 ? "s" : "") : "no picture") + "." : !f.turbo && C.refPasses === "4" ? "Choose 20 passes: this LoRA is for the full model, not the Turbo adapter." : "";
-  const go = () => { Object.assign(C, { goes: "video", start: "refs", step: 1 }); if (!f.turbo) C.refPasses = "20"; changed(); };
+  const lacks = !own ? "This LoRA works in Create, on a clip from references." : flowLacks(r);
+  const go = () => flowGo(r);
   const draw = async e => { e.target.disabled = true; e.target.textContent = "Drawing the line art…";
     try { const made = await api("/api/lineart", { path: C.refVideos[0], detail: C.lineart || "medium" }); C.lineartFrom = made.from; C.refVideos[0] = made.path; C.video_subjects[0] = ""; C.video_sound = false; C.motion = null; toast("Video 1 is now the line art of your clip"); } catch (err) { toast(err.message); }
     done(); };
@@ -381,6 +394,15 @@ const LORA_NEEDS = { text: "Text or first frame", "first-last": "First + last fr
 const HUB = { open: false, browse: false, tab: "all", q: "", mine: false, groups: [], form: { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" }, timer: null };
 function hubWatch(redraw) { if (HUB.timer || !LORAS.some(r => r.installing && r.installing.stage !== "failed")) return;
   HUB.timer = setInterval(async () => { await loadLoras(); if (!LORAS.some(r => r.installing && r.installing.stage !== "failed")) { clearInterval(HUB.timer); HUB.timer = null; } redraw(); }, 1500); }
+// a slider LoRA turns one way above 0 and the other way below it: a track centred on 0, its ends named, and the number beside it
+function loraSlider(p, r, range, save) { const ends = r.ends || ["the other way", "more of it"], show = el("input", { type: "number", step: 0.1, min: range[0], max: range[1], style: "width:78px;flex:none", "aria-label": r.name + " strength" });
+  const track = el("input", { type: "range", class: "loraslide", min: range[0], max: range[1], step: 0.1, list: "zero-" + r.id, "aria-label": r.name + " strength, " + range[0] + " to " + range[1] + ", 0 is off" });
+  const set = v => { v = Math.max(range[0], Math.min(range[1], Number(v) || 0)); p.strength = v; track.value = v; show.value = v; save(); };
+  track.value = p.strength; show.value = p.strength; track.oninput = () => set(track.value); show.onchange = () => set(show.value);
+  return el("div", { style: "min-width:420px;flex:1" }, el("label", {}, "Strength (0 is off)"),
+    el("div", { class: "row", style: "gap:8px;align-items:center;flex-wrap:nowrap" }, el("span", { class: "note", style: "white-space:nowrap" }, range[0] + " " + ends[0]), track, el("span", { class: "note", style: "white-space:nowrap" }, ends[1] + " +" + range[1]), show,
+      el("button", { type: "button", class: "small", style: "flex:none;width:auto", title: "Back to 0: the LoRA has no effect", onclick: () => set(0) }, "Off (0)")),
+    el("datalist", { id: "zero-" + r.id }, el("option", { value: 0, label: "0" }))); }
 // obj.loras is the list a clip, a board or a film renders with; save runs after every change
 function loraHub(obj, save = () => {}, redraw = render) { if (!obj.loras) obj.loras = [];
   const done = () => { save(); redraw(); }, picked = id => obj.loras.find(p => p.id === id);
@@ -393,9 +415,10 @@ function loraHub(obj, save = () => {}, redraw = render) { if (!obj.loras) obj.lo
       if (on) obj.loras = obj.loras.filter(p => p.id !== r.id); else obj.loras.push({ id: r.id, strength: r.strength || 1, style: Object.keys(r.styles || {})[0] || "" }); done(); } }, label); };
   const row = p => { const r = LORAS.find(x => x.id === p.id); if (!r) return null; const range = r.range || [0.1, 2];
     return el("div", { class: "row lorarow" }, el("div", { class: "fit", style: "min-width:210px" }, el("b", {}, r.name), el("div", { class: "note" }, (r.author ? "by " + r.author : "") + (r.trigger ? " · trigger " + r.trigger + ", added to the prompt for you" : "") + (r.installed ? "" : " · not installed yet: it is left out of the render"))),
-      Object.keys(r.styles || {}).length ? el("div", { class: "fit", style: "width:150px" }, el("label", {}, "Look"), select(p, "style", Object.fromEntries(Object.keys(r.styles).map(k => [k, k])), save)) : null,
-      el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Strength"), bind(p, "strength", el("input", { type: "number", step: 0.1, min: Math.min(range[0], 0.1), max: Math.max(range[1], 2), title: "Made for " + (r.strength || 1) + "; the author's range is " + range[0] + " to " + range[1] + (range[0] < 0 ? " (minus values turn the effect the other way)" : "") }), save)),
+      Object.keys(r.styles || {}).length ? el("div", { class: "fit", style: "width:" + (r.choice ? 210 : 150) + "px" }, el("label", {}, r.choice || "Look"), select(p, "style", Object.fromEntries(Object.keys(r.styles).map(k => [k, k])), save)) : null,
+      range[0] < 0 ? loraSlider(p, r, range, save) : el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Strength"), bind(p, "strength", el("input", { type: "number", step: 0.1, min: Math.min(range[0], 0.1), max: Math.max(range[1], 2), title: "Made for " + (r.strength || 1) + "; the author's range is " + range[0] + " to " + range[1] }), save)),
       r.flow && r.flow.asks.length ? flowRow(obj, r, done) : null,
+      obj === C && !(r.flow && r.flow.asks.length) ? loraWants().filter(w => w.name === r.name).map(w => el("div", { class: "note", style: "flex-basis:100%;color:var(--warn)" }, el("b", {}, "Needs: "), w.text + " ", el("button", { type: "button", class: "small", onclick: w.go }, w.label))) : null,
       r.builtin ? null : el("button", { class: "fit small", title: "Take this LoRA out of the hub (its file goes to the trash folder)", onclick: async () => { if (!confirm("Remove “" + r.name + "” from the hub?")) return; try { await api("/api/loras/" + r.id, undefined, "DELETE"); obj.loras = obj.loras.filter(x => x.id !== r.id); await loadLoras(); done(); } catch (e) { toast(e.message); } } }, "🗑")); };
   const f = HUB.form, up = el("input", { type: "file", accept: ".safetensors", onchange: async () => { if (!up.files[0]) return; const data = new FormData(); data.append("file", up.files[0]); try { const r = await (await fetch("/api/upload", { method: "POST", body: data })).json(); f.file = r.path; toast("Uploaded " + up.files[0].name); } catch (e) { toast(e.message); } } });
   const form = !HUB.open ? null : el("div", { class: "group" }, el("div", { class: "note" }, "A recipe for a MiniMax H3 LoRA: where its file comes from and how it is used. It becomes a button in the hub on this machine."),
@@ -742,10 +765,10 @@ function viewCreate() {
   } else {
     const est = el("div", { class: "note" }); showEstimate(C, est);
     const job = C.job && jobs.find(j => j.id === C.job);
-    const wantsLast = !isRef() && !lastOf() && lorasOf(C).map(p => LORAS.find(r => r.id === p.id)).filter(r => r && r.needs === "first-last").map(r => r.name);
-    const ready = C.prompt.trim() && (isRef() ? C.refs.length + C.refVideos.length > 0 : noFrame() || C.image) && !(wantsLast && wantsLast.length);
+    const wants = loraWants();
+    const ready = C.prompt.trim() && (isRef() ? C.refs.length + C.refVideos.length > 0 : noFrame() || C.image) && !wants.length;
     put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() && !isRef() ? " · " + C.steps + " passes (custom)" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + refPassText() + ", " + [[C.refs.length, "picture"], [C.refVideos.length, "video"], [C.refAudios.length, "audio clip"]].filter(k => k[0]).map(k => k[0] + " reference " + k[1] + (k[0] === 1 ? "" : "s")).join(", ") + (motionFields() ? ", motion: " + MOTION_MODES[C.motion.mode][0].toLowerCase() + " from the " + MOTION_LAYERS[C.motion.layer][0].toLowerCase() + (C.motion.layer === "reference" ? "" : " layer") : "") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + (lastOf() ? " · ends on the last frame" : "") + " · seed " + C.seed), est,
-      wantsLast && wantsLast.length ? el("div", { class: "note", style: "color:var(--warn)" }, wantsLast.join(" and ") + (wantsLast.length > 1 ? " need" : " needs") + " a last frame: add one in step 2.") : null,
+      wants.map(w => el("div", { class: "note lorawant", style: "color:var(--warn)" }, el("b", {}, w.name + " needs: "), w.text + " ", el("button", { type: "button", class: "small", onclick: w.go }, w.label))),
       !ready ? el("div", { class: "note", style: "color:var(--warn)" }, C.prompt.trim() ? (isRef() ? (S.ref_media ? "Add a reference picture or video in step 2." : "Add a reference picture in step 2.") : "Pick or upload a first frame in step 2.") : "Open step 4 once to build the prompt.") : null,
       el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "hot fit", disabled: !ready, onclick: async () => { try {
         const base = { prompt: C.prompt, image: noFrame() ? null : C.image, ...(lastOf() ? { last_image: lastOf() } : {}), preset: C.preset, quality: C.quality, seed: C.seed, ...extras(), ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4", ...(refMedia() ? { reference_videos: await motionVideos(), reference_audios: C.refAudios, reference_video_sound: C.video_sound, ...(motionFields() ? { motion: { pack: C.motion.pack, layer: C.motion.layer, mode: C.motion.mode, measured: C.motion.measured || null, free: motionFree() }, pace: C.motion.pace || "auto", silent: paceOf(C.motion) === "flow" && !musicNamed() } : {}) } : {}) } : {}) };
