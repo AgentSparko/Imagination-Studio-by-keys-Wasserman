@@ -16,7 +16,8 @@
 # the model's 768-pixel canvas, is several times the rows and the memory and is refused here); REF_VIDEO_SOUND=1 makes each video's own sound a
 # reference too, numbered ahead of the REF_AUDIOS clips. Every second of a reference video adds rows to every pass.
 # Environment: PREFIX, WIDTH, HEIGHT (multiples of 32, default 864x480), FRAMES (17n+5), SEED, STEPS (4, 8 or 20
-# passes), FIRST_FRAME, PROMPT_FILE, CROP=WxH, SPARK_WEIGHTS (bf16, the default, or int8: no faster on a Spark, 22 GB
+# passes), FIRST_FRAME, LAST_FRAME (the picture the clip ends on), SPARK_BASE=h3 (MiniMax H3's own transformer in
+# place of FastH3, when oneshot-setup-spark.sh --h3-base has fetched it: 25 passes by default), PROMPT_FILE, CROP=WxH, SPARK_WEIGHTS (bf16, the default, or int8: no faster on a Spark, 22 GB
 # less memory), SPARK_SPARSITY (0 is dense attention; unset picks by size), SPARK_ENGINE (tensorfold: the transformer's
 # blocks on TensorFold's CUDA engine in int8, the default once it is built; comfy: ComfyUI's own blocks in bf16).
 # TEXT_ENCODER names another MiniMax H3 text encoder file in ComfyUI's text_encoders folder; unset or regular is MiniMax's own.
@@ -66,7 +67,8 @@ if [ "$REF_COUNT" -gt 0 ]; then
   echo "[tensorfold] reference to video: $PASSES passes$([ "${REF_TURBO:-0}" != 1 ] || echo " with the Ref2VA Turbo adapter"), ${#REFS[@]} picture(s), ${#REF_CLIPS[@]} video(s), ${#REF_SOUNDS[@]} audio clip(s)"
   KIND="MiniMax H3 Ref2VA, ${#REFS[@]} picture(s), ${#REF_CLIPS[@]} video(s), ${#REF_SOUNDS[@]} audio clip(s), $PASSES passes"
 else
-  ARGS+=(--steps "${STEPS:-8}"); KIND="FastH3 ${STEPS:-8} passes"
+  if [ "${SPARK_BASE:-fasth3}" = h3 ]; then ARGS+=(--base h3 --steps "${STEPS:-25}"); KIND="MiniMax H3 ${STEPS:-25} passes"
+  else ARGS+=(--steps "${STEPS:-8}"); KIND="FastH3 ${STEPS:-8} passes"; fi
 fi
 [ -z "${FIRST_FRAME:-}" ] || ARGS+=(--first-frame "$FIRST_FRAME")
 [ -z "${LAST_FRAME:-}" ] || { [ -s "$LAST_FRAME" ] || { echo "no last frame at $LAST_FRAME" >&2; exit 2; }; ARGS+=(--last-frame "$LAST_FRAME"); }

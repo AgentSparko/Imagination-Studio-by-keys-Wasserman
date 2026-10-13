@@ -42,6 +42,9 @@ FASTH3 = {"bf16": "fastvideo_fasth3_8step_v2_pruned_bf16.safetensors",
 REF2VA = {"bf16": "minimax_h3_ref2va_pruned_bf16.safetensors",
           "int8": "minimax_h3_ref2va_pruned_int8_convrot.safetensors"}
 REF2VA_TURBO = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+# MiniMax H3's own first-and-last-frame transformer (not FastH3): an optional part of the install, for LoRAs that were
+# trained on it and for clips that should run on the undistilled model (--base h3)
+H3_FL2VA = "minimax_h3_fl2va_pruned_bf16.safetensors"
 H3_TEXT = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 TEXT_TAG = ""
 # ComfyUI's 8-bit video decoder: half the decode time of the fp16 one on a GB10 (14 s against 26 s for 124 frames of
@@ -532,8 +535,9 @@ def video(args) -> None:
         sys.exit(f"--frames must be 17n + 5 (124, 192, 243, 362), got {args.frames}")
     if args.ref or args.ref_video or args.ref_audio:
         return reference(args)
+    base = args.base == "h3"
     if args.steps is None:
-        args.steps = 8
+        args.steps = 25 if base else 8
     loras = []
     for spec in args.lora:
         # a style LoRA is merged by ComfyUI at run time, which only works on the bf16 file and on ComfyUI's own
@@ -552,6 +556,10 @@ def video(args) -> None:
         if args.engine == "tensorfold" or args.weights != "bf16":
             print("[tensorfold] a LoRA renders on ComfyUI's own blocks with the bf16 weights", flush=True)
         args.engine, args.weights = "comfy", "bf16"
+    if base:
+        # the undistilled model: ComfyUI's own blocks, dense attention (FastH3's sparse routing is FastH3's), the
+        # model's own schedule (video shift 12, audio 3)
+        args.engine, args.weights, args.sparsity = "comfy", "bf16", 0.0
     sparsity = args.sparsity
     if sparsity is None and args.engine == "tensorfold":
         sparsity = 0.8    # what FastH3 was trained with; the engine's sparse kernel is the faster one at every size
@@ -562,7 +570,7 @@ def video(args) -> None:
     if args.engine == "tensorfold" and not ENGINE_LIB.exists():
         sys.exit(f"no TensorFold engine at {ENGINE_LIB}: run spark/build-engine.sh, or use --engine comfy")
     last = STATE.read_text().strip() if STATE.exists() else ""
-    if up() and (loras or "lora" in last):
+    if up() and (loras or base or "lora" in last or "h3base" in last):
         # On a Spark the GPU and the system share one pool. With the bf16 weights (42 GB) a text encoder (26 GB) that
         # comes back for a new prompt makes ComfyUI move the model aside and load it again, and the two copies do not
         # fit: measured, free memory fell from 50 GB to 8. A server with nothing loaded keeps about 30 GB free.
@@ -573,12 +581,15 @@ def video(args) -> None:
                 break
             time.sleep(1)
         time.sleep(3)
-    ensure_server("video+lora" if loras else "video")
+    ensure_server("video" + ("+h3base" if base else "") + ("+lora" if loras else ""))
+    if base and not installed("unet", H3_FL2VA):
+        sys.exit(f"MiniMax H3's own transformer ({H3_FL2VA}) is not installed: oneshot-setup-spark.sh --h3-base adds it "
+                 "(40 GB), or render on FastH3 without --base h3")
     model = ["2", 0]
     w = {
-        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": FASTH3[args.weights], "weight_dtype": "default"}},
-        # FastH3's schedule: video shift 10, audio shift 3 (fastvideo_inference.json)
-        "2": {"class_type": "MiniMaxH3SigmaShift", "inputs": {"model": ["1", 0], "shift_video": 10.0, "shift_audio": 3.0}},
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": H3_FL2VA if base else FASTH3[args.weights], "weight_dtype": "default"}},
+        # FastH3's schedule: video shift 10, audio shift 3 (fastvideo_inference.json); MiniMax H3's own: 12 and 3
+        "2": {"class_type": "MiniMaxH3SigmaShift", "inputs": {"model": ["1", 0], "shift_video": 12.0 if base else 10.0, "shift_audio": 3.0}},
         "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": H3_TEXT, "type": "minimax", "device": "default"}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": H3_VAE}},
         "5": {"class_type": "VAELoader", "inputs": {"vae_name": H3_AUDIO_VAE}},
@@ -587,7 +598,7 @@ def video(args) -> None:
                          "height": args.height, "length": args.frames}},
         "7": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["6", 0]}},
         "8": {"class_type": "RandomNoise", "inputs": {"noise_seed": args.seed}},
-        "9": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
+        "9": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "res_multistep" if base else "euler"}},
         "12": {"class_type": "SamplerCustomAdvanced",
                "inputs": {"noise": ["8", 0], "guider": ["11", 0], "sampler": ["9", 0], "sigmas": ["10", 0],
                           "latent_image": ["6", 1]}},
@@ -632,7 +643,7 @@ def video(args) -> None:
                                                      "cfg": 1.0}}
     save_sound(w, ["14", 0], w["16"]["inputs"]["filename_prefix"] + "_sound")
     attention = f"sparse attention {sparsity}" if sparsity > 0 else "dense attention"
-    runs = "TensorFold int8 blocks in ComfyUI" if args.engine == "tensorfold" else f"ComfyUI, FastH3 {args.weights}"
+    runs = "TensorFold int8 blocks in ComfyUI" if args.engine == "tensorfold" else "ComfyUI, MiniMax H3 bf16" if base else f"ComfyUI, FastH3 {args.weights}"
     print(f"[tensorfold] engine: cuda ({runs}, {attention}), generating "
           f"{args.width}x{args.height}, {args.frames} frames", flush=True)
     item, seconds = render(w, "12")
@@ -730,6 +741,9 @@ def main() -> None:
                    default=os.environ.get("SPARK_ENGINE") or ("tensorfold" if ENGINE_LIB.exists() else "comfy"),
                    help="what runs the transformer blocks: TensorFold's CUDA family (the default once "
                         "spark/build-engine.sh has built it) or ComfyUI's own")
+    v.add_argument("--base", choices=("fasth3", "h3"), default=os.environ.get("SPARK_BASE") or "fasth3",
+                   help="the transformer of a clip: FastH3 (the default), or MiniMax H3's own first-and-last-frame "
+                        "model when it is installed (25 passes by default; what keyframe LoRAs were trained on)")
     v.add_argument("--lora", action="append", default=[], help="a style LoRA, PATH or PATH:STRENGTH (repeat to stack)")
     v.add_argument("--sparsity", type=float, default=None, help="sparse attention (0 is dense); default by size")
     v.set_defaults(run=video)
