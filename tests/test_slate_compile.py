@@ -40,6 +40,31 @@ def test_a_shots_intent_stays_out_of_the_prompt():
     assert "audience" not in empty["prompt"] and any("no prompt yet" in w for w in empty["warnings"])
 
 
+def test_a_compiled_prompt_forbids_nothing_by_name():
+    """Slate's own words (a locked camera, a shot without lines) say what is there, so the negation check has nothing
+    to list in a prompt compiled from a clean shot, with none of the app's sentences passed over."""
+
+    had, N.OWN = N.OWN, ()
+    try:
+        made = slate.compile_shot(film(), "shot-1")
+        prompt = made["prompt"]
+        assert "Static shot on a locked, still camera." in prompt and "does not move" not in prompt
+        assert "Mouths stay closed." in prompt and "Only ambient sound is heard." in prompt
+        assert "Nobody speaks" not in prompt and "No voices" not in prompt
+        assert N.find(prompt.replace("non_diegetic_music: N/A", "")) == [] and N.check(prompt)["negations"] == []
+        assert not any("no negative prompt" in w for w in made["warnings"])
+        for move in slate.MOVES.values():
+            assert N.find(move) == [], move
+        # a shot with nobody cast and no person in its words: no mouth is named into it
+        empty = film(prompt="# Subject\nWaves roll onto an empty beach at dusk.", tf={"start": "text", "cast": [], "location": "", "lines": [], "soundscape": "", "music": "N/A", "seed": 1})
+        assert "Mouths" not in slate.compile_shot(empty, "shot-1")["prompt"]
+        # the director's own negation is still said, never rewritten
+        told = slate.compile_shot(film(prompt="# Subject\nLeo walks. No cars anywhere."), "shot-1")
+        assert "No cars anywhere." in told["prompt"] and any("No cars" in w for w in told["warnings"])
+    finally:
+        N.OWN = had
+
+
 if __name__ == "__main__":
     for name, test in list(globals().items()):
         if name.startswith("test_"):

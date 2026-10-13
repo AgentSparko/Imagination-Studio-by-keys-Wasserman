@@ -41,7 +41,7 @@ SIZE_WORDS = {"EWS": "Extreme wide shot", "WS": "Wide shot", "MWS": "Medium wide
 ANGLE_WORDS = {"eye level": "at eye level", "low": "from a low angle", "high": "from a high angle", "overhead": "from directly overhead",
                "dutch": "with a tilted, dutch-angle horizon", "over-shoulder": "over the shoulder of the nearer person", "POV": "from the character's point of view"}
 # Slate's movement words in the camera vocabulary of MiniMax's H3 prompt guide
-MOVES = {"locked": "Static shot: the camera does not move.", "handheld": "Handheld: the camera shakes slightly.",
+MOVES = {"locked": "Static shot on a locked, still camera.", "handheld": "Handheld: the camera shakes slightly.",
          "push-in": "The camera pushes in with small amplitude at slow speed.", "pull-back": "The camera zooms out with small amplitude at slow speed.",
          "orbit": "Arc shot: the camera arcs around the subject at slow speed.", "pan": "The camera pans with small amplitude at slow speed.",
          "tilt": "The camera tilts with small amplitude at slow speed.", "track": "Tracking shot: the camera follows the subject at its pace.",
@@ -421,7 +421,7 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
     cue = by_id("music").get(extra.get("cue"))
     music = sentence(", ".join(bit for bit in (cue.get("genre"), cue.get("mood"), cue.get("tempo"), cue.get("instrumentation")) if bit)) if cue else (extra.get("music") or "N/A")
     fields = {"scene": picture, "camera": camera, "action": action, "dialogue": lines, "soundscape": extra.get("soundscape") or "",
-              "music": music, "subjects": subjects}
+              "music": music, "subjects": subjects, "people": bool(cast) or None}  # None: the builder reads the words
     prompt = compose_references(fields, len(references)) if references else compose(fields, bool(image or previous), frames=frames)
     for one in negation.check_fields(fields)["negations"]:  # said, never rewritten (negation.py)
         warnings.append(f"“{one['phrase']}” ({one['field'].lower()}): the video model has no negative prompt, and what a prompt names tends to appear. Say what is there instead.")

@@ -350,6 +350,34 @@ def paced_fields(fields: dict, motion: dict | None, has_video: bool, pictures: i
     return {"fields": fields, "pace": chosen}
 
 
+# What a clip without spoken lines is told. The Studio used to write "Nobody speaks." in the shot and "No voices, no
+# speech." in the soundscape; the video model has no negative prompt on any route (negation.py), so the same is now
+# said by what is there: closed mouths where the shot has people, and what the sound track holds.
+QUIET_PICTURE = "Mouths stay closed."
+QUIET_SOUND = "Only ambient sound is heard."
+QUIET_AFTER = "After the spoken lines only ambient sound is heard."
+PEOPLE = re.compile(r"\b(man|men|woman|women|person|people|boy|boys|girl|girls|child|children|kid|kids|baby|he|she|they|him|her|his|them|their|"
+                    r"someone|somebody|everyone|crowd|couple|friends?|students?|dancers?|singers?|actors?|actress|workers?|soldiers?|"
+                    r"mother|father|son|daughter|brother|sister|husband|wife|face|faces|\w+ (?:is|are) \d+ years old)\b", re.IGNORECASE)
+
+
+def quiet(fields: dict, *texts: str) -> str:
+    """The sentence a shot without spoken lines ends on: QUIET_PICTURE where the shot has people (``people`` in the
+    fields says so, else the words do), nothing for a shot without them."""
+
+    people = fields.get("people")
+    if people is None:
+        people = bool(PEOPLE.search(" ".join(text or "" for text in texts)))
+    return " " + QUIET_PICTURE if people else ""
+
+
+def said_quiet(sound: str) -> bool:
+    """Whether a soundscape already says that there is no speech, in the old words or the new."""
+
+    low = sound.lower()
+    return "no speech" in low or "only ambient sound" in low
+
+
 def compose_references(fields: dict, count: int) -> str:
     """The Ref2VA model's own prompt form: who each picture is, what is kept of it, then the shot.
 
@@ -452,12 +480,13 @@ def compose_references(fields: dict, count: int) -> str:
     elif tracks:  # a video's own sound is a reference: it may hold speech, so nothing here says that nobody speaks
         shot += " The sound of " + " and ".join(tracks) + " plays through the clip."
     else:
-        shot += " Nobody speaks."
+        # a reference picture or a video with a subject is almost always a person: said unless the fields say otherwise
+        shot += quiet({"people": True if fields.get("people") is None and people else fields.get("people")}, scene, fields.get("action", ""))
     if (fields.get("avoid") or "").strip():
         shot += " " + fields["avoid"].strip()
     sound = (fields.get("soundscape") or ("The sound of " + " and ".join(tracks) + ", reused." if tracks
                                           else "Natural ambient sound for the scene.")).strip()
-    sound += " No speech after the spoken lines." if spoken else "" if tracks else " No voices, no speech."
+    sound += " " + QUIET_AFTER if spoken else "" if tracks else " " + QUIET_SOUND
     if voices:
         sound += (" The spoken lines reference the voice timbre of " if spoken else " The sound references ") + " and ".join(voices) + "."
     music = (fields.get("music") or "N/A").strip()
@@ -497,10 +526,10 @@ def compose(fields: dict, first_frame: bool, last_frame: bool = False, seconds: 
         shot += (" " + " ".join(spoken) + " Mouth movements follow the words. After the last word the speaker stops"
                  " talking, closes the mouth and stays silent until the end of the clip.")
     else:
-        shot += " Nobody speaks."
+        shot += quiet(fields, fields.get("scene", ""), fields.get("action", ""))
     sound = (fields.get("soundscape") or "Natural ambient sound for the scene.").strip()
-    if "no speech" not in sound.lower():
-        sound += " No speech after the spoken lines." if spoken else " No voices, no speech."
+    if not said_quiet(sound):
+        sound += " " + QUIET_AFTER if spoken else " " + QUIET_SOUND
     music = (fields.get("music") or "N/A").strip()
     body = (f"integrated_multimodal_description: [Shot 1] {shot.strip()}\n\n"
             f"overall_soundscape: {sound}\n\nnon_diegetic_music: {music}")

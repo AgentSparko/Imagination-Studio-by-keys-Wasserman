@@ -33,11 +33,32 @@ def test_what_is_not_a_negation_is_left_alone():
     assert phrases("no text. A sign. No text.") == ["no text"]
 
 
-def test_the_studios_own_sentences_about_sound_are_not_flagged():
-    prompt = server.compose({"scene": "A quiet harbour at dawn.", "action": "A boat leaves."}, False)
-    assert "Nobody speaks." in prompt and "No voices, no speech." in prompt and N.check(prompt)["negations"] == []
-    spoken = server.compose({"scene": "A kitchen.", "dialogue": [{"text": "Good morning."}]}, False)
-    assert "stays silent" in spoken and N.check(spoken)["negations"] == []
+def test_the_studios_own_sentences_forbid_nothing_by_name():
+    """The app's own words for a clip without speech and for a locked camera say what is there: the check finds
+    nothing in a prompt the app wrote, in the picture or in the sound, with nothing passed over."""
+
+    had, N.OWN = N.OWN, ()
+    try:
+        prompt = server.compose({"scene": "A quiet harbour at dawn.", "action": "A boat leaves."}, False)
+        assert "Nobody speaks" not in prompt and "No voices" not in prompt and "Only ambient sound is heard." in prompt
+        assert "Mouths" not in prompt  # nobody is in the shot: a mouth is not named into it
+        assert N.find(prompt.replace("non_diegetic_music: N/A", "")) == []
+        people = server.compose({"scene": "A woman waits on the quay.", "action": "She watches a boat leave."}, False)
+        assert "Mouths stay closed." in people and N.find(people.replace("non_diegetic_music: N/A", "")) == []
+        spoken = server.compose({"scene": "A kitchen.", "dialogue": [{"text": "Good morning."}]}, False)
+        assert "stays silent" in spoken and "After the spoken lines only ambient sound is heard." in spoken
+        assert N.find(spoken.replace("non_diegetic_music: N/A", "").replace("Good morning.", "")) == []
+        # a soundscape that already says it, in the old words or the new, is not told twice
+        assert server.compose({"scene": "A hall.", "soundscape": "Rain. No speech."}, False).count("ambient sound") == 0
+        assert server.compose({"scene": "A hall.", "soundscape": "Rain. Only ambient sound is heard."}, False).count("Only ambient sound") == 1
+        # a clip from a reference picture: its subject is a person unless the fields say otherwise
+        ref = server.compose_references({"scene": "A cafe.", "subjects": ["a woman in a red coat"]}, 1)
+        assert "Mouths stay closed." in ref and "Only ambient sound is heard." in ref and N.find(ref) == []
+        assert "Mouths" not in server.compose_references({"scene": "A cafe.", "subjects": ["a red teapot"], "people": False}, 1)
+    finally:
+        N.OWN = had
+    # prompts written before this change still pass: the old sentences are passed over
+    assert N.check("integrated_multimodal_description: [Shot 1] A hall. Nobody speaks.\n\noverall_soundscape: Rain. No voices, no speech.")["negations"] == []
     # the soundscape and the music are the sound track's own fields
     assert N.check("integrated_multimodal_description: [Shot 1] A hall.\n\noverall_soundscape: Rain, no thunder.\n\nnon_diegetic_music: N/A")["negations"] == []
 

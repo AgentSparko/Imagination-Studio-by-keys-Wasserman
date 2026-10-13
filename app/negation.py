@@ -7,8 +7,10 @@ every mention of photographs was gone; clips told that nobody "NEVER look at the
 cut, no close-up" did not stop cuts to close-ups.
 
 `find` lists such phrases so the page can show them before the job is queued. The prompt is the user's: nothing here
-changes it. The app's own sentences about sound ("Nobody speaks.", "No voices, no speech.") are left alone: they were
-measured to work, and they speak of the sound track.
+changes it. The app's own prompts no longer forbid anything by name either: a shot without spoken lines is told
+"Mouths stay closed." (where it has people) and "Only ambient sound is heard.", a locked camera is "a locked, still
+camera" (server.py QUIET_*, slate.py MOVES). The older sentences ("Nobody speaks.", "No voices, no speech.") are still
+passed over in a prompt that has them, as are the control-layer lines of a motion reference.
 """
 
 from __future__ import annotations
