@@ -1,6 +1,6 @@
 """TensorFold Studio on a DGX Spark (CUDA): FastH3 video with sound and Qwen-Image-2.1 pictures through ComfyUI.
 
-    spark_generate.py video --prompt "..." -o clip.mp4 [--first-frame photo.jpg] [--steps 8] [--frames 124]
+    spark_generate.py video --prompt "..." -o clip.mp4 [--first-frame photo.jpg] [--last-frame end.jpg] [--steps 8] [--frames 124]
     spark_generate.py video --prompt "Use <Picture 1> as the person. ..." --ref face.png -o clip.mp4
     spark_generate.py video --prompt "<Picture 1> moves as in <Video 1>. ..." --ref face.png --ref-video move.mp4 -o clip.mp4
     spark_generate.py image --prompt "..." -o picture.png [--seeds 1,2,3] [--base --steps 40]
@@ -389,8 +389,8 @@ def reference(args) -> None:
         sys.exit(f"at most {TOTAL_LIMIT} references in all, got {len(pictures) + len(videos) + len(audios)}")
     if audios and not (pictures or videos):
         sys.exit("a reference audio clip needs a reference picture or video beside it: the model does not take sound alone")
-    if args.first_frame:
-        sys.exit("references and --first-frame do not combine: the reference model has no first-frame input")
+    if args.first_frame or args.last_frame:
+        sys.exit("references and --first-frame / --last-frame do not combine: the reference model has no keyframe input")
     for kind, files in (("picture", pictures), ("video", videos), ("audio clip", audios)):
         for path in files:
             if not Path(path).is_file() or not Path(path).stat().st_size:
@@ -600,6 +600,12 @@ def video(args) -> None:
     if args.first_frame:
         w["20"] = {"class_type": "LoadImage", "inputs": {"image": upload(args.first_frame)}}
         w["6"]["inputs"]["first_frame"] = ["20", 0]
+    if args.last_frame:
+        # the end keyframe of MiniMax H3's first-and-last-frame mode: the node encodes it as a condition latent at
+        # the clip's last latent frame, held at every pass like the first frame (with the first frame it is fitted
+        # to the canvas by a centre crop; alone it sets the geometry)
+        w["23"] = {"class_type": "LoadImage", "inputs": {"image": upload(args.last_frame)}}
+        w["6"]["inputs"]["last_frame"] = ["23", 0]
     for index, (name, strength) in enumerate(loras):
         if not installed("lora", name):
             sys.exit(f"ComfyUI does not list the LoRA {name}")
@@ -715,6 +721,7 @@ def main() -> None:
                    help="match: references scaled down to the clip's pixel area (what the adapter was trained with); "
                         "max: up to 2048 pixels on the short edge, several times slower")
     v.add_argument("--first-frame", default="", help="an image the clip starts from")
+    v.add_argument("--last-frame", default="", help="an image the clip ends on (with or without --first-frame)")
     v.add_argument("--text-encoder", default=os.environ.get("TEXT_ENCODER") or "regular",
                    help="regular, or the file name of another MiniMax H3 text encoder in ComfyUI's text_encoders folder")
     v.add_argument("--crop", default="", help="WxH centre crop of the finished clip")

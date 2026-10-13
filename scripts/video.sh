@@ -6,13 +6,15 @@
 #   PROMPT_FILE=prompts/black-mirror-scene.txt bash scripts/video.sh "" out.mp4
 #   QUALITY=high bash scripts/video.sh "a prompt" out.mp4               # 20 steps, no adapter, fast recipe (QUALITY=full for plain)
 #   FIRST_FRAME=photo.jpg bash scripts/video.sh "what happens next" out.mp4   # image to video
+#   FIRST_FRAME=a.jpg LAST_FRAME=b.jpg bash scripts/video.sh "how a becomes b" out.mp4   # the clip ends on b.jpg
 #   REF_IMAGES="face.jpg" bash scripts/video.sh "Use <Picture 1> as the person. The person ..." out.mp4   # reference to video
 #   REF_VIDEOS="dance.mp4" bash scripts/video.sh "The robot dances with the motion of <Video 1>." out.mp4   # a reference video
 #   REF_IMAGES="face.jpg" REF_AUDIOS="voice.wav" bash scripts/video.sh "<Picture 1> speaks with the voice of <Audio 1>: ..." out.mp4
 #   X2=1 WIDTH=1344 HEIGHT=768 bash scripts/video.sh "a prompt" out.mp4   # generate at 672x384, decode at 2x
 #   ENGINE=fasth3 STEPS=8 bash scripts/video.sh "a prompt" out.mp4       # FastH3; see scripts/fast.sh
 # Environment: PREFIX, H3_MODEL_DIR, ADAPTER (a file, or none), FIRST_FRAME (an image the clip starts from; it is
-# stretched onto the canvas, so match its aspect ratio), WIDTH, HEIGHT, FRAMES (17n+5), SEED,
+# stretched onto the canvas, so match its aspect ratio), LAST_FRAME (an image the clip ends on: MiniMax H3's
+# first-and-last-frame mode, with or without FIRST_FRAME; beside a first frame it is fitted by a centre crop), WIDTH, HEIGHT, FRAMES (17n+5), SEED,
 # LORA (style LoRAs, one PATH:STRENGTH per line), QUALITY (standard, high or full), POINTS (sigma points, one more than the passes: default 6 with the adapter, 21
 # without), REVOICE (audio steps made again without the adapter after an adapter render: default 20, 0 keeps the
 # adapter's own sound), AUDIO_EQ / AUDIO_BASS / AUDIO_BASS_TARGET (see below), AUDIO_SHIFT (experimental: the audio schedule's shift,
@@ -75,7 +77,7 @@ ref_list "${REF_AUDIOS:-}"; REF_SOUNDS=(${LIST[@]+"${LIST[@]}"})
 REF_COUNT=$(( ${#REFS[@]} + ${#REF_CLIPS[@]} + ${#REF_SOUNDS[@]} ))
 if [ "$REF_COUNT" -gt 0 ]; then
   # reference to video runs on the Ref2VA transformer; the text encoder and the two decoders are FL2VA's own files
-  [ -z "${FIRST_FRAME:-}" ] || { echo "references (REF_IMAGES, REF_VIDEOS, REF_AUDIOS) and FIRST_FRAME do not combine: a reference is not a frame of the clip" >&2; exit 2; }
+  [ -z "${FIRST_FRAME:-}${LAST_FRAME:-}" ] || { echo "references (REF_IMAGES, REF_VIDEOS, REF_AUDIOS) and FIRST_FRAME / LAST_FRAME do not combine: a reference is not a frame of the clip" >&2; exit 2; }
   [ "${ENGINE:-h3}" = h3 ] || { echo "references need MiniMax H3's Ref2VA transformer, not ENGINE=$ENGINE" >&2; exit 2; }
   # MiniMax's limits for one request: 9 pictures, 3 videos, 3 audio clips, 12 files in all
   [ "${#REFS[@]}" -le 9 ] || { echo "at most 9 reference pictures, got ${#REFS[@]}" >&2; exit 2; }
@@ -157,6 +159,7 @@ if [ "$ENGINE" = fasth3 ]; then
   [ -n "$WHY" ] || [ -z "${AUDIO_SHIFT:-}${EXTRA:-}" ] || WHY="AUDIO_SHIFT and EXTRA are MLX options"
   [ -n "$WHY" ] || [ -z "$TEXT_ENCODER" ] || WHY="TEXT_ENCODER is an MLX option"
   [ -n "$WHY" ] || [ -z "${LORA:-}" ] || WHY="a LoRA is merged by the MLX engine"
+  [ -n "$WHY" ] || [ -z "${LAST_FRAME:-}" ] || WHY="a last frame is held by the MLX engine"
   case "${FASTH3_ENGINE:-auto}" in
     mlx) WHY="FASTH3_ENGINE=mlx";;
     zig) [ -z "$WHY" ] || { echo "FASTH3_ENGINE=zig, but $WHY" >&2; exit 2; };;
@@ -188,6 +191,7 @@ fi
 if [ -n "${LORA:-}" ]; then while IFS= read -r ONE; do [ -z "$ONE" ] || ARGS+=(--lora "$ONE"); done <<<"$LORA"; fi
 [ -z "${AUDIO_SHIFT:-}" ] || ARGS+=(--audio-shift "$AUDIO_SHIFT")
 [ -z "${FIRST_FRAME:-}" ] || ARGS+=(--first-frame "$FIRST_FRAME")
+[ -z "${LAST_FRAME:-}" ] || { [ -s "$LAST_FRAME" ] || { echo "no last frame at $LAST_FRAME" >&2; exit 2; }; ARGS+=(--last-frame "$LAST_FRAME"); }
 [ -z "$TEXT_ENCODER" ] || ARGS+=(--text-encoder "$TEXT_ENCODER")
 for REF in ${REFS[@]+"${REFS[@]}"}; do ARGS+=(--ref-image "$REF"); done
 for REF in ${REF_CLIPS[@]+"${REF_CLIPS[@]}"}; do ARGS+=(--ref-video "$REF"); done
@@ -197,7 +201,7 @@ for REF in ${REF_SOUNDS[@]+"${REF_SOUNDS[@]}"}; do ARGS+=(--ref-audio "$REF"); d
 if [ -n "${PROMPT_FILE:-}" ]; then ARGS+=(--prompt-file "$PROMPT_FILE"); else ARGS+=(--prompt "$PROMPT"); fi
 [ -z "${CROP:-}" ] || ARGS+=(--crop "$CROP")
 # shellcheck disable=SC2086
-"$PREFIX/venv/bin/python" "$PREFIX/h3_generate.py" "${ARGS[@]}" $RECIPE ${EXTRA:-}
+"$PREFIX/venv/bin/python" "${H3_GENERATE:-$PREFIX/h3_generate.py}" "${ARGS[@]}" $RECIPE ${EXTRA:-}
 # Few-step audio varies a lot from take to take, and some takes come out thin (little 120-300 Hz). With an adapter,
 # the uncompressed track the render leaves beside the clip is measured: when the bass band is under the level of a
 # full take, a low shelf lifts it by what is missing (6 dB at most) and a limiter guards the peaks. A take that is

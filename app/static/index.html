@@ -222,7 +222,7 @@ async function clearOut(body, ask) { if (ask && !confirm(ask + "\nFiles are move
 let S = null, jobs = [], tab = "Create", project = null;
 const TABS = ["Create", "Production", "Motion Previs", "Editor", "Library", "Tutorial"];
 const C = { step: 0, mode: "scout", preset: "draft", quality: "standard", seconds: 5, seed: 1, scene: "", action: "", camera: "",
-  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", loras: [], textEncoder: "" };
+  dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, beats: "", cw: 864, ch: 480, steps: "", loras: [], textEncoder: "", lastImage: null };
 let LORAS = [];  // the LoRA hub's recipes, with whether each is installed here
 const field = (labelText, node) => el("div", {}, el("label", {}, labelText), node);
 const bind = (obj, key, node, after) => { const isBox = node.type === "checkbox"; if (isBox) node.checked = !!obj[key]; else node.value = obj[key] ?? "";
@@ -271,6 +271,39 @@ const audioName = i => "<Audio " + ((C.video_sound ? C.refVideos.length : 0) + i
 const refPassText = () => String(C.steps).trim() ? (C.refPasses === "4" ? "Turbo adapter, " : "") + C.steps + " passes (custom)" : C.refPasses === "4" ? "Turbo 4 passes" : "20 passes";
 const refWord = () => S && S.ref_media ? "References" : "Reference pictures";
 const noFrame = () => C.mode === "t2v" || isRef();
+// the end keyframe (MiniMax H3's first-and-last-frame mode): single clips that are not reference clips
+const lastOf = () => !isRef() && !isLong() && C.goes !== "image" && C.lastImage ? C.lastImage : null;
+const L = { lib: false, clip: "", prompt: "", job: null, took: null };
+async function frameFrom(path, at, set) { try { const r = await api("/api/frame", { path, at }); set(r.path); render(); } catch (e) { toast(e.message); } }
+// a frame out of a Library clip: its last frame (to continue from it), its first (to lead into it), or the one at a time
+function clipFrames(set, lead) { const box = el("div", { class: "row", style: "margin-top:8px;align-items:flex-end" });
+  api("/api/library").then(list => { const clips = list.filter(m => m.kind === "video"); if (!clips.length) { box.append(el("div", { class: "note" }, "No clips in the Library yet.")); return; }
+    const pick = el("select", {}, clips.slice(0, 80).map(m => el("option", { value: m.path }, m.path.split("/").pop()))); if (clips.some(m => m.path === L.clip)) pick.value = L.clip; pick.onchange = () => { L.clip = pick.value; };
+    const at = el("input", { type: "number", min: 0, step: 0.1, placeholder: "seconds", style: "width:110px" });
+    box.append(field(lead, pick), el("button", { class: "fit", onclick: () => frameFrom(pick.value, "last", set) }, "Use its last frame"), el("button", { class: "fit", onclick: () => frameFrom(pick.value, "first", set) }, "Use its first frame"),
+      el("div", { class: "fit" }, el("label", {}, "or the frame at"), at), el("button", { class: "fit", onclick: () => at.value === "" ? toast("Type the seconds first") : frameFrom(pick.value, Number(at.value), set) }, "Use frame at time")); }).catch(() => {});
+  return box; }
+function lastFramePanel() { const set = p => { C.lastImage = p; C.prompt = ""; };
+  const up = el("input", { type: "file", accept: "image/*", onchange: async () => { const data = new FormData(); data.append("file", up.files[0]);
+    const r = await fetch("/api/upload", { method: "POST", body: data }); const j = await r.json(); if (j.path) { set(j.path); render(); } else toast(j.error || "upload failed"); } });
+  const need = lorasOf(C).map(p => LORAS.find(r => r.id === p.id)).filter(r => r && r.needs === "first-last");
+  const scout = L.job && jobs.find(j => j.id === L.job);
+  if (scout && scout.status === "done" && L.took !== scout.id) { const made = scout.outputs.find(p => !p.endsWith("sheet.jpg")); if (made) set(made); L.took = scout.id; }
+  const box = el("div", { id: "lastframe" }, el("h2", { style: "margin-top:22px" }, "Last frame"),
+    el("div", { class: "note" }, isLong() ? "A last frame is for single clips: a long video is a chain of clips." : "Optional. The clip ends on this picture: MiniMax H3 holds it as its end keyframe, the way it holds a first frame. Beside a first frame it is fitted by a centre crop, so give both the same aspect ratio, and say in the prompt how the first picture becomes the last."),
+    need.length && !C.lastImage ? el("div", { class: "note", style: "color:var(--warn)" }, need.map(r => r.name).join(" and ") + (need.length > 1 ? " need" : " needs") + " a last frame" + (need.some(r => r.id === "orbit-360") ? ": for 360° Orbit, the same picture as the first frame." : ".")) : null,
+    el("div", { class: "row", style: "align-items:flex-end" }, field("Upload a picture", up),
+      C.image && !noFrame() ? el("button", { class: "fit", title: "The clip comes back to the picture it starts from", onclick: () => { set(C.image); render(); } }, "Same as the first frame") : null,
+      el("button", { class: "fit", onclick: () => { L.lib = !L.lib; render(); } }, L.lib ? "Hide the Library" : "Pick from the Library"),
+      C.lastImage ? el("button", { class: "fit", onclick: () => { set(null); render(); } }, "No last frame") : null),
+    clipFrames(set, "From a clip in the Library"),
+    el("div", { class: "row", style: "margin-top:8px;align-items:flex-end" }, field("Or make one from a prompt (Qwen-Image-2.1)", bind(L, "prompt", el("input", { placeholder: "the picture the clip ends on" }))),
+      el("button", { class: "fit", onclick: async () => { if (!L.prompt.trim()) return toast("Describe the picture first"); try { const j = await api("/api/jobs", { kind: "scout", title: "Last frame", params: { prompt: L.prompt, count: 1, seed: C.seed, preset: C.preset, ...(C.preset === "custom" ? { width: Number(C.cw), height: Number(C.ch) } : {}) } }); L.job = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, "Make it"),
+      scout ? el("span", { class: "pill " + scout.status }, scout.status) : null));
+  if (L.lib) { const grid = el("div", { class: "grid", style: "margin-top:10px" }); box.append(grid);
+    api("/api/library").then(list => list.filter(m => m.kind === "image").slice(0, 24).forEach(m => grid.append(el("div", { class: "tile" + (C.lastImage === m.path ? " on" : ""), onclick: () => { set(m.path); L.lib = false; render(); } }, media(m.path), el("div", { class: "cap" }, m.path.split("/").pop().slice(-26)))))).catch(() => {}); }
+  if (C.lastImage) box.append(el("h3", {}, "Selected last frame"), el("div", { style: "max-width:420px" }, media(C.lastImage, { style: "width:100%;border-radius:8px" })));
+  return box; }
 const isLong = () => Number(C.seconds) > 15;
 // the explicit controls decide the mode, the quality and the output preset the server understands
 function sync() {
@@ -655,7 +688,7 @@ function viewCreate() {
             el("div", { class: "cap" }, el("span", {}, audioName(i) + length(p)), drop(C.refAudios, C.audio_notes, i)),
             bind(C.audio_notes, i, el("input", { placeholder: "what it is: the voice timbre reference for the woman's voice" }), () => { C.prompt = ""; })))) : null,
           C.refAudios.length && !C.refs.length && !C.refVideos.length ? el("div", { class: "note", style: "color:var(--warn)" }, "Add a picture or a video too: audio cannot be the only reference.") : null ] : null);
-    } else if (noFrame()) put(body, el("h2", {}, "First frame"), el("div", { class: "note" }, "Text to video has no first frame. Change “The clip starts from” in step 1 to start from an image."));
+    } else if (noFrame()) put(body, el("h2", {}, "First frame"), el("div", { class: "note" }, "Text to video has no first frame. Change “The clip starts from” in step 1 to start from an image. A last frame alone works too: the clip then arrives at that picture."), lastFramePanel());
     else {
       const up = el("input", { type: "file", accept: "image/*", onchange: async () => { const data = new FormData(); data.append("file", up.files[0]);
         const r = await fetch("/api/upload", { method: "POST", body: data }); const j = await r.json(); if (j.path) { C.image = j.path; render(); } else toast(j.error || "upload failed"); } });
@@ -670,10 +703,11 @@ function viewCreate() {
           scout ? el("div", { class: "note" }, "Scout job: ", el("span", { class: "pill " + scout.status }, scout.status)) : el("div", { class: "note" }, "Six scouts take about half a minute. They are made at the size the video model starts from."));
         if (scout && scout.status === "done") put(body, el("div", { class: "grid", style: "margin-top:10px" }, scout.outputs.filter(p => !p.endsWith("sheet.jpg")).map(p =>
           el("div", { class: "tile" + (C.image === p ? " on" : ""), onclick: () => { C.image = p; render(); } }, media(p), el("div", { class: "cap" }, p.split("/").pop(), C.image === p ? "✓ selected" : "pick")))));
-      } else put(body, field("Upload an image", up));
+      } else put(body, field("Upload an image", up), clipFrames(p => { C.image = p; C.prompt = ""; }, "Or continue from a clip in the Library"));
       if (C.mode !== "scout" && C.image && C.image.startsWith("scouts/")) put(body, el("div", { class: "note" }, "Using the image you chose to animate."));
       if (C.image) put(body, el("h3", {}, "Selected first frame"), el("div", { style: "max-width:420px" }, media(C.image, { style: "width:100%;border-radius:8px" })),
         el("div", { class: "note" }, "The image is stretched onto the clip's canvas, so match its aspect ratio (16:9 for the presets here)."));
+      put(body, lastFramePanel());
     }
   } else if (C.step === 2) {
     put(body, el("h2", {}, "Words and sound"), el("div", { class: "note" }, "Spoken or sung lines are written into the prompt exactly. Leave empty for a clip with no speech."),
@@ -687,24 +721,26 @@ function viewCreate() {
       field("Music (N/A for none)", bind(C, "music", el("input", { "data-clear-to": "N/A" }))));
   } else if (C.step === 3) {
     const area = bind(C, "prompt", el("textarea", { style: "min-height:260px;font-family:ui-monospace,monospace;font-size:12px" }));
-    const again = async () => { const r = await api("/api/compose", { fields: { ...C, motion: isRef() ? motionFields() : null }, first_frame: !noFrame(), references: isRef() ? Math.max(C.refs.length, refMedia() ? 0 : 1) : 0, referenced: isRef() }); C.prompt = r.prompt; area.value = r.prompt; };
+    const again = async () => { const r = await api("/api/compose", { fields: { ...C, motion: isRef() ? motionFields() : null }, first_frame: !noFrame(), last_frame: !!lastOf(), seconds: Number(C.seconds), references: isRef() ? Math.max(C.refs.length, refMedia() ? 0 : 1) : 0, referenced: isRef() }); C.prompt = r.prompt; area.value = r.prompt; };
     if (!C.prompt) again();
     put(body, el("h2", {}, "Review the prompt"), el("div", { class: "note" }, "This is what the video model receives, in MiniMax H3's own three-part format. Edit it freely; “Rebuild” discards edits."), area,
       el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "fit", onclick: again }, "Rebuild from steps 1–3"), el("span")));
   } else {
     const est = el("div", { class: "note" }); showEstimate(C, est);
     const job = C.job && jobs.find(j => j.id === C.job);
-    const ready = C.prompt.trim() && (isRef() ? C.refs.length + C.refVideos.length > 0 : noFrame() || C.image);
-    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() && !isRef() ? " · " + C.steps + " passes (custom)" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + refPassText() + ", " + [[C.refs.length, "picture"], [C.refVideos.length, "video"], [C.refAudios.length, "audio clip"]].filter(k => k[0]).map(k => k[0] + " reference " + k[1] + (k[0] === 1 ? "" : "s")).join(", ") + (motionFields() ? ", motion: " + MOTION_MODES[C.motion.mode][0].toLowerCase() + " from the " + MOTION_LAYERS[C.motion.layer][0].toLowerCase() + (C.motion.layer === "reference" ? "" : " layer") : "") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + " · seed " + C.seed), est,
+    const wantsLast = !isRef() && !lastOf() && lorasOf(C).map(p => LORAS.find(r => r.id === p.id)).filter(r => r && r.needs === "first-last").map(r => r.name);
+    const ready = C.prompt.trim() && (isRef() ? C.refs.length + C.refVideos.length > 0 : noFrame() || C.image) && !(wantsLast && wantsLast.length);
+    put(body, el("h2", {}, "Render"), el("div", { class: "note" }, output().label + (String(C.steps).trim() && !isRef() ? " · " + C.steps + " passes (custom)" : "") + " · " + (isRef() ? "MiniMax H3 Ref2VA, " + refPassText() + ", " + [[C.refs.length, "picture"], [C.refVideos.length, "video"], [C.refAudios.length, "audio clip"]].filter(k => k[0]).map(k => k[0] + " reference " + k[1] + (k[0] === 1 ? "" : "s")).join(", ") + (motionFields() ? ", motion: " + MOTION_MODES[C.motion.mode][0].toLowerCase() + " from the " + MOTION_LAYERS[C.motion.layer][0].toLowerCase() + (C.motion.layer === "reference" ? "" : " layer") : "") : S.qualities[C.quality]) + " · " + (isLong() ? S.long[C.seconds] : C.seconds + " s") + (lastOf() ? " · ends on the last frame" : "") + " · seed " + C.seed), est,
+      wantsLast && wantsLast.length ? el("div", { class: "note", style: "color:var(--warn)" }, wantsLast.join(" and ") + (wantsLast.length > 1 ? " need" : " needs") + " a last frame: add one in step 2.") : null,
       !ready ? el("div", { class: "note", style: "color:var(--warn)" }, C.prompt.trim() ? (isRef() ? (S.ref_media ? "Add a reference picture or video in step 2." : "Add a reference picture in step 2.") : "Pick or upload a first frame in step 2.") : "Open step 4 once to build the prompt.") : null,
       el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "hot fit", disabled: !ready, onclick: async () => { try {
-        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, preset: C.preset, quality: C.quality, seed: C.seed, ...extras(), ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4", ...(refMedia() ? { reference_videos: await motionVideos(), reference_audios: C.refAudios, reference_video_sound: C.video_sound, ...(motionFields() ? { motion: { pack: C.motion.pack, layer: C.motion.layer, mode: C.motion.mode, measured: C.motion.measured || null, free: motionFree() }, pace: C.motion.pace || "auto", silent: paceOf(C.motion) === "flow" && !musicNamed() } : {}) } : {}) } : {}) };
+        const base = { prompt: C.prompt, image: noFrame() ? null : C.image, ...(lastOf() ? { last_image: lastOf() } : {}), preset: C.preset, quality: C.quality, seed: C.seed, ...extras(), ...(isRef() ? { references: C.refs, ref_turbo: C.refPasses === "4", ...(refMedia() ? { reference_videos: await motionVideos(), reference_audios: C.refAudios, reference_video_sound: C.video_sound, ...(motionFields() ? { motion: { pack: C.motion.pack, layer: C.motion.layer, mode: C.motion.mode, measured: C.motion.measured || null, free: motionFree() }, pace: C.motion.pace || "auto", silent: paceOf(C.motion) === "flow" && !musicNamed() } : {}) } : {}) } : {}) };
         const j = await api("/api/jobs", isLong() ? { kind: "long", title: S.long[C.seconds] + ": " + (C.action || C.scene || "Video").slice(0, 40), params: { ...base, total_seconds: Number(C.seconds), beats: (C.beats || "").split("\n") } }
           : { kind: "video", title: (C.action || C.scene || "Clip").slice(0, 48), params: { ...base, seconds: Number(C.seconds) } });
         C.job = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, "Queue this clip"),
         // the way back to step 1 once a clip is queued: with the same settings, or with the words cleared
         el("button", { class: "fit", onclick: () => { C.step = 0; C.job = null; render(); } }, "Back to the start, keep this setup"),
-        el("button", { class: "fit", onclick: () => { Object.assign(C, { step: 0, job: null, prompt: "", scene: "", action: "", camera: "", dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, beats: "", refs: [], subjects: [], refVideos: [], video_subjects: [], refAudios: [], audio_notes: [], video_sound: false, motion: null }); MA.job = null; Object.assign(REF_SAID, { pictures: "", videos: "", audios: "" }); render(); } }, "Start a new clip"), el("span")));
+        el("button", { class: "fit", onclick: () => { Object.assign(C, { step: 0, job: null, prompt: "", scene: "", action: "", camera: "", dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, lastImage: null, scoutJob: null, beats: "", refs: [], subjects: [], refVideos: [], video_subjects: [], refAudios: [], audio_notes: [], video_sound: false, motion: null }); MA.job = null; Object.assign(REF_SAID, { pictures: "", videos: "", audios: "" }); render(); } }, "Start a new clip"), el("span")));
     if (job) { put(body, el("h3", {}, "This clip"), jobCard(job));
       if (job.status === "done") put(body, el("video", { class: "main", src: file(job.outputs[0]), controls: true }),
         el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "fit", onclick: () => addToTimeline(job.outputs[0]) }, "Add to the editor timeline"), el("a", { class: "fit", href: file(job.outputs[0]), download: "" }, "Download"), el("span"))); }
@@ -829,6 +865,7 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
       el("span", { style: "cursor:pointer;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: m.path, onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.split("/").pop())),
       // the buttons on a row of their own: a long file name no longer pushes them out of the tile
       el("div", { class: "cap", style: "padding-top:0;justify-content:flex-end" },
+      m.kind === "video" ? el("button", { class: "small", title: "Start a new clip on this clip's last frame", onclick: async () => { try { const r = await api("/api/frame", { path: m.path, at: "last" }); C.image = r.path; C.prompt = ""; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } catch (e) { toast(e.message); } } }, "continue") : el("button", { class: "small", title: "End a new clip on this picture", onclick: () => { C.lastImage = m.path; C.prompt = ""; C.goes = "video"; if (C.start === "refs") C.start = "text"; C.step = 1; tab = "Create"; render(); } }, "last frame"),
       m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use"),
       // out of the library: the server moves the file to the studio's trash folder
       el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: () => clearOut({ paths: [m.path], films: true }, "Delete " + m.path.split("/").pop() + "?") }, "🗑")))))); });
