@@ -145,16 +145,25 @@ SPARK_COMFY_5S = {"fh4": {"small": 76, "p720": 155, "native": 172},
                   "fh20": {"small": 244, "p720": 575, "native": 642}}
 
 
+GPU_NAME: list[str] = []  # asked of the driver once: see machine()
+
+
 def machine() -> tuple[str, str]:
-    """(platform, label) for the header: which build this is and what it runs on."""
+    """(platform, label) for the header: which build this is and what it runs on.
+
+    The GPU's name is asked of nvidia-smi once and kept. /api/state used to run nvidia-smi twice on every call, with
+    no time limit, in the request itself: 0.35 to 0.42 s each time a job started on a Spark (measured), and for as
+    long as the driver takes when it is busy handing out memory, which is when a worker's API was seen to stop
+    answering. A page that polls the state then holds one of the server's threads per call."""
 
     if SPARK:
-        try:
-            gpu = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True,
-                                 text=True).stdout.strip().splitlines()[0]
-        except (OSError, IndexError):
-            gpu = "CUDA"
-        return "spark", f"DGX SPARK · {gpu.upper()} · H3-CUDA"
+        if not GPU_NAME:
+            try:
+                GPU_NAME.append(subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True,
+                                               text=True, timeout=5).stdout.strip().splitlines()[0])
+            except (OSError, IndexError, subprocess.TimeoutExpired):
+                return "spark", "DGX SPARK · CUDA · H3-CUDA"  # not kept: asked again on a later call
+        return "spark", f"DGX SPARK · {GPU_NAME[0].upper()} · H3-CUDA"
     # no chip name: the same recipe runs from an M1 with 64 GB up
     return "mac", "MAC · APPLE SILICON MX · H3-METAL"
 
@@ -555,8 +564,8 @@ def zig_ready() -> bool:
     if not (ZIG_ENGINE / "tf-h3-dit").is_file() or os.environ.get("FASTH3_ENGINE") == "mlx":
         return False
     try:
-        chip = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True).stdout
-    except OSError:
+        chip = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
         return False
     return re.search(r"Apple M([5-9]|[1-9][0-9])", chip) is not None
 
@@ -659,8 +668,11 @@ def media_seconds(path: str) -> tuple[float | None, bool | None]:
     tool = shutil.which("ffprobe") or shutil.which("ffprobe", path="/opt/homebrew/bin:/usr/local/bin")
     if tool is None:
         return None, None
-    done = subprocess.run([tool, "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json",
-                           path], capture_output=True, text=True)
+    try:
+        done = subprocess.run([tool, "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json",
+                               path], capture_output=True, text=True, timeout=30)  # in a request: never without a limit
+    except subprocess.TimeoutExpired:
+        return None, None
     try:
         data = json.loads(done.stdout)
         return float(data["format"]["duration"]), any(one.get("codec_type") == "audio" for one in data["streams"])
@@ -967,14 +979,14 @@ def passes(chosen: dict, steps: bool) -> dict:
 
 def last_frame(video: Path, image: Path) -> None:
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-sseof", "-0.2", "-i", str(video), "-vsync", "0", "-update", "1",
-                    "-q:v", "1", str(image)], check=True, env=environment({}))
+                    "-q:v", "1", str(image)], check=True, env=environment({}), timeout=120)
 
 
 def frame_at(video: Path, image: Path, at: float) -> None:
     """One frame of a clip at its own resolution: the frame shown ``at`` seconds in."""
 
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{max(at, 0):.3f}", "-i", str(video), "-frames:v", "1",
-                    "-q:v", "1", str(image)], check=True, env=environment({}))
+                    "-q:v", "1", str(image)], check=True, env=environment({}), timeout=120)
 
 
 def export(job: dict) -> None:
@@ -1444,7 +1456,7 @@ def take_frame(body: dict) -> dict:
             if seconds < 0 or (length and seconds > length):
                 raise HTTPException(400, f"the clip is {length:.1f} seconds long")
             frame_at(source, target, seconds)
-    except (subprocess.CalledProcessError, ValueError):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
         raise HTTPException(400, "no frame could be read there")
     if not target.is_file():
         raise HTTPException(400, "no frame could be read there")
@@ -1488,9 +1500,12 @@ def probe(path: str) -> dict:
     target = inside(path)
     if not media_tools()["ffprobe"]:
         raise HTTPException(400, f"measuring a clip needs ffprobe, which comes with ffmpeg and is not installed on this machine: {FFMPEG_HOW}")
-    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
-                          "stream=codec_type,width,height,nb_frames:format=duration", "-of", "json", str(target)],
-                         capture_output=True, text=True, env=environment({}))
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                              "stream=codec_type,width,height,nb_frames:format=duration", "-of", "json", str(target)],
+                             capture_output=True, text=True, env=environment({}), timeout=30)  # in a request: never without a limit
+    except subprocess.TimeoutExpired:
+        raise HTTPException(400, "the file could not be read in 30 seconds")
     data = json.loads(out.stdout or "{}")
     streams = data.get("streams") or []
     stream = next((one for one in streams if one.get("codec_type") == "video"), {})
