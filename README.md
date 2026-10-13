@@ -208,9 +208,11 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >   Animation and the Anime Slider.
 > - **Library actions**: a Turnaround sheet from a picture, Upscale a clip, and Remove a person from a clip.
 > - **In the wizard**: camera moves as a choice, a slider centred on 0, and one list of what a picked LoRA still needs.
-> - **Tested through both apps' own queues** (the table under *Keys and Wasserman LoRA Hub*). Not in yet: Multiple
->   Angles (the image step takes no picture; it follows), and 3D Animation Style installs once its author approves
->   the download.
+> - **Edit a picture**: a third thing a prompt can go to. Qwen-Image-2.1 re-draws a picture you give it, from words
+>   or, with the Multiple Angles LoRA, from a camera ring of 12 directions and 4 heights. The hub now tells LoRAs for
+>   pictures from LoRAs for clips.
+> - **Tested through both apps' own queues** (the table under *Keys and Wasserman LoRA Hub*). 3D Animation Style
+>   installs once its author approves the download.
 > - `oneshot-setup.sh --upgrade` keeps a helper folder that is not a clone (a prefix layered on another install).
 >
 > **2.6.2 (2026-10-12): a fresh DGX Spark install, checked from a clean clone.**
@@ -528,6 +530,47 @@ on the right shows progress by pass, a time estimate, the log, and a cancel butt
 Choose *Image only*, describe the picture, pick a size and how many takes. Each image has **Download** and
 **animate this**, which carries it into a video as the first frame.
 
+### Edit a picture
+
+![Create: Edit a picture, the camera ring](samples/ui_edit_camera.png)
+
+Choose *Edit a picture* and give the picture: an upload, one from the Library, or a frame of a Library clip. Then say
+what changes. Qwen-Image-2.1 makes and edits pictures with one set of weights, so this step needs nothing more than
+the image model the Studio already has: the picture goes to the text encoder's eyes and into the model's sequence as
+latents, and the model draws the picture again as the prompt describes it.
+
+- **Change it in words.** Describe the result ("The same statue at night under a full moon, wet paving stones, a
+  lantern on the wall behind it"). What is not mentioned is meant to stay; small things still shift.
+- **Move the camera.** With akhaliq's Multiple Angles LoRA (LoRA hub, *Fun*) the step shows a ring of 12 directions,
+  30° apart with the front at the top, 4 heights (eye-level, elevated, high-angle, top-down) and a close-up of each.
+  Pick angles one by one or take a set (*Five views around*, *Full orbit*, *Four heights*, *Wide and close*): each
+  angle is one picture from one load of the model, up to 12 a job. The ring writes the author's captions, such as
+  `<mva> right side view, high-angle shot close-up`.
+- **Results** go to the Library. Under each: *first frame* opens a clip on it, *last frame* ends a clip on it, *edit
+  again* feeds it back in. A front and a back view of one subject are a first and a last frame for a turn.
+
+![One picture, five views and an edit in words, Mac](samples/edit_angles_mac.jpg)
+
+Measured through the app's own queue, a generated picture of a statue at 1024x1024, seed 7, Turbo's 8 steps
+(EDIT_MEASURED). What we saw, one subject and one seed each:
+
+- The picture input works without any LoRA: the edit in words kept the statue and its plinth and changed the light.
+- Without the LoRA the model already turns the subject for a side or a back view and keeps the scene. With it the
+  height and the close-up are followed too (an *elevated* view is from above, a *close-up* fills the frame), and a
+  side view often comes back on a plain studio background: its author trained it on single objects and characters.
+- On the Mac, with Turbo, *left side* and *right side* both came out facing the same way. Check a set before you
+  build on it.
+
+Scripts: `bash scripts/edit.sh photo.png "what changes" out.png`; `SET_FILE=edits.json` makes several from one load;
+`LORA=path:0.9` adds an image LoRA. `BASE=1` runs the 40-step base model, which is what image LoRAs are trained on:
+`oneshot-setup.sh --image-edit` (13 GB more on a Mac) or `oneshot-setup-spark.sh --image-edit` (14 GB) fetches it.
+It is optional: the LoRA works on Turbo as shipped. Both checkpoints are under the **Qwen Research License
+Agreement: non-commercial use only**; the LoRA's own file is Apache-2.0.
+
+On a Mac the step runs mflux's Qwen-Image-2.1 edit pipeline in bfloat16 (43 GiB at its peak); under 96 GB of memory
+the app asks for 8-bit weights (30 GiB at its peak in one run on a 256 GB Mac; not run on a smaller Mac). On a DGX
+Spark it is one more ComfyUI graph, with the LoRA merged at run time on the bfloat16 file.
+
 ### Qwen image, then video
 
 ![Create: Qwen scout to video](samples/ui_create_qwen_h3.png)
@@ -750,12 +793,12 @@ author's, for credit.
 | Person Remover | Akatz Labs (akatz-ai) | Removes a chosen person from a video and rebuilds the background. | the Library's *Remove a person* action | H3 Community | DGX Spark (about 11 min for 5 s) |
 | VH5 Tape (VHS) | KennethFal | A 1980s home-video look with a damage dial: light wear, visible tape damage, or heavy tracking errors. | text or a first frame | H3 Community | Mac (138 s), DGX Spark (150 s) |
 | Wushu Action | Jojocodex | Kung fu and wushu moves with weight behind them: punches, kicks, spins, staff work. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
-| Multiple Angles (image) | akhaliq | Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. | a picture (image model) | Apache-2.0 | not usable yet |
+| Multiple Angles (image) | akhaliq | Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. Used in Create, *Edit a picture*. | a picture to edit | Apache-2.0 | EDIT_TESTED |
 
 "Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a clip does
-not have in this version: it is for the image model and re-shoots a picture you give it, which the image step cannot
-take yet (Multiple Angles). Its card says which. Three LoRAs are not for a clip at all and have a job of their own,
-which the Library runs as an action (see *Library actions*): Turnaround, Person Remover and Video Upscaler LoRA. 3D Animation Style is approved download by download by its author.
+not have in this version. Its card says which. Three LoRAs are not for a clip at all and have a job of their own,
+which the Library runs as an action (see *Library actions*): Turnaround, Person Remover and Video Upscaler LoRA.
+Multiple Angles is a LoRA for the image model: it is used in *Edit a picture*, not on a clip. 3D Animation Style is approved download by download by its author.
 
 **What a picked LoRA asks for.** A LoRA that needs more than a prompt says so in its own row and again in the Render
 step, each with a button to the step that takes it, and "Queue this clip" waits until nothing is missing: a last frame
@@ -1423,6 +1466,16 @@ MiniMax's own image-to-video prompts use; `RAW_PROMPT=1` passes yours untouched.
 bash scripts/image.sh "A neon shop sign that reads OPEN LATE, rainy night, reflections on wet pavement" out.png
 TURBO=0 bash scripts/image.sh "..." out.png                 # 40 steps, base model
 WIDTH=2048 HEIGHT=2048 bash scripts/image.sh "..." out.png  # sizes in multiples of 16
+```
+
+### Edit a picture
+
+```bash
+bash scripts/edit.sh photo.png "The same statue at night under a full moon" night.png
+LORA=~/TensorFoldStudio/loras/qwen-multiple-angles.safetensors:0.9 \
+  bash scripts/edit.sh photo.png "<mva> right side view, high-angle shot" side.png
+SET_FILE=edits.json bash scripts/edit.sh photo.png          # [["prompt", "out.png"], ...] from one load
+BASE=1 bash scripts/edit.sh photo.png "..." out.png         # 40 steps, base model (--image-edit)
 ```
 
 ### Video only, or from your own image

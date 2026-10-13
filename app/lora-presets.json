@@ -678,15 +678,15 @@
    1.0
   ],
   "base": "Qwen-Image-2.1",
-  "licence": "The author publishes this file under Apache-2.0. It is for Qwen-Image-2.1, under that model's own licence.",
+  "licence": "The author publishes this file under Apache-2.0. It runs on Qwen-Image-2.1-Turbo, which is under the Qwen Research License Agreement: non-commercial use only.",
   "licence_tag": "Apache-2.0",
   "category": [
    "fun"
   ],
   "needs": "image",
-  "what": "Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up.",
-  "status": "unsupported",
-  "why": "It is a LoRA for the image model, Qwen-Image-2.1, and it re-shoots a picture you give it. The Studio's image step makes a picture from text only: on a Mac the TensorFold image generator has no input-picture conditioning (it takes a prompt, a size and one adapter), and on a DGX Spark the image graph is the text-to-image one for Qwen-Image-2.1-Turbo. It needs an edit step that takes a picture, which is not built yet; the file is kept in the bundle for it.",
-  "notes": "Prompt shape: '<mva> front-right quarter view, eye-level shot'. v2, step 1500, is the file the author recommends."
+  "what": "Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. It works in Create, Edit a picture, where it adds a camera ring.",
+  "status": "ready",
+  "notes": "Prompt shape: '<mva> front-right quarter view, eye-level shot'; the camera ring writes it. v2, step 1500, is the file the author recommends. Trained on single objects and characters: side and back views often come back on a plain background. Lower the strength towards 0.8 if a result copies your picture.",
+  "target": "image"
  }
 ]

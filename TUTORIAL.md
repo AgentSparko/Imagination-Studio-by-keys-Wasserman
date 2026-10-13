@@ -89,6 +89,25 @@ prompt that you did not ask for, say so in the prompt ("unarmed hikers, no weapo
 **The prompt goes to:** Image only. Describe it, pick a size and how many, **Make image**. A few seconds each.
 *Download* saves one; *animate this* makes it the first frame of a video.
 
+## 5.5 Edit a picture
+
+![Edit a picture: the camera ring](samples/ui_edit_camera.png)
+
+**The prompt goes to:** Edit a picture. The image model re-draws a picture you give it.
+
+1. **The picture.** Upload one, press *Pick from the Library*, or take a frame of a Library clip (first, last, or the
+   frame at a time). In the Library, **edit** on a picture opens this step on it.
+2. **What changes.** *Change it in words*: describe the picture you want ("The same statue at night under a full moon,
+   wet paving stones, a lantern on the wall behind it"). What you leave out is meant to stay.
+   *Move the camera* (with the Multiple Angles LoRA from the hub's Fun group): click directions on the ring, front at
+   the top, 30° a step. Choose a height first, tick *Close-up* for a tighter frame, or take a ready set such as *Five
+   views around*. Each angle is one picture.
+3. **Make it.** About 10 seconds a picture on an M5 Ultra once the model is loaded. Under each result: *first frame*
+   opens a clip on it, *last frame* ends a clip on it, *edit again* feeds it back in.
+
+A side or back view often comes back on a plain studio background: the LoRA was trained on single objects and
+characters. If a result copies your picture instead of moving the camera, lower the LoRA's strength towards 0.8.
+
 ## 6. Image first, then video
 
 ![Qwen scout to video](samples/ui_create_qwen_h3.png)

@@ -87,7 +87,8 @@ them. Built with Qwen.
 **mflux** has the MLX implementation of Qwen-Image-2.1 that TensorFold's family is adapted from: the transformer
 module tree, running the text prefix once and reusing its keys and values, the rotary layout, the shifted schedule
 and the VAE. It is also the reference every number here was checked against, and this pack still runs its prompt
-encoder directly. mflux does much more than this port: editing, reference images, transparent output. (MIT.)
+encoder directly. mflux does much more than this port: editing, reference images, transparent output. On a Mac,
+Edit a picture runs on mflux's own Qwen-Image-2.1 edit pipeline as it is. (MIT.)
 
 ## The image model since 2.3: Qwen-Image-2.1-Turbo
 

@@ -8,6 +8,8 @@
 #                                             # what keyframe LoRAs (360 Orbit, Transformation) were trained on
 #                                             # and, with it, the Library's actions (Turnaround sheet, Upscale, Remove a person:
 #                                             # their authors' node packs and 2.5 GB of models; --no-workflows leaves them out)
+#   bash oneshot-setup-spark.sh --image-edit  # add Qwen-Image-2.1's 40-step base model, 14 GB more (Qwen Research License,
+#                                             # non-commercial): Edit a picture works without it, on Turbo's 8 steps
 #   bash oneshot-setup-spark.sh --motion      # add the Motion Previs tab's analysis: pose, camera solve and AI depth (0.5 GB, own environment)
 #   bash oneshot-setup-spark.sh --no-loras    # skip the essential LoRA bundle (about 4 GB from the LoRAs' authors; --loras=camera,style
 #                                       # takes some groups, --lora-bundle=PATH installs from a bundle on disk with no other network)
@@ -30,10 +32,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MODELS="${SPARK_MODELS:-$HOME/spark-studio-models}"
 COMFY_COMMIT=a4b5a045e56fc334903db8457b728b64e006119c
-IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""; H3_BASE=0; WORKFLOWS=1
+IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""; H3_BASE=0; WORKFLOWS=1; IMAGE_EDIT=0
 for arg in "$@"; do
   case "$arg" in
-    --ref2va) REF2VA=1;; --h3-base) H3_BASE=1;; --motion) MOTION=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;; --upgrade) UPGRADE=1; RENDER=0; MOTION=1;;
+    --ref2va) REF2VA=1;; --h3-base) H3_BASE=1;; --image-edit) IMAGE_EDIT=1;; --motion) MOTION=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;; --upgrade) UPGRADE=1; RENDER=0; MOTION=1;;
     --no-workflows) WORKFLOWS=0;;
     --loras) LORAS=all;; --loras=*) LORAS="${arg#--loras=}";; --no-loras) LORAS=none;; --lora-bundle=*) LORA_BUNDLE="${arg#--lora-bundle=}";;
     *) echo "unknown option $arg" >&2; exit 2;;
@@ -157,6 +159,15 @@ if [ "$REF2VA" = 1 ] && [ "$IMAGE_ONLY" = 0 ]; then
   ok "Ref2VA transformer (bf16) and LightX2V's Ref2VA Turbo adapter (4 passes)"
   # a running ComfyUI read its model folders when it started
   if bash "$HERE/spark/comfy.sh" status | grep -q running; then echo "  restart ComfyUI to see them: bash spark/comfy.sh stop (the next render starts it)"; fi
+fi
+
+if [ "$IMAGE_EDIT" = 1 ] && [ "$VERIFY" = 0 ]; then
+  say "Qwen-Image-2.1's 40-step base model for ComfyUI (14 GB) -> $MODELS"
+  echo "  Qwen-Image-2.1 is under the Qwen Research License Agreement: NON-COMMERCIAL use only. Read it first:"
+  echo "  https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
+  fetch Comfy-Org/Qwen-Image-2.1 Qwen-Image-2.1-Comfy diffusion_models/qwen_image_2.1_bf16.safetensors
+  ok "Qwen-Image-2.1 base model (bf16): BASE=1 bash scripts/edit.sh, and the 40 steps choice of Edit a picture"
+  if bash "$HERE/spark/comfy.sh" status | grep -q running; then echo "  restart ComfyUI to see it: bash spark/comfy.sh stop (the next render starts it)"; fi
 fi
 
 if [ "$H3_BASE" = 1 ] && [ "$IMAGE_ONLY" = 0 ] && [ "$VERIFY" = 0 ]; then
