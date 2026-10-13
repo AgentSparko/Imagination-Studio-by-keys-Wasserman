@@ -218,10 +218,15 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 >   three stretches of 22 frames (`--again`, about 70 s each), and dull green patches a window leaves at a clip's end
 >   are painted over from the frames before. On the test clip the second look brought back 5 of 21 frames clean in
 >   208 s more, and the blocks on the last frames are gone; a faint green cast on the floor of the last frames stays.
+>   Through the DGX Spark app the whole removal of the 5 second clip took 1051 s (820 s without the second look).
 > - **Upscale then Remove a person, and Remove then Upscale, back to back** through the DGX Spark app: 229 s, 870 s,
 >   219 s, lowest free memory 27 GB. Each starts from a ComfyUI server the other has not run in.
 > - **A picture edit straight after a Library action** starts from a fresh ComfyUI server (one run had dipped to
->   12.7 GB free); with it the lowest was 50 GB.
+>   12.7 GB free). Through the app, an edit queued right after a removal: 41 s with the restart, lowest 35 GB free.
+> - **A fresh DGX Spark install of this version** (a clean clone into an empty prefix, the weights already on the
+>   disk): `oneshot-setup-spark.sh --no-render --ref2va --lora-bundle=PATH` cloned the three node packs at their
+>   pins and installed the LoRAs from the bundle; a Turnaround sheet through that copy's app took 92 s. Not tested:
+>   the weight downloads themselves, and a fresh Mac install of this version.
 > - **Through the apps (2.6.3's Library actions, measured after its release)**: Turnaround sheet 512 in 55 s on the
 >   Mac and 89 s on the DGX Spark, 1024 in 160 s and 174 s; Upscale of a 5 second 864x480 clip to 1984x1088 in 319 s;
 >   Find the person 58 s; Remove a person 820 s.
