@@ -151,6 +151,29 @@ def test_plate_fills_from_other_frames():
     assert share == 1.0 and np.abs(made - back.astype(int)).max() <= 1   # the first frame's hole is the background again
 
 
+def test_mend_paints_over_dull_green_residue():
+    import numpy as np
+
+    sys.path.insert(0, str(PACK / "spark"))
+    import spark_workflows as sw
+
+    import importlib
+
+    sw = importlib.reload(sw)                        # the test above reads its frames from memory
+    width, height, count = 160, 96, 12
+    rng = np.random.default_rng(3)
+    back = np.clip(rng.normal(120, 6, (height, width, 3)), 0, 255).astype(np.uint8)
+    frames = np.repeat(back[None], count, 0).copy()
+    frames[9, 30:60, 40:80] = (40, 110, 40)          # a dull green block: under the mask's own green, still a stain
+    folder = Path(tempfile.mkdtemp())
+    assert sw.write_frames(frames, folder / "clip.mp4", {"width": width, "height": height}, 6)
+    mended, left = sw.mend(folder / "clip.mp4", {"width": width, "height": height})
+    out = sw.read_frames(folder / "clip.mp4", width, height).astype(int)
+    assert mended == 1 and left == 0, (mended, left)
+    assert np.abs(out[9, 30:60, 40:80].mean((0, 1)) - 120).max() < 6      # the block is the background again
+    assert np.abs(out[4].astype(int) - frames[4]).mean() < 6              # a clean frame is left as it was
+
+
 if __name__ == "__main__":
     for name, test in list(globals().items()):
         if name.startswith("test_"):

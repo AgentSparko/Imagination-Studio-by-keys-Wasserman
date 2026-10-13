@@ -25,7 +25,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.6.3** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.6.4** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -199,6 +199,33 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 
 ## What changed
 
+> **2.6.4 (2026-10-13): Edit a picture, the Multiple Angles LoRA, and what each machine can use.**
+> - **Edit a picture**: a third thing a prompt can go to (Create, *The prompt goes to*). Qwen-Image-2.1-Turbo re-draws
+>   a picture you give it, from words or, with the **Multiple Angles** LoRA (akhaliq), from a camera ring of 12
+>   directions and 4 heights with a close-up switch. *edit* and *new angle* on a Library picture open it; a result
+>   goes to the Library and can be a clip's first or last frame. Through both apps' own queues: an edit in words 17 s
+>   on the Mac and 29 s on the DGX Spark, five views 57 s and 85 s, and a 5 second clip from one view to the next
+>   98 s and 133 s.
+> - **What Multiple Angles does not do** (measured on both machines, on Turbo's 8 steps, with its author's own
+>   phrases): the quarter views turn the way asked, but a straight left and a straight right side view can come out
+>   facing the same way, and a picture of a whole scene is often reduced to one thing in it on a plain background.
+>   Its author's setting is 40 steps on the base model (`--image-edit` on either installer; not measured here).
+> - **The hub counts what this machine can use**: 21 of the 22 presets on a DGX Spark and 19 on a Mac (Upscale and
+>   Remove a person are DGX Spark only; 3D Animation Style waits on its author's approval of the download). A LoRA
+>   that a Library action or Edit a picture uses was counted as not usable in 2.6.3; the bundle script's menu and
+>   `--json` summary say the same now (`usable_here`).
+> - **Remove a person leaves less behind**: the frames that kept green go through the remover a second time in up to
+>   three stretches of 22 frames (`--again`, about 70 s each), and dull green patches a window leaves at a clip's end
+>   are painted over from the frames before. On the test clip the second look brought back 5 of 21 frames clean in
+>   208 s more, and the blocks on the last frames are gone; a faint green cast on the floor of the last frames stays.
+> - **Upscale then Remove a person, and Remove then Upscale, back to back** through the DGX Spark app: 229 s, 870 s,
+>   219 s, lowest free memory 27 GB. Each starts from a ComfyUI server the other has not run in.
+> - **A picture edit straight after a Library action** starts from a fresh ComfyUI server (one run had dipped to
+>   12.7 GB free); with it the lowest was 50 GB.
+> - **Through the apps (2.6.3's Library actions, measured after its release)**: Turnaround sheet 512 in 55 s on the
+>   Mac and 89 s on the DGX Spark, 1024 in 160 s and 174 s; Upscale of a 5 second 864x480 clip to 1984x1088 in 319 s;
+>   Find the person 58 s; Remove a person 820 s.
+>
 > **2.6.3 (2026-10-13): the LoRA hub with twenty-one community LoRAs, a last frame, LoRAs on clips from references, and Library actions.**
 > - **Keys and Wasserman LoRA Hub** in seven groups (01 Camera & Viewpoint to 06 Support & Finishing, and 07 Fun), with
 >   the one-command essential bundle (`oneshot-essential-bundle.sh`): thirteen LoRAs from one hosted package per

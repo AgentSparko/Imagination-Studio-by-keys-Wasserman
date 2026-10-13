@@ -376,7 +376,20 @@ def mend(clip: Path, size: dict, reach: int = 4) -> tuple[int, int]:
              and len(frames) > 2]
     for i in alien:
         green[i] = True
-    flagged = sorted(set(flagged) | set(alien))
+    # What a window leaves where it half took the person out is not always the mask's own green: measured at a clip's
+    # end, a dull green block the size of a few latent points. A frame whose share of greenish points jumps above the
+    # frames before it is mended too, where it is greenish and the frame it is mended from is not.
+    wide = frames.astype(np.int16)
+    tint = (wide[..., 1] - wide[..., 0] > 14) & (wide[..., 1] - wide[..., 2] > 14)
+    level = tint.reshape(len(frames), -1).mean(1)
+    for i in range(1, len(frames)):
+        calm = [j for j in range(max(0, i - 8), i) if j not in flagged and not green[j].any()]
+        if i in alien or not calm or level[i] - float(np.median(level[calm])) < 0.015:
+            continue
+        stain = tint[i] & ~grown(tint[calm[-1]], 6)
+        if stain.mean() > 0.004:
+            green[i] |= stain
+    flagged = sorted(set(flagged) | set(alien) | {i for i in range(len(frames)) if green[i].mean() > 0.002})
     if not flagged:
         return 0, 0
     out, bad, mended = frames.copy(), set(flagged), 0
@@ -417,6 +430,103 @@ def mend(clip: Path, size: dict, reach: int = 4) -> tuple[int, int]:
             return 0, len(flagged)
         fresh.replace(clip)
     return mended, len(set(green_of(out)[1]) | {i for i in alien if (out[i] == frames[i]).all()})
+
+
+def grown(mask, by: int):
+    """`mask` made wider by `by` points each way."""
+
+    import numpy as np
+
+    for axis in (0, 1):
+        wide = mask.copy()
+        for step in range(1, by + 1):
+            wide |= np.roll(mask, step, axis) | np.roll(mask, -step, axis)
+        mask = wide
+    return mask
+
+
+def write_frames(frames, target: Path, size: dict, crf: int = 14) -> bool:
+    done = subprocess.run([sg._tool("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s",
+                           f"{size['width']}x{size['height']}", "-r", str(sg.FPS), "-i", "pipe:0", "-an", "-c:v", "libx264",
+                           "-crf", str(crf), "-pix_fmt", "yuv420p", str(target)], input=frames.tobytes(), capture_output=True)
+    return done.returncode == 0 and target.is_file() and target.stat().st_size > 0
+
+
+def again(clip: Path, masked: Path, size: dict, lora: tuple[str, float], args, scratch: Path, limit: int) -> tuple[int, int, float]:
+    """A second look at the frames the first pass left green on (measured on a hard clip: one frame in six, and a
+    run of them where the person fills the picture). Up to `limit` stretches of 22 frames, the worst first, go
+    through the remover once more as clips of their own: the first pass's own frames, with the person painted green
+    again on the frames that kept green, starting from a frame that came out clean. Another start and another seed
+    draw them differently. Where the second look is clean, the person's place in the frame is taken from it; the rest
+    of the frame stays as the first pass drew it. Returns (stretches run, frames repaired, seconds)."""
+
+    import numpy as np
+
+    frames = read_frames(clip, size["width"], size["height"]).copy()
+    green, flagged = green_of(frames)
+    count = len(frames)
+    if not flagged or limit < 1 or count < 22:
+        return 0, 0, 0.0
+    share, bad = green.reshape(count, -1).mean(1), set(flagged)
+    todo, starts = set(flagged), []
+    while todo and len(starts) < limit:
+        worst = max(todo, key=lambda i: share[i])
+        first = [s for s in range(max(0, worst - 21), min(worst - 1, count - 22) + 1) if s not in bad]
+        if not first:
+            todo.discard(worst)
+            continue
+        start = max(first, key=lambda s: (len(todo & set(range(s, s + 22))), -abs(s + 11 - worst)))
+        starts.append(start)
+        todo -= set(range(start, start + 22))
+    if not starts:
+        return 0, 0, 0.0
+    person = green_of(read_frames(masked, size["width"], size["height"]))[0]      # where the person is, frame by frame
+    source = read_frames(masked, size["width"], size["height"])
+    repaired, total = 0, 0.0
+    for number, start in enumerate(starts):
+        span = frames[start:start + 22].copy()
+        for k in range(22):
+            if start + k in bad:
+                span[k][person[start + k]] = source[start + k][person[start + k]]
+        stretch, anchor = scratch / f"again{number}.mp4", scratch / f"again{number}.png"
+        if not write_frames(span, stretch, size, 10):
+            continue
+        from PIL import Image
+
+        Image.fromarray(frames[start]).save(anchor)
+        w = {"20": {"class_type": "LoadVideo", "inputs": {"file": sg.upload(str(stretch))}},
+             "21": {"class_type": "GetVideoComponents", "inputs": {"video": ["20", 0]}}}
+        remover_nodes(w, lora, sg.upload(str(anchor)), ["21", 0], args, 22, args.seed + 101 + number)
+        w["37"] = {"class_type": "CreateVideo", "inputs": {"images": ["31", 0], "fps": ["21", 2]}}
+        w["38"] = {"class_type": "SaveVideo", "inputs": {"video": ["37", 0], "filename_prefix": f"studio/again_{uuid.uuid4().hex[:8]}",
+                                                         "format": "auto", "codec": "auto"}}
+        saved, seconds = execute(w, "31")
+        total += seconds
+        if not saved.get("38"):
+            continue
+        take(saved["38"][0], scratch / "again.mp4")
+        second = read_frames(scratch / "again.mp4", size["width"], size["height"])
+        if len(second) < 22:
+            continue
+        left = green_of(second[:22])[0].reshape(22, -1).mean(1)
+        for k in range(1, 22):
+            i = start + k
+            if i not in bad or left[k] > 0.002 or left[k] >= share[i]:
+                continue                                      # the second look kept green there too
+            hole = grown(person[i] | green[i], 8).astype(np.float32)
+            for _ in range(6):                                # a feathered edge: the two passes' pictures meet softly
+                hole = (hole + np.roll(hole, 1, 0) + np.roll(hole, -1, 0) + np.roll(hole, 1, 1) + np.roll(hole, -1, 1)) / 5
+            soft = np.maximum(hole, (person[i] | green[i]) * 1.0)[..., None]
+            frames[i] = (frames[i] * (1 - soft) + second[k].astype(np.float32) * soft).round().astype(np.uint8)
+            bad.discard(i)
+            repaired += 1
+    if repaired:
+        fresh = clip.with_name(clip.stem + ".again.mp4")
+        if write_frames(frames, fresh, size):
+            fresh.replace(clip)
+        else:
+            repaired = 0
+    return len(starts), repaired, total
 
 
 def cut(source: Path, target: Path, frames: int, sound: str | None = None) -> bool:
@@ -659,6 +769,12 @@ def remove(args) -> None:
             trimmed = scratch / "trimmed.mp4"
             if not cut(silent, trimmed, size["frames"]):
                 silent.replace(trimmed)
+            stretches, repaired, extra = again(trimmed, green, size, lora, args, scratch, args.again)
+            if stretches:
+                seconds += extra
+                report.update(second_look=stretches, second_look_frames=repaired, second_look_s=round(extra, 1))
+                say(f"check: the first pass left green on some frames; {stretches} stretch{'es' if stretches > 1 else ''} of 22 frames "
+                    f"went through the remover again and {repaired} frame{'s' if repaired != 1 else ''} came back clean")
             mended, left = mend(trimmed, size)
             report.update(mended_frames=mended, green_frames=left)
             if mended:
@@ -711,6 +827,7 @@ def main() -> None:
             m.add_argument("--window", type=int, default=22); m.add_argument("--steps", type=int, default=12)
             m.add_argument("--seed", type=int, default=904234); m.add_argument("--prompt", default=REMOVE_PROMPT)
             m.add_argument("--silent", action="store_true", help="leave the clip's own sound out")
+            m.add_argument("--again", type=int, default=3, help="stretches of 22 frames to run a second time where green was left (0: none)")
             m.add_argument("--keep", default="", help="folder/name: keep the green clip and the clean frame beside the result")
     args = parser.parse_args()
     {"turnaround": turnaround, "upscale": upscale, "mask": mask, "remove": remove}[args.action](args)
