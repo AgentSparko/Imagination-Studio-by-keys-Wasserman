@@ -25,6 +25,24 @@ LoRA for MiniMax H3). The pack holds only its recipe; the weights are downloaded
 them, as a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement. 80s Horror LoRA by Sam
 Wasserman (wassermanproductions.com). Powered by MiniMax H3.
 
+## The LoRA hub's community presets: their authors
+
+From 2.6.3 the hub lists twenty-one community LoRAs in seven groups, twenty for MiniMax H3 and one for Qwen-Image-2.1. Each is its author's own work, under
+that file's own licence. The pack holds only their recipes; the essential bundle fetches each file from its author's
+page and keeps the author's model card and licence beside it.
+
+- **Camera & Viewpoint:** Camera Motion by Jojocodex; Head-mounted FPV by neph1; Equirectangular 360° by shamanic;
+  360° Orbit by pablodawson.
+- **Transformation & Morphing:** Transformation by Ashmotv; Turnaround by matlod; Keyframe Animation by alvdansen.
+- **Character Editing:** Character Swap and Person Remover by Akatz Labs (akatz-ai); Natural Face Speech by vpakarinen.
+- **Motion & Action:** Motion Continuity Repair, Combat Base V2 and Weapon Combat by JOKER141; Spatial Physics by
+  Jojocodex.
+- **Art Style:** Anime Slider by adf99; Lineart Anime by DiffSynth-Studio; 3D Animation Style by SOLRICKS.
+- **Support & Finishing:** Video Upscaler LoRA by dntpi (with the latent upscaler by LBH-123-AI it builds on).
+- **Fun:** VH5 Tape (VHS) by KennethFal; Wushu Action by Jojocodex; Multiple Angles, for Qwen-Image-2.1, by akhaliq.
+
+The MiniMax H3 ones are Model Derivatives of MiniMax H3. Powered by MiniMax H3.
+
 ## The Motion Previs tab: Sam Wasserman's Motion Previs Studio
 
 **Sam Wasserman (wassermanproductions.com, wasserman.ai)** created **Motion Previs Studio**

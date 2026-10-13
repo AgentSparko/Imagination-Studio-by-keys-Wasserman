@@ -604,26 +604,155 @@ A gate whose tool is missing on the machine is shown as skipped and does not fai
 
 #### Keys and Wasserman LoRA Hub
 
-A library of style LoRAs for MiniMax H3 that a clip can be rendered with. It is in the video settings of Create
-(step 1), on the Production board and in the Slate film settings.
+A library of LoRAs for MiniMax H3 that a clip can be rendered with: Sam Wasserman's 80s Horror LoRA and, from 2.6.3,
+twenty-one community LoRAs in seven groups (six by kind, and Fun). It is in the video settings of Create (step 1), on the Production board and in
+the Slate film settings. Each LoRA is its author's own work under its own licence; the page on its card is the
+author's, for credit.
 
-- **Pick.** Each LoRA in the hub is a button. Click one to render with it; click again to drop it. Up to four can be
-  stacked. Each picked LoRA has a strength and, when its recipe has them, a look to choose (VHS or 16mm film for the
-  first preset). Its trigger word and look phrase are put at the start of the shot for you.
-- **Install.** A LoRA that is not on the machine yet shows a download mark. The first click asks, shows the file's
-  licence, and downloads it from its author's own page into `~/TensorFoldStudio/loras/`. No weights ship with this
-  pack.
-- **Add.** "+ Add LoRA" takes a recipe: a name, the download address of the `.safetensors` file or an uploaded file,
-  the trigger word, the strength, and optional looks. It becomes a button in the hub on that machine. Presets that
-  ship with the pack are in `app/lora-presets.json`.
-- **First preset: Wasserman-80's Horror LORA** by Sam Wasserman (wassermanproductions.com), the look of a 1970s-80s
-  horror movie. Its weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement,
-  with that licence's territory limits; read WEIGHTS_LICENSE.md on the LoRA's page before downloading.
+- **Browse.** "▸ Browse the hub" opens the library: a tab for each group, a search box, "Installed only", and a card
+  for each LoRA with what it does, its author, what it works from, its licence, its size and its trigger word.
+- **Install.** After the essential bundle (below) every usable LoRA is already installed. Otherwise "⤓ Install" on a
+  card, or "Install all in this category", puts the file in `~/TensorFoldStudio/loras/`, checked against its sha256.
+- **Use.** "Use on this clip" adds the LoRA to the clip being made. Each picked LoRA has a strength (its author's range
+  is in the tooltip; a slider LoRA also takes minus values) and, when its recipe has them, a look. The trigger word and
+  look phrase are put at the start of the shot for you. Up to four can be stacked.
+- **Add.** "+ Add your own LoRA" takes a recipe: a name, the address of the `.safetensors` file or an uploaded file,
+  the trigger word, the strength, and optional looks. Presets are in `app/lora-presets.json`.
+
+**Wasserman**
+
+| LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
+|---|---|---|---|---|---|
+| Wasserman-80's Horror LORA | Sam Wasserman (wassermanproductions.com) | The look of a 1970s-80s horror movie: VHS or 16mm film. | text or a first frame | H3 Community | not tested |
+
+**01 Camera & Viewpoint**
+
+| LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
+|---|---|---|---|---|---|
+| Camera Motion | Jojocodex | Camera moves the base model tends to miss: push-in, pull-back, orbit, tracking, aerial, crane, pan, macro. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
+| Head-mounted FPV | neph1 | A first-person view from a camera on the head, with the bob of walking or running. | text or a first frame | H3 Community | Mac (84 s), DGX Spark (150 s) |
+| Equirectangular 360° | shamanic | A full-sphere 360° panorama video with sound, for VR players. | text or a first frame | H3 Community | Mac (108 s), DGX Spark (180 s) |
+| 360° Orbit | pablodawson | One photo becomes a frozen-moment 360° orbit that ends on the frame it started from. | first and last frame | H3 Community | not usable yet |
+
+**02 Transformation & Morphing**
+
+| LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
+|---|---|---|---|---|---|
+| Transformation | Ashmotv | Morphs one picture into another, element by element. | first and last frame | H3 Community | not usable yet |
+| Turnaround | matlod | A five-view character sheet (front to back) from one reference picture. | its own workflow | H3 Community | not usable yet |
+| Keyframe Animation | alvdansen | Hand-drawn animation on held frames: the next key drawing, an inbetween, or a short held sequence from one or two drawings. | reference pictures | Custom, gated | not usable yet |
+
+**03 Character Editing**
+
+| LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
+|---|---|---|---|---|---|
+| Character Swap | Akatz Labs (akatz-ai) | Replaces a person in a source clip with the person in a reference picture, keeping the scene. | a source video | H3 Community | not usable yet |
+| Person Remover | Akatz Labs (akatz-ai) | Removes a chosen person from a video and rebuilds the background. | its own workflow | H3 Community | not usable yet |
+| Natural Face Speech | vpakarinen | More natural face muscles and clearer English speech for a person talking to the camera. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
+
+**04 Motion & Action**
+
+| LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
+|---|---|---|---|---|---|
+| Motion Continuity Repair | JOKER141 | Keeps fast movement connected: fewer broken transitions, less unwanted slow motion, closer to the prompt. | text or a first frame | None stated | Mac (84 s), DGX Spark (150 s) |
+| Combat Base V2 | JOKER141 | Faster, harder-hitting fight movement, and livelier body movement and sound in dialogue scenes. | text or a first frame | None stated | Mac (84 s), DGX Spark (144 s) |
+| Weapon Combat | JOKER141 | Sword, staff and other weapon fights that hold together better. | text or a first frame | None stated | Mac (90 s), DGX Spark (150 s) |
+| Spatial Physics | Jojocodex | Objects that collide, stack, fall and block each other more believably; also firmer contact in fights. | text or a first frame | Apache-2.0 | Mac (90 s), DGX Spark (150 s) |
+
+**05 Art Style**
+
+| LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
+|---|---|---|---|---|---|
+| Anime Slider | adf99 | A slider between flat 2D anime (plus) and photorealism (minus). | text or a first frame | None stated | Mac (90 s), DGX Spark (150 s) |
+| Lineart Anime | DiffSynth-Studio | Colours a line-art video into finished anime. | a source video | Apache-2.0 | not usable yet |
+| 3D Animation Style | SOLRICKS | The look of a 3D animated feature. | text or a first frame | H3 Community, gated | not tested (gated) |
+
+**06 Support & Finishing**
+
+| LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
+|---|---|---|---|---|---|
+| Natural Face Speech | vpakarinen | More natural face muscles and clearer English speech for a person talking to the camera. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
+| Motion Continuity Repair | JOKER141 | Keeps fast movement connected: fewer broken transitions, less unwanted slow motion, closer to the prompt. | text or a first frame | None stated | Mac (84 s), DGX Spark (150 s) |
+| Video Upscaler LoRA | dntpi | Doubles the size of a finished clip: a latent upscale, then one guided re-draw in tiles. | its own workflow | MIT code, weights other | not usable yet |
+
+**07 Fun**
+
+| LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
+|---|---|---|---|---|---|
+| Person Remover | Akatz Labs (akatz-ai) | Removes a chosen person from a video and rebuilds the background. | its own workflow | H3 Community | not usable yet |
+| VH5 Tape (VHS) | KennethFal | A 1980s home-video look with a damage dial: light wear, visible tape damage, or heavy tracking errors. | text or a first frame | H3 Community | Mac (138 s), DGX Spark (150 s) |
+| Wushu Action | Jojocodex | Kung fu and wushu moves with weight behind them: punches, kicks, spins, staff work. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
+| Multiple Angles (image) | akhaliq | Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. | a picture (image model) | Apache-2.0 | not usable yet |
+
+"Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a hub clip
+does not have in this version: a last frame beside the first (360° Orbit, Transformation), reference pictures or a
+source video on the reference path (Keyframe Animation, Character Swap, Lineart Anime), or its author's own workflow
+(Turnaround, Person Remover, Video Upscaler LoRA), or it is for the image model (Multiple Angles). Its card says which. 3D Animation Style is approved download by
+download by its author.
+
+What was tested (2026-10-12, one seed each, 5 seconds at 864x480, FastH3 8 passes, text to video; 1120x480 for the 360°
+LoRA): each usable LoRA was installed through the hub and rendered twice at the same seed, at 0.01 (the same engine
+path with no visible effect) and at the strength in its recipe. "Change" is the mean absolute difference of the two
+clips' frames on a 0 to 255 scale; the contact sheets were looked at.
+
+| LoRA | Strength | Mac: time, change | DGX Spark: time, change |
+|---|---|---|---|
+| Camera Motion | 0.9 | 84 s, 52.1 | 150 s, 50.9 |
+| Head-mounted FPV | 1 | 84 s, 62.6 | 150 s, 41.4 |
+| Equirectangular 360° | 1 | 108 s, 63.8 | 180 s, 26.8 |
+| Natural Face Speech | 0.7 | 84 s, 55.0 | 150 s, 29.9 |
+| Motion Continuity Repair | 0.9 | 84 s, 41.0 | 150 s, 22.4 |
+| Combat Base V2 | 1 | 84 s, 57.8 | 144 s, 46.6 |
+| Weapon Combat | 0.6 | 90 s, 30.3 | 150 s, 14.6 |
+| Spatial Physics | 0.4 | 90 s, 41.6 | 150 s, 25.8 |
+| Anime Slider | 3 | 90 s, 69.3 | 150 s, 67.5 |
+| VH5 Tape (VHS) | 1 | 138 s, 56.8 | 150 s, 45.4 |
+| Wushu Action | 0.5 | 84 s, 34.9 | 150 s, 33.6 |
+
+Seen on the sheets: the Anime Slider turns a 3D-leaning picture into flat 2D anime; Equirectangular 360° gives a
+level panorama where the base model drew a "little planet"; Head-mounted FPV widens the view and puts it at head
+height; Camera Motion pulls back from a close-up to a wide shot where the base clip only followed the fox; Combat Base
+V2 gives larger, faster strikes; Natural Face Speech moves in on the speaker at the microphone; VH5 Tape turns a clean
+studio shot into a worn 4:3 tape recording. The numbers say the clip changed, not that it improved: judge the others by eye for your own prompt.
 
 How it renders: on a Mac the file is rewritten once (`scripts/convert-lora.py`) and merged at load by the MLX engine,
 for MiniMax H3 at any quality and for FastH3 (which then runs on the MLX engine, not the native one). On a DGX Spark
 ComfyUI merges it into FastH3's full-precision weights and its own blocks render the clip, not the TensorFold engine.
 Both are slower than the usual path and have no time estimate. A LoRA is not applied to reference-to-video clips.
+
+#### Essential LoRA bundle
+
+```bash
+bash oneshot-essential-bundle.sh          # both installers run it; --no-loras on an installer skips it
+```
+
+It fetches every preset of the hub once: thirteen in one essential package per platform (1.8 GB, from
+`huggingface.co/drowzeys/keys-studio-lora-essential`, the LoRAs whose stated licences allow passing them on, each with its
+author's card and licence; `LORA_PACKAGE=none` skips it) and the rest each from its author's own page (about 6.5 GB in
+all and 4 minutes measured on a fast line;
+the three Keyframe Animation adapters, 5.6 GB of it, need your Hugging Face account's acceptance of their licence),
+into `~/TensorFoldStudio/lora-bundle/`, laid out by the hub's groups (`01-camera-viewpoint` ... `06-support-finishing`, `07-fun`,
+with `bundle.json` as the menu), checks each sha256, keeps the author's model card and licence beside each file, and
+installs the set into the hub (on a Mac, rewritten for the MLX engine). After that the Studio needs none of those
+links: copy the folder to another machine or drive and run `bash oneshot-essential-bundle.sh --source /path/to/lora-bundle`
+(or an installer with `--lora-bundle=/path`) for an install with no network. A second run fetches nothing. A dead or
+moved author link is reported and skipped, not fatal. `--categories camera,style`, `--only ID,ID`, `--dest DIR`,
+`--dry-run`, `--verify`, `--json`, `--no-install`. `--package FILE` unpacks an essential package (one `.tar` per
+platform with the LoRAs whose licences allow passing them on, checked against the `.sha256` beside it) before anything
+else; `--make-package DIR` writes those archives from a bundle. No LoRA file is in this repository.
+
+**For AI agents** (no prompts anywhere; run in this order on a new machine):
+
+```bash
+git clone https://github.com/drowzeys/keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark.git && cd keys-Wasserman-Slate-AI-Studio-powered-by-TensorFold-Mac-DGXSpark
+bash oneshot-setup.sh --no-render --no-loras        # the Studio (oneshot-setup-spark.sh on a DGX Spark); model weights as listed under One-shot
+bash oneshot-essential-bundle.sh --json > lora-bundle.json; echo "exit $?"   # 0 all present, 1 some unavailable (listed), 2 usage or disk
+bash oneshot-essential-bundle.sh --verify --json    # fetches nothing: "present", "unavailable", "gated", and "menu" (group -> LoRAs -> state)
+```
+
+Expect 4.8 GB and 20 of 22 present without a Hugging Face token (`gated` lists the two an author gates), in 90 to 120 s
+at 40 MB/s; measured 119 s on the DGX Spark and 86 s on the Mac, a second run 2 s, an offline run from a copied bundle
+3 s. Set `HF_TOKEN` (or sign in with `hf auth login`) for the gated ones once their authors have approved the account.
 
 #### Wasserman Slate AI Studio
 

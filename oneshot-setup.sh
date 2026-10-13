@@ -9,6 +9,8 @@
 #   bash oneshot-setup.sh --motion      # also the Motion Previs tab's analysis: pose, camera solve and AI depth (0.5 GB, own environment)
 #   bash oneshot-setup.sh --image-only  # the image model only (33 GB), render a test image
 #   bash oneshot-setup.sh --no-render   # install and fetch only
+#   bash oneshot-setup.sh --no-loras    # skip the essential LoRA bundle (about 4 GB from the LoRAs' authors; --loras=camera,style
+#                                       # takes some groups, --lora-bundle=PATH installs from a bundle on disk with no other network)
 #   bash oneshot-setup.sh --verify      # check an existing install, no downloads, no render
 #   bash oneshot-setup.sh --upgrade     # after `git pull`: move an existing install to this version (engine, scripts, Motion
 #                                       # Previs environment), fetch no weights, then --verify. Running it twice changes nothing.
@@ -30,7 +32,7 @@ if [ "$(uname -s)" = Linux ]; then
   SPARK_ARGS=()
   for arg in "$@"; do
     case "$arg" in
-      --image-only|--no-render|--verify|--motion|--upgrade) SPARK_ARGS+=("$arg");;
+      --image-only|--no-render|--verify|--motion|--upgrade|--loras|--loras=*|--no-loras|--lora-bundle=*) SPARK_ARGS+=("$arg");;
       --fasth3) ;;
       --turbo|--app|--ref2va) echo "note: $arg is for the Mac build and does nothing on a DGX Spark";;
       *) echo "unknown option $arg" >&2; exit 2;;
@@ -68,7 +70,7 @@ REF_ADAPTER_NAME="lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 X2_REPO="speach1sdef178/MiniMax-H3-X2-Detail-VAE"
 X2_NAME="MiniMax-H3-X2-Detail-v1.safetensors"
 X2_SHA256="2296840f4acedcaa976688e7d7b97f7bf570b136e400385d3f46224011897aac"
-MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0; UPGRADE=0
+MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""
 for arg in "$@"; do
   case "$arg" in
     --image-only) VIDEO=0;;
@@ -79,6 +81,8 @@ for arg in "$@"; do
     --app) APP=1;;
     --verify|--no-render) MODE="$arg";;
     --upgrade) UPGRADE=1; MODE="--no-render"; MOTION=1;;
+    --loras) LORAS=all;; --loras=*) LORAS="${arg#--loras=}";; --no-loras) LORAS=none;;
+    --lora-bundle=*) LORA_BUNDLE="${arg#--lora-bundle=}";;
     *) echo "unknown option $arg" >&2; exit 2;;
   esac
 done
@@ -335,6 +339,15 @@ fi
 if [ "$UPGRADE" = 1 ]; then
   step "Upgraded: $INSTALLED -> $(cat "$PREFIX/VERSION"). Checking the install (restart the app to serve the new pages)"
   exec bash "$HERE/oneshot-setup.sh" --verify $([ "$VIDEO" = 1 ] || echo --image-only)
+fi
+# The essential LoRA bundle: every preset of the LoRA hub, fetched once from its author's page into one folder laid out
+# by the hub's groups, then installed (oneshot-essential-bundle.sh). --loras=GROUPS takes some groups, --lora-bundle=PATH
+# (or LORA_BUNDLE) takes the files from another copy of a bundle with no other network, --no-loras skips it.
+if [ "$LORAS" != none ] && [ "$VIDEO" = 1 ] && [ "$MODE" != "--verify" ]; then
+  echo; echo "== Essential LoRA bundle${LORA_BUNDLE:+ from $LORA_BUNDLE}"
+  PREFIX="$PREFIX" H3_MODEL_DIR="${H3_MODEL_DIR:-$HOME/h3-models/MiniMax-H3}" bash "$HERE/oneshot-essential-bundle.sh" \
+    $([ -z "$LORAS" ] || [ "$LORAS" = all ] || echo "--categories=$LORAS") $([ -z "${LORA_BUNDLE:-}" ] || echo "--source=$LORA_BUNDLE") 2>&1 | sed 's/^/  /' \
+    || echo "  ! some LoRAs could not be fetched (listed above): the rest are installed, and bash oneshot-essential-bundle.sh tries again"
 fi
 if [ "$MODE" = "--verify" ] || [ "$MODE" = "--no-render" ]; then
   echo; echo "DONE. Image: bash $HERE/scripts/image.sh \"a prompt\" out.png"

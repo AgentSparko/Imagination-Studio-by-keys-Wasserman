@@ -120,6 +120,26 @@ it in **Production** instead.
 - **Clearing:** every prompt form has **Clear** (with **Undo**). In the queue, 🗑 deletes a finished job and what it
   made, and **Clear failed** / **Delete all finished** tidy the list. Deleted files go to `~/TensorFoldStudio/trash`.
 
+## 8.5 The LoRA hub: a trained look or move for a clip
+
+A LoRA is a small file that teaches the video model one thing: a camera move, a fighting style, a drawn look. The
+**Keys and Wasserman LoRA Hub** is in step 1 of Create (and on the Production board and in a Slate film's settings).
+
+1. Press **▸ Browse the hub**. The LoRAs are in groups: *Wasserman*, *01 Camera & Viewpoint*, *02 Transformation &
+   Morphing*, *03 Character Editing*, *04 Motion & Action*, *05 Art Style*, *06 Support & Finishing*, *07 Fun*. Pick a group or
+   type in the search box.
+2. Each card says what the LoRA does, who made it, what it works from, its licence and its size. After
+   `bash oneshot-essential-bundle.sh` (the installer runs it) every usable LoRA is already installed; otherwise press
+   **⤓ Install** on a card, or **Install all in this category**.
+3. Press **Use on this clip**. A row appears with **Strength** (the author's range is in its tooltip) and, when the
+   LoRA has them, a **Look**. Its trigger word is written into the prompt for you. Up to four can be stacked.
+4. Write the prompt the way the card's note says, then render as usual. A clip with a LoRA takes a slower path and
+   shows no time estimate.
+
+A slider LoRA such as *Anime Slider* also takes minus values: 3 for flat 2D anime, -3 for a photographic look.
+*Equirectangular 360°* wants the Custom size 1120x480; the clip is the whole sphere, to be resized to 2:1 for a VR
+player.
+
 ## 9. Motion Previs: make a clip that moves like another
 
 The analysis in the **Motion Previs** tab is a port, modified, of Motion Previs Studio by Sam Wasserman
