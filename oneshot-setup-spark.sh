@@ -4,6 +4,8 @@
 #   bash oneshot-setup-spark.sh --image-only  # Qwen-Image-2.1 only (26 GB)
 #   bash oneshot-setup-spark.sh --no-render   # skip the test clip
 #   bash oneshot-setup-spark.sh --ref2va      # add MiniMax H3 Ref2VA (reference pictures hold a face), 39 GB more
+#   bash oneshot-setup-spark.sh --h3-base     # add MiniMax H3's own first-and-last-frame transformer, 40 GB more:
+#                                             # what keyframe LoRAs (360 Orbit, Transformation) were trained on
 #   bash oneshot-setup-spark.sh --motion      # add the Motion Previs tab's analysis: pose, camera solve and AI depth (0.5 GB, own environment)
 #   bash oneshot-setup-spark.sh --no-loras    # skip the essential LoRA bundle (about 4 GB from the LoRAs' authors; --loras=camera,style
 #                                       # takes some groups, --lora-bundle=PATH installs from a bundle on disk with no other network)
@@ -26,10 +28,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MODELS="${SPARK_MODELS:-$HOME/spark-studio-models}"
 COMFY_COMMIT=a4b5a045e56fc334903db8457b728b64e006119c
-IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""
+IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""; H3_BASE=0
 for arg in "$@"; do
   case "$arg" in
-    --ref2va) REF2VA=1;; --motion) MOTION=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;; --upgrade) UPGRADE=1; RENDER=0; MOTION=1;;
+    --ref2va) REF2VA=1;; --h3-base) H3_BASE=1;; --motion) MOTION=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;; --upgrade) UPGRADE=1; RENDER=0; MOTION=1;;
     --loras) LORAS=all;; --loras=*) LORAS="${arg#--loras=}";; --no-loras) LORAS=none;; --lora-bundle=*) LORA_BUNDLE="${arg#--lora-bundle=}";;
     *) echo "unknown option $arg" >&2; exit 2;;
   esac
@@ -148,6 +150,13 @@ if [ "$REF2VA" = 1 ] && [ "$IMAGE_ONLY" = 0 ]; then
   ok "Ref2VA transformer (bf16) and LightX2V's Ref2VA Turbo adapter (4 passes)"
   # a running ComfyUI read its model folders when it started
   if bash "$HERE/spark/comfy.sh" status | grep -q running; then echo "  restart ComfyUI to see them: bash spark/comfy.sh stop (the next render starts it)"; fi
+fi
+
+if [ "$H3_BASE" = 1 ] && [ "$IMAGE_ONLY" = 0 ] && [ "$VERIFY" = 0 ]; then
+  say "MiniMax H3's own first-and-last-frame transformer for ComfyUI (40 GB) -> $MODELS"
+  fetch Comfy-Org/MiniMax-H3 MiniMax-H3-Comfy diffusion_models/minimax_h3_fl2va_pruned_bf16.safetensors
+  ok "MiniMax H3 FL2VA transformer (bf16): SPARK_BASE=h3, and keyframe LoRAs from the hub"
+  if bash "$HERE/spark/comfy.sh" status | grep -q running; then echo "  restart ComfyUI to see it: bash spark/comfy.sh stop (the next render starts it)"; fi
 fi
 
 if [ "$IMAGE_ONLY" = 0 ]; then

@@ -104,6 +104,19 @@ VIDEO_SUFFIXES, AUDIO_SUFFIXES = (".mp4", ".mov"), (".wav", ".mp3", ".m4a", ".aa
 CUSTOM_SIDES, CUSTOM_PIXELS, CUSTOM_STEPS = (256, 1536), 1344 * 768, (1, 50)
 LEAD = "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
 
+
+def lead(first: bool, last: bool, seconds: float = 5) -> str:
+    """The line that opens a keyframe prompt: which picture stands at which moment of the clip. MiniMax's own form
+    for a first frame is LEAD; an end frame is written the same way at the clip's last moment (Picture 2 beside a
+    first frame, Picture 1 alone). The pictures themselves are held as keyframes by the model whatever this says."""
+
+    end = f"{DURATIONS.get(int(seconds), round(float(seconds) * 24)) / 24:.2f}"
+    if first and last:
+        return LEAD[:-1] + f"; at {end} seconds into the target video, <Picture 2> (from [Shot 1]) is fully referenced."
+    if last:
+        return f"For the target video, at {end} seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
+    return LEAD if first else ""
+
 # On a DGX Spark (Linux, CUDA) the scripts hand over to spark/: FastH3 and Qwen-Image-2.1 through ComfyUI. There is no
 # 2x decoder and no MiniMax H3 Turbo there, so only the native sizes and the FastH3 qualities are offered.
 SPARK = sys.platform.startswith("linux")
@@ -459,7 +472,7 @@ def compose_references(fields: dict, count: int) -> str:
             + f"\n\ndetailed_description:\n[Shot 1] {shot.strip()}\n\noverall_soundscape:\n{sound}")
 
 
-def compose(fields: dict, first_frame: bool) -> str:
+def compose(fields: dict, first_frame: bool, last_frame: bool = False, seconds: float = 5) -> str:
     """MiniMax H3's three-field prompt from the wizard's parts."""
 
     shot = " ".join(part.strip() for part in (fields.get("scene", ""), fields.get("camera", ""),
@@ -484,7 +497,8 @@ def compose(fields: dict, first_frame: bool) -> str:
     music = (fields.get("music") or "N/A").strip()
     body = (f"integrated_multimodal_description: [Shot 1] {shot.strip()}\n\n"
             f"overall_soundscape: {sound}\n\nnon_diegetic_music: {music}")
-    return f"{LEAD}\n\n{body}" if first_frame else body
+    opening = lead(first_frame, last_frame, seconds)
+    return f"{opening}\n\n{body}" if opening else body
 
 
 def plan(total: int, piece: int = LONGEST) -> list[int]:
@@ -756,6 +770,16 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
             raise HTTPException(400, "a LoRA from the hub is for MiniMax H3 and FastH3 clips, not for reference to video")
         env["LORA"] = "\n".join(f"{one['path']}:{one['strength']:g}" for one in styles) + "\n"
         prompt = lora_lead(prompt, styles)
+    # the end keyframe (MiniMax H3's first-and-last-frame mode): a picture of its own, or the first frame again
+    ending = params.get("last_image") or (image if params.get("last_same") else None)
+    if ending:
+        if kind not in ("video", "studio"):
+            raise HTTPException(400, "a last frame is for single clips")
+        if kind == "video" and references(params):
+            raise HTTPException(400, "references do not combine with a last frame: a reference is not a frame of the clip")
+        if not inside(ending).is_file():
+            raise HTTPException(400, "the last frame's picture is not in the studio's folder")
+        env["LAST_FRAME"] = str(inside(ending))
     if kind == "video":  # text to video, or from an image the user already has
         pictures = references(params)
         if pictures:
@@ -801,6 +825,13 @@ def passes(chosen: dict, steps: bool) -> dict:
 
 def last_frame(video: Path, image: Path) -> None:
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-sseof", "-0.2", "-i", str(video), "-vsync", "0", "-update", "1",
+                    "-q:v", "1", str(image)], check=True, env=environment({}))
+
+
+def frame_at(video: Path, image: Path, at: float) -> None:
+    """One frame of a clip at its own resolution: the frame shown ``at`` seconds in."""
+
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{max(at, 0):.3f}", "-i", str(video), "-frames:v", "1",
                     "-q:v", "1", str(image)], check=True, env=environment({}))
 
 
@@ -985,6 +1016,13 @@ def work() -> None:
                 still = HOME / "uploads" / f"{job['id']}_first.jpg"
                 last_frame(source, still)
                 params["image"] = relative(still)
+            if params.get("last_frame_from"):  # end on the first frame of another clip, so the two join
+                source = inside(params["last_frame_from"])
+                if not source.is_file():
+                    raise RuntimeError("the clip this one leads into has not been rendered")
+                still = HOME / "uploads" / f"{job['id']}_last.png"
+                frame_at(source, still, 0)
+                params["last_image"] = relative(still)
             if job["kind"] == "export":
                 export(job)
             elif job["kind"] == "long":
@@ -1039,7 +1077,7 @@ def state() -> dict:
             "ref_media": ref2va_ready(), "reference_video_limit": REFERENCE_VIDEO_LIMIT,
             "reference_audio_limit": REFERENCE_AUDIO_LIMIT, "reference_total": REFERENCE_TOTAL,
             "text_encoders": sorted(text_encoders()), "sharp": SHARP if "sharp" in PRESETS and "fh8" in QUALITIES else None, "custom": {"sides": CUSTOM_SIDES, "pixels": CUSTOM_PIXELS, "steps": CUSTOM_STEPS},
-            "platform": machine()[0], "platform_label": machine()[1],
+            "platform": machine()[0], "platform_label": machine()[1], "last_frame": True,
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
 
 
@@ -1047,7 +1085,8 @@ def state() -> dict:
 def compose_prompt(body: dict) -> dict:
     if body.get("references") or body.get("referenced"):
         return {"prompt": compose_references(body.get("fields", {}), int(body.get("references") or 0))}
-    return {"prompt": compose(body.get("fields", {}), bool(body.get("first_frame")))}
+    return {"prompt": compose(body.get("fields", {}), bool(body.get("first_frame")), bool(body.get("last_frame")),
+                              float(body.get("seconds") or 5))}
 
 
 @app.post("/api/estimate")
@@ -1065,6 +1104,8 @@ def submit(body: dict) -> dict:
     params = dict(body.get("params") or {})
     if kind not in ("scout", "video", "studio", "export", "long"):
         raise HTTPException(400, "unknown job kind")
+    if kind == "long" and (params.get("last_image") or params.get("last_same") or params.get("last_frame_from")):
+        raise HTTPException(400, "a last frame is for single clips: a long video is a chain of clips")
     if kind == "long":
         total = int(params.get("total_seconds", 0))
         if not LONGEST < total <= max(LONG):
@@ -1135,6 +1176,33 @@ async def upload(file: UploadFile = File(...)) -> dict:
     target = HOME / "uploads" / f"{uuid.uuid4().hex[:10]}{suffix}"
     with open(target, "wb") as handle:
         shutil.copyfileobj(file.file, handle)
+    return {"path": relative(target)}
+
+
+@app.post("/api/frame")
+def take_frame(body: dict) -> dict:
+    """A still from a Library clip, saved to the Library: ``at`` is "last", "first" or seconds into the clip. For a
+    first or last frame of a new clip (continue from this clip, end on this clip, any moment in between)."""
+
+    source = inside(str(body.get("path") or ""))
+    if not source.is_file() or source.suffix.lower() not in VIDEO_SUFFIXES:
+        raise HTTPException(400, "a frame is taken from a video in the studio's folder")
+    at = body.get("at", "last")
+    name = f"{source.stem[:40]}_{'last' if at == 'last' else 'first' if at == 'first' else str(at).replace('.', 's')}_{uuid.uuid4().hex[:6]}.png"
+    target = HOME / "uploads" / name
+    try:
+        if at == "last":
+            last_frame(source, target)
+        else:
+            seconds = 0.0 if at == "first" else float(at)
+            length, _ = media_seconds(str(source))
+            if seconds < 0 or (length and seconds > length):
+                raise HTTPException(400, f"the clip is {length:.1f} seconds long")
+            frame_at(source, target, seconds)
+    except (subprocess.CalledProcessError, ValueError):
+        raise HTTPException(400, "no frame could be read there")
+    if not target.is_file():
+        raise HTTPException(400, "no frame could be read there")
     return {"path": relative(target)}
 
 

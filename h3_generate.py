@@ -255,13 +255,14 @@ def encode_text(root: Path, prompt: str, images=None, weights=None, checkpoint_s
 
 
 def encode_first_frame(root: Path, image, width: int, height: int, patch):
-    """Conditioning rows for a first frame, from minimax-h3-mlx's video VAE encoder (not ported)."""
+    """Conditioning rows for the keyframes (one picture or a list, in packed order: first, then last), from
+    minimax-h3-mlx's video VAE encoder (not ported)."""
 
     from minimax_h3_mlx.load import load_video_vae
     from minimax_h3_mlx.pipeline import encode_keyframe_rows
 
     vae = load_video_vae(root / "video_vae")
-    rows = encode_keyframe_rows(vae, [image], height, width, patch)
+    rows = encode_keyframe_rows(vae, list(image) if isinstance(image, (list, tuple)) else [image], height, width, patch)
     mx.eval(rows)
     del vae
     gc.collect()
@@ -940,6 +941,9 @@ def main():
                         help="clip the decoded audio at full scale, as the reference decoder does (for comparisons)")
     parser.add_argument("--float-vae", action="store_true", help="video decoder in float32, without int8 kernels")
     parser.add_argument("--first-frame", default=None, help="image the clip starts from (image to video)")
+    parser.add_argument("--last-frame", default=None,
+                        help="image the clip ends on (MiniMax H3's first-and-last-frame mode; with or without "
+                             "--first-frame). Beside a first frame it is fitted to the canvas by a centre crop")
     parser.add_argument("--ref-image", action="append", default=[], metavar="PATH",
                         help="a reference picture (repeatable, up to 9): <Picture 1>, <Picture 2>, ... in the "
                              "prompt. Needs the Ref2VA transformer; not with --first-frame or --fasth3")
@@ -970,8 +974,8 @@ def main():
     references = None
     wanted = bool(args.ref_image or args.ref_video or args.ref_audio)
     if wanted:
-        if args.first_frame or args.fasth3:
-            raise SystemExit("references cannot be combined with --first-frame or --fasth3")
+        if args.first_frame or args.last_frame or args.fasth3:
+            raise SystemExit("references cannot be combined with --first-frame, --last-frame or --fasth3")
         if len(args.ref_image) > REFERENCE_LIMIT:
             raise SystemExit(f"at most {REFERENCE_LIMIT} reference pictures, got {len(args.ref_image)}")
         if len(args.ref_video) > VIDEO_LIMIT:
@@ -1034,6 +1038,18 @@ def main():
 
         image = prepare_keyframe_image(Image.open(args.first_frame).convert("RGB"), args.height, args.width,
                                        stretch=True)
+    # keyframes in packed order: the first frame, then the last. The first of them is the geometry anchor and is
+    # stretched onto the canvas; a second one follows that canvas with a centre crop (the reference's rule)
+    frames, anchors = ([image], ["first"]) if image is not None else ([], [])
+    if args.last_frame:
+        from minimax_h3_mlx.packing import prepare_keyframe_image
+        from PIL import Image
+
+        frames.append(prepare_keyframe_image(Image.open(args.last_frame).convert("RGB"), args.height, args.width,
+                                             stretch=not frames))
+        anchors.append("last")
+        image = frames if len(frames) > 1 else frames[0]
+        print(f"[tensorfold] keyframes: {', '.join(anchors)}", flush=True)
     stats = args.vision_stats == "checkpoint"
     condition = audio_condition = geometry = None
     patch = h3.DiTConfig.from_checkpoint(args.model_dir).patch_size
@@ -1112,7 +1128,7 @@ def main():
     started = time.perf_counter()
     latents = denoise(dit, text, tags, args.width, args.height, args.frames, points, args.seed, subset,
                       release=not args.keep_adaln, condition=condition,
-                      keyframes=("first",) if image is not None else (),
+                      keyframes=tuple(anchors),
                       on_step=lambda i, n, s: print(f"[tensorfold] step {i}/{n} {s:.2f}s", flush=True),
                       audio_shift=args.audio_shift, step_cache=args.step_cache,
                       attention_every=args.attention_every,

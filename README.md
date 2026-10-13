@@ -632,13 +632,13 @@ author's, for credit.
 | Camera Motion | Jojocodex | Camera moves the base model tends to miss: push-in, pull-back, orbit, tracking, aerial, crane, pan, macro. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
 | Head-mounted FPV | neph1 | A first-person view from a camera on the head, with the bob of walking or running. | text or a first frame | H3 Community | Mac (84 s), DGX Spark (150 s) |
 | Equirectangular 360° | shamanic | A full-sphere 360° panorama video with sound, for VR players. | text or a first frame | H3 Community | Mac (108 s), DGX Spark (180 s) |
-| 360° Orbit | pablodawson | One photo becomes a frozen-moment 360° orbit that ends on the frame it started from. | first and last frame | H3 Community | not usable yet |
+| 360° Orbit | pablodawson | One photo becomes a frozen-moment 360° orbit that ends on the frame it started from. | first and last frame | H3 Community | Mac, DGX Spark (147 s on FastH3) |
 
 **02 Transformation & Morphing**
 
 | LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
 |---|---|---|---|---|---|
-| Transformation | Ashmotv | Morphs one picture into another, element by element. | first and last frame | H3 Community | not usable yet |
+| Transformation | Ashmotv | Morphs one picture into another, element by element. | first and last frame | H3 Community | Mac (108 s), DGX Spark (158 s on FastH3) |
 | Turnaround | matlod | A five-view character sheet (front to back) from one reference picture. | its own workflow | H3 Community | not usable yet |
 | Keyframe Animation | alvdansen | Hand-drawn animation on held frames: the next key drawing, an inbetween, or a short held sequence from one or two drawings. | reference pictures | Custom, gated | not usable yet |
 
@@ -685,9 +685,11 @@ author's, for credit.
 | Multiple Angles (image) | akhaliq | Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up. | a picture (image model) | Apache-2.0 | not usable yet |
 
 "Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a hub clip
-does not have in this version: a last frame beside the first (360° Orbit, Transformation), reference pictures or a
+does not have in this version: reference pictures or a
 source video on the reference path (Keyframe Animation, Character Swap, Lineart Anime), or its author's own workflow
-(Turnaround, Person Remover, Video Upscaler LoRA), or it is for the image model (Multiple Angles). Its card says which. 3D Animation Style is approved download by
+(Turnaround, Person Remover, Video Upscaler LoRA), or it is for the image model (Multiple Angles). Its card says which.
+360° Orbit and Transformation need a last frame beside the first, which step 2 of Create now takes (see *A last frame:
+the clip ends on a picture*). 3D Animation Style is approved download by
 download by its author.
 
 What was tested (2026-10-12, one seed each, 5 seconds at 864x480, FastH3 8 passes, text to video; 1120x480 for the 360°
@@ -1287,6 +1289,71 @@ QUALITY=high bash scripts/video.sh "..." out.mp4            # 20 steps, no adapt
 
 `FRAMES` must be `17n + 5` (56, 73, 90, 124, 192, 243, 362). `FIRST_FRAME` is stretched onto the canvas, so match its
 aspect ratio.
+
+### A last frame: the clip ends on a picture
+
+MiniMax H3's first-and-last-frame mode holds a picture at the end of the clip the way it holds one at the start: the
+end keyframe is encoded as a condition latent at the clip's last latent frame and kept at every pass. `LAST_FRAME`
+works with `FIRST_FRAME`, or alone (the clip then arrives at the picture). Beside a first frame the last one is fitted
+by a centre crop, so give both the clip's aspect ratio.
+
+```bash
+FIRST_FRAME=teapot.png LAST_FRAME=bonsai.png bash scripts/video.sh "The teapot opens and a bonsai grows out of it" out.mp4
+LAST_FRAME=bonsai.png bash scripts/video.sh "A potter's table; a bonsai is set down" out.mp4      # arrives at the picture
+FIRST_FRAME=statue.png LAST_FRAME=statue.png WIDTH=768 HEIGHT=768 FRAMES=73 LORA="orbit.safetensors:1.0" \
+  bash scripts/video.sh "One frozen instant. Only the camera moves. In a continuous 360 orbit. ..." out.mp4
+```
+
+In the app, step 2 of **Create** has a **Last frame** slot under the first frame. Ways to fill it: upload a picture;
+*Pick from the Library*; *Same as the first frame* (an orbit or a loop); *From a clip in the Library* (its last
+frame, its first frame, or the frame at a time you type: `POST /api/frame` saves the still to the Library at the
+clip's own resolution); or *make one from a prompt* with Qwen-Image-2.1. Beside *Upload an image*, *Or continue from a
+clip in the Library* puts a clip's last frame in as the new first frame; in the **Library**, *continue* on a video
+and *last frame* on a picture do the same in one press. Step 4 opens the prompt with a line that places `<Picture 1>`
+at 0.00 seconds and `<Picture 2>` at the clip's end (MiniMax documents that line for a first frame only; the two-picture
+form here follows its wording and is our reading, and the keyframes are held whatever the line says). A LoRA from the
+hub that needs both ends asks for the last frame in step 2, and *Queue this clip* waits for it. A job takes
+`last_image` (a picture in the studio folder), `last_same` (the first frame again) or `last_frame_from` (a clip: its
+first frame). Not for reference clips (a reference is not a frame of the clip) and not for videos longer than 15 s.
+
+![The Last frame slot in step 2](samples/ui_last_frame.png)
+
+Measured 2026-10-12, one seed each, 5 s at 864x480 unless noted; SSIM is the clip's final frame against the picture
+it was given (0.3 to 0.5 is what an unrelated frame of the same scene scores):
+
+| Machine | Engine | Request | Time | Final frame vs the picture | By eye |
+|---|---|---|---|---|---|
+| Mac | MiniMax H3, Turbo 5 passes | first + last | 105 s | 0.86 | the teapot becomes the bonsai and the clip ends on the picture |
+| Mac | the same | first only (same seed) | 101 s | 0.46 | a tree grows, in another pot |
+| Mac | the same | last only | 105 s | 0.86 | another teapot, arriving at the picture |
+| Mac | FastH3 8 passes (MLX engine) | first + last | 103 s | 0.86 | as the first row |
+| DGX Spark | FastH3 8 passes, TensorFold int8 blocks | first + last | 130 s | 0.90 | ends on the picture |
+| DGX Spark | the same | first only (same seed) | 86 s | 0.32 | a tree grows, in the teapot |
+| DGX Spark | the same | last only | 85 s | 0.90 | arrives at the picture |
+| DGX Spark | the same, queued through the app's job API (`image` + `last_image`, prompt from `/api/compose`) | first + last | 126 s | 0.90 | ends on the picture |
+
+![First and last frame, first only, last only (DGX Spark), last only and FastH3 first and last (Mac)](samples/last_frame_plain.jpg)
+
+Two LoRAs from the hub that need both ends, same seed with and without, the authors' prompts and strength 1.0:
+
+| LoRA | Machine | Engine | Time | With the LoRA | Without |
+|---|---|---|---|---|---|
+| 360° Orbit (first = last, 768x768, 73 frames) | Mac | MiniMax H3, Turbo 5 passes | 86 s without; with it the wall time was not clean (the run queued behind other renders) | a full orbit of the statue, back to the start | frozen |
+| the same | DGX Spark | MiniMax H3 bf16, 25 passes (`SPARK_BASE=h3`) | 324 s | a full orbit | frozen |
+| the same | DGX Spark | FastH3 bf16, 8 passes | 147 s | a full orbit | not run |
+| Transformation (teapot to bonsai) | Mac | MiniMax H3, Turbo 5 passes | 108 s | the teapot dissolves into painted ribbons that form the tree | a cross-fade through a plant pot |
+| the same | DGX Spark | MiniMax H3 bf16, 25 passes | 362 s | the same ribbons | a cut through another object |
+| the same | DGX Spark | FastH3 bf16, 8 passes | 158 s | the same ribbons | not run |
+
+![360° Orbit: Spark MiniMax H3 with and without the LoRA, Spark FastH3 with it, Mac with and without](samples/last_frame_orbit.jpg)
+![Transformation: the same five rows](samples/last_frame_transformation.jpg)
+
+On a Mac the zig engine does not hold an end keyframe, so a FastH3 clip with a last frame runs on the MLX engine
+(the script says so). On a DGX Spark the last frame works on both block engines. Both LoRAs were trained on MiniMax
+H3's own first-and-last-frame transformer, which a Spark install does not have by default (it renders on FastH3, where
+both worked here): `bash oneshot-setup-spark.sh --h3-base` fetches it (40 GB) and `SPARK_BASE=h3` renders a clip on
+it, 25 passes by default, on ComfyUI's own blocks with dense attention. Not tested: lengths other than 3 and 5 s,
+sizes above 864x480, a last frame with the Qwen scout route in one job, and *make one from a prompt* in a browser.
 
 ### Another text encoder, your own size and passes
 
