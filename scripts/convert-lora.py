@@ -3,9 +3,12 @@
     $PREFIX/venv/bin/python scripts/convert-lora.py 80s_horror_wk.safetensors out.safetensors $H3_MODEL_DIR
 
 The source has `diffusion_model.<module>.lora_A/lora_B.weight` (or kohya's `lora_down`/`lora_up` with `.alpha`)
-under the checkpoint's own module names and row order. The result drops the prefix, multiplies alpha / rank into
-lora_B and stores the fused QKV rows as [q_all; k_all; v_all], which the loader interleaves back per head. Nothing is
-merged here: --lora PATH:STRENGTH does that at load.
+under the checkpoint's own module names and row order, or DiffSynth-Studio's and PEFT's
+`<module>.lora_A.default.weight` / `.lora_B.default.weight` with no prefix and no alpha (app/lora_layout.py names the
+layouts). The result drops the prefix and the adapter name, multiplies alpha / rank into lora_B and stores the fused
+QKV rows as [q_all; k_all; v_all], which the loader interleaves back per head. Nothing is merged here:
+--lora PATH:STRENGTH does that at load. A pair on an adaln projection goes through as it is: the Mac engines run
+MiniMax's own weights, which keep the full time embedder.
 """
 
 from __future__ import annotations
@@ -17,21 +20,27 @@ from pathlib import Path
 
 import mlx.core as mx
 
-PAIRS = ((".lora_A.weight", ".lora_B.weight"), (".lora_down.weight", ".lora_up.weight"))
+PAIRS = ((".lora_A.weight", ".lora_B.weight"), (".lora_down.weight", ".lora_up.weight"),
+         (".lora_A.default.weight", ".lora_B.default.weight"))
+SECOND = tuple(pair[1] for pair in PAIRS)
 
 
 def main(source: str, target: str, model_dir: str) -> None:
     with open(source, "rb") as handle:
         size = struct.unpack("<Q", handle.read(8))[0]
         metadata = json.loads(handle.read(size)).get("__metadata__") or {}
-    config = json.loads(next(Path(model_dir).glob("FL2VA/transformer/config.json")).read_text())
+    # FL2VA and Ref2VA are the same transformer in two trainings: either partition's config gives the head layout
+    found = sorted(Path(model_dir).glob("FL2VA/transformer/config.json")) + sorted(Path(model_dir).glob("Ref2VA/transformer/config.json"))
+    if not found:
+        raise SystemExit(f"no MiniMax H3 transformer config under {model_dir} (FL2VA or Ref2VA)")
+    config = json.loads(found[0].read_text())
     heads, dim = int(config["num_attention_heads"]), int(config["attention_head_dim"])
     weights = mx.load(source)
     out, ranks, scales = {}, set(), set()
     for key in sorted(weights):
         pair = next((p for p in PAIRS if key.endswith(p[0])), None)
         if pair is None:
-            if key.endswith((PAIRS[0][1], PAIRS[1][1], ".alpha")):
+            if key.endswith(SECOND + (".alpha",)):
                 continue
             raise SystemExit(f"{source}: unsupported tensor {key} (a low-rank LoRA with lora_A/lora_B is read)")
         stem = key[: -len(pair[0])]
@@ -52,7 +61,7 @@ def main(source: str, target: str, model_dir: str) -> None:
     if not out:
         raise SystemExit(f"{source}: no lora_A/lora_B tensors found")
     mx.save_safetensors(target, out, metadata={
-        "converted_from": Path(source).name, "source_namespace": "ComfyUI checkpoint names",
+        "converted_from": Path(source).name, "source_namespace": "checkpoint names",
         "source_rank": ",".join(map(str, sorted(ranks))), "peft_scale_folded_into_B": "1",
         "qkv_layout": "contiguous [q_all;k_all;v_all]; loader interleaves exactly once", "fc1_layout": "[gate;value]",
         **{k: str(v) for k, v in metadata.items() if k.startswith("modelspec.") or k == "notice"}})

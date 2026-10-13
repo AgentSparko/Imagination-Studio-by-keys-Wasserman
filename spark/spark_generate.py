@@ -377,6 +377,32 @@ def forget_uploads() -> None:
             (PREFIX / "ComfyUI" / "input" / name).unlink(missing_ok=True)
 
 
+def hub_loras(specs) -> list[tuple[str, float]]:
+    """The --lora files as (name ComfyUI lists, strength). ComfyUI merges a LoRA at run time, which only works on a
+    bf16 file and on its own blocks: an 8-bit file's weights are rotated, and the TensorFold engine reads its own
+    copy of the weights. PATH or PATH:STRENGTH; a slider LoRA takes a minus strength."""
+
+    loras = []
+    for spec in specs:
+        path, _, strength = spec.rpartition(":")
+        try:
+            strength = float(strength)
+        except ValueError:
+            path, strength = spec, 1.0
+        if not path:
+            path, strength = spec, 1.0
+        source = Path(path).resolve()
+        if not source.is_file():
+            sys.exit(f"no LoRA at {path}")
+        link = MODELS / "loras" / f"hub_{source.name}"
+        if not link.exists() or link.resolve() != source:
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.unlink(missing_ok=True)
+            link.symlink_to(source)
+        loras.append((link.name, strength))
+    return loras
+
+
 def reference(args) -> None:
     """A clip from references (MiniMax H3 Ref2VA): `<Picture 1>` in the prompt is the first --ref, `<Video 1>` the
     first --ref-video, `<Audio 1>` the first --ref-audio (after the videos' own sound with --ref-video-sound)."""
@@ -407,8 +433,11 @@ def reference(args) -> None:
             sys.exit(f"{path} has no sound: a reference audio clip is an audio file (or a video with sound)")
     check_clip_lengths("audio clip", [(path, probe["audio_seconds"]) for path, probe in sounds])
     sizes = [reference_video_size(*probe["video"], args.width, args.height, args.ref_video_size) for _, probe in probes]
+    loras = hub_loras(args.lora)
     last = STATE.read_text().strip() if STATE.exists() else ""
-    if up() and last.startswith("video"):
+    if up() and (last.startswith("video") or loras or "lora" in last):
+        # A LoRA render, and the render after one, start from a server with nothing loaded, as for FastH3: the bf16
+        # transformer (40 GB) with a LoRA merged in and the one ComfyUI still holds do not fit side by side.
         # After a FastH3 clip the server still holds what ComfyUI's own unloading does not give back (TensorFold's
         # engine keeps its int8 weights): measured, a reference render that followed one ran with 14 GB free
         # instead of 38. A server with nothing loaded is the safe start; it costs the load again.
@@ -426,17 +455,19 @@ def reference(args) -> None:
             time.sleep(1)
     ensure_server("ref2va")
     mode = args.ref_mode
-    name = REF2VA["bf16"] if mode == "turbo" or not installed("unet", REF2VA["int8"]) else REF2VA["int8"]
+    # a LoRA (the Turbo adapter, or one from the hub) is merged at run time, which needs the bf16 file: merged into
+    # the 8-bit file's rotated weights it corrupts the clip without an error
+    name = REF2VA["bf16"] if mode == "turbo" or loras or not installed("unet", REF2VA["int8"]) else REF2VA["int8"]
     missing = [f for kind, f in (("unet", name),) + ((("lora", REF2VA_TURBO),) if mode == "turbo" else ()) if not installed(kind, f)]
     if missing:
         sys.exit(f"not installed: {', '.join(missing)} (bash oneshot-setup-spark.sh --ref2va)")
     # the bf16 and the 8-bit transformer never stay loaded together
-    ensure_server("ref2va-" + name)
+    ensure_server("ref2va-" + name + ("+lora" if loras else ""))
     steps = args.steps if args.steps is not None else (4 if mode == "turbo" else 20)
     if mode == "turbo" and steps != 4:
         print(f"[tensorfold] the Ref2VA Turbo adapter was trained for 4 passes; running {steps} as asked", flush=True)
     prompt = prompt_of(args)
-    if not any(tag in prompt for tag in ("<Picture", "<Video")):
+    if not args.ref_plain and not any(tag in prompt for tag in ("<Picture", "<Video")):
         named = [f"<Picture {i + 1}>" for i in range(len(pictures))] or [f"<Video {i + 1}>" for i in range(len(videos))]
         prompt = "Use " + " and ".join(named) + " as the subject. " + prompt
     model = ["1", 0]
@@ -484,6 +515,12 @@ def reference(args) -> None:
     if mode == "turbo":
         w["2"] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": model, "lora_name": REF2VA_TURBO, "strength_model": 1.0}}
         model = ["2", 0]
+    for index, (lora, strength) in enumerate(loras):
+        if not installed("lora", lora):
+            sys.exit(f"ComfyUI does not list the LoRA {lora}")
+        w[str(80 + index)] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": model, "lora_name": lora, "strength_model": strength}}
+        model = [str(80 + index), 0]
+        print(f"[tensorfold] LoRA {lora} at {strength:g} on the bf16 Ref2VA weights", flush=True)
     w["10"] = {"class_type": "BasicScheduler", "inputs": {"model": model, "scheduler": "simple", "steps": steps, "denoise": 1.0}}
     w["11"] = {"class_type": "BasicGuider", "inputs": {"model": model, "conditioning": ["6", 0]}}
     guidance = float(os.environ.get("SPARK_REF_CFG") or 1.0)
@@ -514,7 +551,8 @@ def reference(args) -> None:
     print("[tensorfold] " + json.dumps({"output": str(target), "engine": "cuda", "model": "ref2va", "mode": mode,
                                         "forwards": steps, "total_s": round(seconds_taken, 1), "frames": args.frames,
                                         "size": [args.width, args.height], "references": len(pictures),
-                                        "reference_videos": len(videos), "reference_audios": len(audios)}), flush=True)
+                                        "reference_videos": len(videos), "reference_audios": len(audios),
+                                        "loras": [[lora, strength] for lora, strength in loras]}), flush=True)
 
 
 def prompt_of(args) -> str:
@@ -534,20 +572,7 @@ def video(args) -> None:
         return reference(args)
     if args.steps is None:
         args.steps = 8
-    loras = []
-    for spec in args.lora:
-        # a style LoRA is merged by ComfyUI at run time, which only works on the bf16 file and on ComfyUI's own
-        # blocks: the 8-bit file's weights are rotated, and the TensorFold engine reads its own copy of the weights
-        path, _, strength = spec.rpartition(":") if re.fullmatch(r"-?\d+(\.\d+)?", spec.rsplit(":", 1)[-1]) else (spec, "", "1.0")  # a slider LoRA takes minus values
-        source = Path(path).resolve()
-        if not source.is_file():
-            sys.exit(f"no LoRA at {path}")
-        link = MODELS / "loras" / f"hub_{source.name}"
-        if not link.exists() or link.resolve() != source:
-            link.parent.mkdir(parents=True, exist_ok=True)
-            link.unlink(missing_ok=True)
-            link.symlink_to(source)
-        loras.append((link.name, float(strength)))
+    loras = hub_loras(args.lora)
     if loras:
         if args.engine == "tensorfold" or args.weights != "bf16":
             print("[tensorfold] a LoRA renders on ComfyUI's own blocks with the bf16 weights", flush=True)
@@ -724,6 +749,9 @@ def main() -> None:
                    help="what runs the transformer blocks: TensorFold's CUDA family (the default once "
                         "spark/build-engine.sh has built it) or ComfyUI's own")
     v.add_argument("--lora", action="append", default=[], help="a style LoRA, PATH or PATH:STRENGTH (repeat to stack)")
+    v.add_argument("--ref-plain", action="store_true",
+                   help="with references: the prompt as written, without `Use <Video 1> as the subject.` put ahead "
+                        "of a prompt that names no reference (a LoRA trained on plain captions, such as line art)")
     v.add_argument("--sparsity", type=float, default=None, help="sparse attention (0 is dense); default by size")
     v.set_defaults(run=video)
     i = kinds.add_parser("image")
