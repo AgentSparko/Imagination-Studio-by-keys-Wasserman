@@ -1071,6 +1071,14 @@ def gated(job: dict, clip: Path) -> bool:
     """Sam Wasserman's QA gate on a clip made to his Sharp Spec; False when the job was cancelled meanwhile."""
 
     params, takes = job["params"], []
+    can = qa.ready()
+    if not can["runs"]:
+        # said in the job's result, not passed over: a worker without ffmpeg makes the clip, and a machine that has
+        # the tools runs the gate on it (POST /api/qa with this app's address and the clip's path)
+        job["qa"] = qa.not_run("The QA gate did not run: this machine has no " + " and no ".join(can["missing"]) + ". The clip was made and is not "
+                               "checked. A machine that has them can run the gate on it: POST /api/qa {\"from\": this app's address, "
+                               f"\"path\": \"{relative(clip)}\", \"prompt\": the prompt}}, or import the take into its Slate shot.")
+        return True
     for take in range(1, QA_TAKES + 1):
         if take > 1:
             shutil.copy(clip, HOME / "qa" / f"{job['id']}-take{take - 1}.mp4")  # the failed take is kept
@@ -1243,6 +1251,8 @@ def work() -> None:
                 if job["kind"] == "video" and params.get("preset") == "sharp" and params.get("qa", True):
                     if not gated(job, Path(outputs[0])):
                         continue
+                elif job["kind"] == "video" and params.get("preset") == "sharp":
+                    job["qa"] = qa.not_run("The QA gate was switched off for this job (qa: false): the clip is not checked.")
                 if job["kind"] in ("video", "studio") and params.get("shot_check", True):
                     if not shot_checked(job, Path(outputs[0]), env):
                         continue
@@ -1292,6 +1302,8 @@ def state() -> dict:
                         "presets": {k: longest_frames(v[2]) for k, v in PRESETS.items()}, "custom": longest_frames({"WIDTH": 1344, "HEIGHT": 768})},
             "ffmpeg": media_tools()["ffmpeg"], "ffmpeg_note": "" if media_tools()["ffmpeg"] else FFMPEG_NOTE,
             "shot_check": True, "negation_reason": negation.REASON,
+            # Sam Wasserman's QA gate: whether it can run here, and what is missing when it cannot (qa.py)
+            "qa": qa.ready(),
             "engine": ("CUDA · TensorFold int8" if SPARK_ENGINE_LIB.exists() else "CUDA · ComfyUI") if SPARK else ("native Zig engine" if zig_ready() else "MLX engine")}
 
 
@@ -1515,6 +1527,75 @@ def probe(path: str) -> dict:
             "sound": any(one.get("codec_type") == "audio" for one in streams)}
 
 
+def qa_run(job: dict) -> None:
+    """The QA gate as a job of its own: on a clip of this studio folder, or on one fetched from another machine's app
+    first. It uses no GPU, so it does not wait in the render queue."""
+
+    params = job["params"]
+    try:
+        can = qa.ready()
+        if not can["runs"]:
+            raise RuntimeError("the QA gate cannot run on this machine: it has no " + " and no ".join(can["missing"]))
+        prompt, seed, path = params.get("prompt") or "", params.get("seed"), params.get("path") or ""
+        if params.get("from"):
+            base = remote.address(params["from"])
+            if params.get("job"):  # the clip, its prompt and its seed as that app's job has them
+                theirs = remote.job(base, str(params["job"]))
+                if theirs.get("status") != "done" or not theirs.get("outputs"):
+                    raise RuntimeError(f"job {params['job']} on {base} is {theirs.get('status')}, with no clip to check")
+                path = path or theirs["outputs"][0]
+                prompt = prompt or (theirs.get("params") or {}).get("prompt") or ""
+                seed = seed if seed is not None else (theirs.get("params") or {}).get("seed")
+            job["progress"] = {"stage": "fetching the clip from " + base, "at": 0, "of": 1}
+            clip = remote.fetch(base, path, HOME / "qa" / "fetched" / f"{job['id']}{Path(path).suffix.lower()}")
+        else:
+            clip = inside(path)
+            if not clip.is_file():
+                raise RuntimeError("no such clip in the studio's folder")
+        job["outputs"] = [relative(clip)]
+        job["progress"] = {"stage": "QA gate, take", "at": 1, "of": 1}
+        picture = HOME / "qa" / f"{job['id']}-take1.jpg"
+        report = qa.check(clip, prompt, picture, params.get("brain"))
+        job["qa"] = {"passed": report["passed"], "takes": [{**report, "take": 1, "seed": int(seed or 0), "sheet": relative(picture)}],
+                     "from": params.get("from") or None}
+        if job["status"] != "cancelled":
+            job["status"] = "done"
+    except Exception as error:  # noqa: BLE001 - the reason goes beside the job
+        if job["status"] != "cancelled":
+            job["status"], job["error"] = "failed", str(getattr(error, "detail", error))[-400:]
+    finally:
+        job["finished"] = time.time()
+
+
+@app.post("/api/qa")
+def qa_gate(body: dict) -> dict:
+    """Run Sam Wasserman's QA gate on a clip: ``path`` in this studio folder, or, with ``from`` (another machine's app,
+    `http://host:port`), a ``path`` in its folder or one of its finished jobs (``job``: the clip, prompt and seed are
+    read from it). ``prompt`` is the prompt the clip was made from (its spoken lines are what the audio gate listens
+    for). The answer is a job to poll: its ``qa`` is the gate's report, as on a clip rendered here."""
+
+    if not (body.get("path") or (body.get("from") and body.get("job"))):
+        raise HTTPException(400, "give the clip: a path, or another app's address (from) with a path or a job id")
+    try:
+        if body.get("from"):
+            remote.address(str(body["from"]))
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    can = qa.ready()
+    if not can["runs"]:
+        raise HTTPException(400, "the QA gate cannot run on this machine: it has no " + " and no ".join(can["missing"]))
+    job_id = time.strftime("%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
+    params = {key: body[key] for key in ("path", "from", "job", "prompt", "seed", "brain") if body.get(key) not in (None, "")}
+    job = {"id": job_id, "kind": "qa", "status": "running", "title": body.get("title") or "QA gate: " + str(params.get("path") or params.get("job")),
+           "params": params, "source": None, "outputs": [], "progress": None, "error": None, "log": "", "created": time.time(),
+           "started": time.time(), "finished": None, "estimate": None}
+    with lock:
+        jobs[job_id] = job
+        order.append(job_id)
+    threading.Thread(target=qa_run, args=(job,), daemon=True).start()
+    return public(job)
+
+
 @app.get("/api/shot/window")
 def shot_window(path: str) -> dict:
     """The longest stretch of a clip without a cut (shot.py): for an editor or Production to trim a take to, whatever
@@ -1619,6 +1700,7 @@ import pace  # noqa: E402  (whether a clip's sound and motion agree, beside this
 import negation  # noqa: E402  (what a prompt forbids by name, shown before a job is queued, beside this file)
 import shot  # noqa: E402  (a clip's keyframes held and no cut inside it, beside this file)
 import qa  # noqa: E402  (Sam Wasserman's QA gate, beside this file)
+import remote  # noqa: E402  (another machine's Studio app, read over its own API, beside this file)
 import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)
 
 app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, REFERENCE_LIMIT,

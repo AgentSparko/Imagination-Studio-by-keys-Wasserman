@@ -38,6 +38,26 @@ def tool(name: str) -> str | None:
     return shutil.which(name, path=PATH)
 
 
+def ready() -> dict:
+    """What the gate can do on this machine: ``sheet`` (ffmpeg and ffprobe: the contact sheet, and the sound for the
+    transcript), ``transcript`` (a speech-to-text tool), ``runs`` (the gate can run at all) and ``missing``, the
+    reasons in words. Without ffmpeg nothing of the gate runs; without a speech-to-text tool the audio gate is skipped."""
+
+    import importlib.util
+
+    sheet = bool(tool("ffmpeg") and tool("ffprobe"))
+    transcript = sheet and bool(importlib.util.find_spec("faster_whisper") or tool("whisper"))
+    missing = ([] if sheet else ["ffmpeg (" + ("sudo apt install ffmpeg" if os.uname().sysname == "Linux" else "brew install ffmpeg") + ")"]) + (
+        [] if transcript or not sheet else ["a speech-to-text tool (pip install faster-whisper, or openai-whisper)"])
+    return {"sheet": sheet, "transcript": transcript, "runs": sheet, "missing": missing}
+
+
+def not_run(why: str) -> dict:
+    """The gate's place in a job's result when it did not run: said, with the reason, instead of nothing."""
+
+    return {"passed": None, "skipped": True, "takes": [], "note": why}
+
+
 def words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9']+", text.lower().replace("’", "'"))
 
