@@ -25,7 +25,7 @@ Phosphene), Filip Strand and the mflux contributors, Viggle (the image turbo ada
 decoder), LightX2V (the video Turbo adapter), NVIDIA Research (Sol-Engine, Sol-Attn, Sol-H3), FastVideo (FastH3), and Apple's MLX team and every MLX
 contributor. This pack is their work, ported, pinned and measured. See [CREDITS.md](CREDITS.md). Built with Qwen.
 
-**2.6.4** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
+**2.6.5** · Apple-silicon Macs (measured on a Mac Studio M5 Ultra 256 GB) and the NVIDIA DGX Spark ·
 [TensorFold](https://github.com/ashhart/TensorFold) **0.6.5** + two families, and TensorFold **1.0**'s native Zig
 runtime for FastH3 on Metal and on CUDA:
 **Qwen-Image-2.1-Turbo** (text to image) and **MiniMax H3** (video with sound) · int8 kernels on the M5 tensor units
@@ -199,6 +199,17 @@ Not tested: clips longer than 15 seconds in one piece, chains longer than 30 sec
 
 ## What changed
 
+> **2.6.5 (2026-10-13): 3D Animation Style, and Multiple Angles in the essential package.**
+> - **3D Animation Style** (SOLRICKS) installs and renders: its file is in kohya's own layout
+>   (`lora_unet_blocks_0_attn_qkv_proj`), which the hub refused. Measured on a DGX Spark, same seed with and without
+>   at strength 1.0: the clip becomes a 3D animated film. On a Mac the file is rewritten for the engine; no clip has
+>   been rendered with it there. Its author approves each download, so it is not in the hosted package.
+> - **The essential package is at its third build**: 14 LoRAs per platform (2.1 GB), now with Multiple Angles.
+>   The hub counts 22 of 22 presets usable on a DGX Spark and 20 on a Mac (Upscale and Remove a person are DGX
+>   Spark only).
+> - Carrier image `ghcr.io/drowzeys/keys-tensorfold-studio:2.6.5`: the same engines, with this release's render
+>   scripts.
+>
 > **2.6.4 (2026-10-13): Edit a picture, the Multiple Angles LoRA, and what each machine can use.**
 > - **Edit a picture**: a third thing a prompt can go to (Create, *The prompt goes to*). Qwen-Image-2.1-Turbo re-draws
 >   a picture you give it, from words or, with the **Multiple Angles** LoRA (akhaliq), from a camera ring of 12
@@ -962,7 +973,7 @@ The cause is not found: on a Mac, use about twice the strength for a slider on a
 bash oneshot-essential-bundle.sh          # both installers run it; --no-loras on an installer skips it
 ```
 
-It fetches every preset of the hub once: thirteen in one essential package per platform (1.8 GB, from
+It fetches every preset of the hub once: fourteen in one essential package per platform (2.1 GB, from
 `huggingface.co/drowzeys/keys-studio-lora-essential`, the LoRAs whose stated licences allow passing them on, each with its
 author's card and licence; `LORA_PACKAGE=none` skips it) and the rest each from its author's own page (about 6.5 GB in
 all and 4 minutes measured on a fast line;
@@ -1878,9 +1889,9 @@ videos at once, and sound by ear (the figures above are measurements).
 ### GHCR prebuilt carrier
 
 ```bash
-docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1
+docker pull ghcr.io/drowzeys/keys-tensorfold-studio:2.6.5
 # index digest: sha256:759aa57789223c4f63ecea950638b90d045a39d5c7452ff411fea5ecbcda8e0b (linux/arm64 + linux/amd64)
-docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.6.1 cp -a /payload/. /out/payload/
+docker run --rm -v "$PWD":/out ghcr.io/drowzeys/keys-tensorfold-studio:2.6.5 cp -a /payload/. /out/payload/
 ```
 
 One image for both builds. For a Mac it holds the TensorFold wheel, `requirements.lock`, the render scripts, the
