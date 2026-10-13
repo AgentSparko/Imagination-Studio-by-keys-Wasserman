@@ -1500,6 +1500,22 @@ def probe(path: str) -> dict:
             "sound": any(one.get("codec_type") == "audio" for one in streams)}
 
 
+@app.get("/api/shot/window")
+def shot_window(path: str) -> dict:
+    """The longest stretch of a clip without a cut (shot.py): for an editor or Production to trim a take to, whatever
+    made the clip. A finished job carries the same under ``shot.takes[].window``."""
+
+    target = inside(path)
+    if not target.is_file():
+        raise HTTPException(404, "no such file")
+    try:
+        return shot.longest_take(target)
+    except LookupError as error:
+        raise HTTPException(400, f"the clip's frames cannot be read on this machine: {error}")
+    except Exception as error:  # noqa: BLE001 - not a video, or a damaged one
+        raise HTTPException(400, f"not a clip whose frames can be read: {str(error)[-200:]}")
+
+
 def project_file(project_id: str) -> Path:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", project_id):
         raise HTTPException(400, "bad project id")

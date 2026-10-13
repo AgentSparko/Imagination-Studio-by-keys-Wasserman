@@ -159,6 +159,27 @@ def cuts(stack) -> list[dict]:
     return found
 
 
+def window(count: int, found: list[dict] | None) -> dict:
+    """The longest stretch of a clip without a cut, for an editor to trim to: ``start`` is its first frame, ``end``
+    the frame after its last, ``frames`` their number, ``in`` and ``out`` the same in seconds (what the Editor's
+    timeline takes), ``whole`` whether it is the whole clip. FastH3 opens some clips on an establishing shot nobody
+    asked for and then cuts (4 of 36 in one production run, at frames 10 to 28): the window is then what follows.
+    Of two stretches of one length the later is given, for the same reason."""
+
+    marks = [0] + sorted({int(cut["frame"]) for cut in found or [] if 0 < int(cut["frame"]) < count}) + [count]
+    start, end = max(zip(marks, marks[1:]), key=lambda span: (span[1] - span[0], span[0]))
+    return {"start": start, "end": end, "frames": end - start, "in": round(start / FPS, 3), "out": round(end / FPS, 3),
+            "whole": start == 0 and end == count}
+
+
+def longest_take(clip: Path) -> dict:
+    """The same for a clip on disk, whatever it was asked for: its cuts are looked for first."""
+
+    stack, _ = frames(Path(clip))
+    found = cuts(stack)
+    return {**window(len(stack), found), "cuts": found, "of": int(len(stack))}
+
+
 def check(clip: Path, first: Path | None = None, last: Path | None = None, canvas: tuple[int, int] | None = None,
           single: bool = True, alone_stretched: bool = True) -> dict:
     """The report for one take. ``first`` and ``last`` are the keyframe pictures the clip was given (None for none),
@@ -171,6 +192,8 @@ def check(clip: Path, first: Path | None = None, last: Path | None = None, canva
     small = (stack.shape[2], stack.shape[1])
     canvas = canvas or size
     report = {"frames": int(len(stack)), "first": None, "last": None, "cuts": cuts(stack) if single else None}
+    # where to trim to when the model cut all the same: the longest stretch without one (None when cuts were asked for)
+    report["window"] = window(len(stack), report["cuts"]) if single else None
     if first is not None:
         report["first"] = held(stack[0], fitted(Path(first), canvas, size, small, True))
     if last is not None:
@@ -183,6 +206,8 @@ def check(clip: Path, first: Path | None = None, last: Path | None = None, canva
     if report["cuts"]:
         times = ", ".join(f"{cut['seconds']:g} s" for cut in report["cuts"][:4])
         said.append(f"{len(report['cuts'])} cut{'s' if len(report['cuts']) > 1 else ''} inside the shot, at {times}")
+        said.append(f"the longest stretch without one is frames {report['window']['start']} to {report['window']['end'] - 1} "
+                    f"({report['window']['frames'] / FPS:.2f} s)")
     report["passed"] = not said
     report["note"] = "; ".join(said)
     return report

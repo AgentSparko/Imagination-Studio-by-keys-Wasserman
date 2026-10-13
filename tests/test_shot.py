@@ -68,6 +68,32 @@ def test_a_cut_inside_the_shot_is_found_where_it_is():
     assert shot.check(FOLDER / "cut.mp4", single=False)["cuts"] is None and shot.check(FOLDER / "cut.mp4", single=False)["passed"]
 
 
+def test_the_longest_stretch_without_a_cut_is_given_to_trim_to():
+    # the run's own case: an establishing shot nobody asked for, a cut at frame 20, then the shot
+    frames = [scene(1, shift) for shift in range(20)] + [scene(2, shift) for shift in range(28)]
+    report = shot.check(clip("opens.mp4", frames))
+    assert report["window"] == {"start": 20, "end": 48, "frames": 28, "in": round(20 / 24, 3), "out": 2.0, "whole": False}
+    assert "the longest stretch without one is frames 20 to 47 (1.17 s)" in report["note"]
+    # a clip without a cut is its own window, and a clip asked for as two shots has none
+    whole = shot.check(clip("whole.mp4", [scene(1, shift) for shift in range(30)]))
+    assert whole["window"] == {"start": 0, "end": 30, "frames": 30, "in": 0.0, "out": 1.25, "whole": True}
+    assert shot.check(FOLDER / "opens.mp4", single=False)["window"] is None
+    # two cuts: the longest of the three stretches; of two equal ones the later
+    assert shot.window(124, [{"frame": 14}, {"frame": 100}]) == {"start": 14, "end": 100, "frames": 86, "in": round(14 / 24, 3), "out": round(100 / 24, 3), "whole": False}
+    assert shot.window(100, [{"frame": 50}])["start"] == 50
+    assert shot.window(90, [])["whole"] and shot.window(90, None)["frames"] == 90
+    assert shot.window(90, [{"frame": 0}, {"frame": 90}, {"frame": 400}])["whole"]  # a cut at an end is none
+    # for a clip that has no job: the cuts are looked for
+    from fastapi.testclient import TestClient
+
+    shutil.copy(FOLDER / "opens.mp4", server.HOME / "renders" / "opens.mp4")
+    told = TestClient(server.app).get("/api/shot/window", params={"path": "renders/opens.mp4"})
+    assert told.status_code == 200 and told.json()["start"] == 20 and told.json()["in"] == round(20 / 24, 3)
+    assert TestClient(server.app).get("/api/shot/window", params={"path": "renders/none.mp4"}).status_code == 404
+    alone = shot.longest_take(FOLDER / "opens.mp4")
+    assert alone["start"] == 20 and alone["end"] == 48 and alone["of"] == 48 and [cut["frame"] for cut in alone["cuts"]] == [20]
+
+
 def test_fast_movement_and_a_fade_are_not_cuts():
     fast = [scene(3, 9 * shift) for shift in range(40)]  # the whole stretch moves: no frame stands out from its neighbours
     assert shot.check(clip("fast.mp4", fast))["cuts"] == []
@@ -131,6 +157,8 @@ def test_the_verdict_goes_beside_the_clip_and_a_retake_is_made_only_when_asked()
         assert server.shot_checked(one, target, env) and renders == []
         assert one["shot"]["passed"] is False and one["shot"]["offer"] == 6 and len(one["shot"]["takes"]) == 1
         assert one["shot"]["takes"][0]["cuts"][0]["frame"] == 15 and one["params"]["seed"] == 5
+        # the job's result says where to trim to: the 25 frames after the cut
+        assert one["shot"]["takes"][0]["window"]["start"] == 15 and one["shot"]["takes"][0]["window"]["frames"] == 25
         # asked: one retake at the next seed, the failed take kept
         two = job(retake=True)
         assert server.shot_checked(two, target, env) and renders == [6]

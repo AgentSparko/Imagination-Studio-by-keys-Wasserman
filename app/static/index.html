@@ -889,8 +889,8 @@ function viewProduction() {
 }
 
 /* ---------- Editor ---------- */
-async function addToTimeline(path) { await ensureProject(); try { project = await api("/api/projects/" + project.id); } catch {} let duration = 5; try { duration = (await api("/api/probe?path=" + encodeURIComponent(path))).duration || 5; } catch {}
-  project.timeline.push({ path, in: 0, out: 0, duration }); await saveProject(); toast("Added to the timeline of " + project.name); if (tab === "Editor") render(); }
+async function addToTimeline(path, from = 0, to = 0) { await ensureProject(); try { project = await api("/api/projects/" + project.id); } catch {} let duration = 5; try { duration = (await api("/api/probe?path=" + encodeURIComponent(path))).duration || 5; } catch {}
+  project.timeline.push({ path, in: from, out: to, duration }); await saveProject(); toast("Added to the timeline of " + project.name + (to > from ? ", trimmed to " + from.toFixed(2) + " to " + to.toFixed(2) + " s" : "")); if (tab === "Editor") render(); }
 function viewEditor() {
   const box = el("section", { class: "card" }, el("h2", {}, "Clip editor"));
   ensureProject().then(async () => {
@@ -1144,7 +1144,10 @@ function shotLines(job) { const q = job.shot; if (!q) return null; const takes =
   const again = async () => { try { await api("/api/jobs", { kind: job.kind, title: job.title, params: { ...job.params, seed: q.offer } }); toast("Queued again at seed " + q.offer); poll(); } catch (e) { toast(e.message); } };
   return el("div", { class: "note" }, el("b", { style: "color:" + (q.passed ? "var(--ok)" : q.passed === false ? "var(--bad)" : "inherit") }, "Shot check: " + (q.passed ? "passed" + (takes.length > 1 ? " on the second take" : "") : q.passed === false ? (takes.length > 1 ? "failed on both takes, the last take is kept" : "failed") : "could not run")), q.error ? " · " + q.error : "",
     takes.map(t => el("div", {}, "Take " + t.take + " · seed " + t.seed + " · first frame " + frame(t.first) + " · last frame " + frame(t.last) + " · " + (t.cuts === null ? "cuts not looked for: the prompt writes a second shot" : t.cuts.length ? t.cuts.length + (t.cuts.length === 1 ? " cut" : " cuts") + " inside the shot, at " + t.cuts.map(c => c.seconds + " s").join(", ") : "no cut inside the shot"),
-      t.kept ? [" · ", el("a", { href: file(t.kept), target: "_blank" }, "the take that failed")] : null)),
+      t.kept ? [" · ", el("a", { href: file(t.kept), target: "_blank" }, "the take that failed")] : null,
+      // the longest stretch without a cut (shot.py window): where an editor trims to when the model cut all the same
+      t.window && !t.window.whole ? [" · the longest stretch without a cut is frames " + t.window.start + " to " + (t.window.end - 1) + " (" + (t.window.frames / 24).toFixed(2) + " s)",
+        t === takes[takes.length - 1] && job.outputs && job.outputs[0] ? [" ", el("button", { class: "small", onclick: () => addToTimeline(job.outputs[0], t.window.in, t.window.out) }, "+ timeline, trimmed to it")] : null] : null)),
     q.offer != null && !job.params.output ? el("div", {}, "The model does this at some seeds whatever the prompt says. ", el("button", { class: "small", onclick: again }, "Render it again at seed " + q.offer)) : null); }
 // What a video prompt forbids by name (app/negation.py): said, never taken out
 const negText = list => list.map(n => "“" + n.phrase + "”" + (n.field ? " (" + n.field + ")" : "")).join(", ");
