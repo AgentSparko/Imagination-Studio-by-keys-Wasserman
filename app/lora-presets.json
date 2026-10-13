@@ -218,9 +218,9 @@
   ],
   "needs": "reference",
   "what": "Hand-drawn animation on held frames: the next key drawing, an inbetween, or a short held sequence from one or two drawings.",
-  "status": "unsupported",
-  "why": "Its three adapters work from reference drawings (one for Hero, two for Tween and Sequence), and the Studio's LoRA hub does not reach reference clips yet. The files are gated: accept the author's licence on the page with your Hugging Face account; the essential bundle then fetches them with that account's token.",
-  "notes": "Three adapters: hero (1 drawing), tween (2 drawings), sequence (2 drawings).",
+  "status": "gated",
+  "why": "The files are gated on the author's page: accept the author's licence there with your own Hugging Face account, then Install fetches the file with your token (HF_TOKEN, or `hf auth login`).",
+  "notes": "Three adapters, 1.9 GB each: hero (1 drawing), tween (2 drawings), sequence (2 drawings); this preset is sequence. Works on a clip from references with one or two drawings as pictures, at 20 passes (the author: not on a Turbo adapter).",
   "variants": {
    "Sequence (2 drawings: a short held sequence)": {
     "url": "https://huggingface.co/alvdansen/h3-keyframe-animation/resolve/main/adapters/h3_seq_step12000.safetensors",
@@ -237,7 +237,9 @@
     "sha256": "4bb1225df5f2a3ba34092c1a43f8d65931f6ac5b7464666a2aa88d907807cb55",
     "size": 1880934296
    }
-  }
+  },
+  "flow": "keyframe",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "character-swap",
@@ -262,9 +264,11 @@
   ],
   "needs": "source-video",
   "what": "Replaces a person in a source clip with the person in a reference picture, keeping the scene.",
-  "status": "unsupported",
-  "why": "It works on reference clips (a source video and a picture of the new person). The Studio's LoRA hub does not reach reference clips yet. Without it, 'A picture and a video' in the create wizard already swaps a person.",
-  "notes": "Strength 1.0, no trigger: name the person to replace in the prompt. Shots of 4 to 5 seconds worked best for the author."
+  "status": "ready",
+  "why": "",
+  "notes": "Works on a clip from references: your clip as Video 1 and a picture of the new character as Picture 1. Strength 1.0, no trigger: under Video 1 say who is replaced. Shots of 4 to 5 seconds worked best for the author. On a DGX Spark the clip runs on the full-precision reference model.",
+  "flow": "character-swap",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "person-remover",
@@ -468,8 +472,9 @@
   "what": "A slider between flat 2D anime (plus) and photorealism (minus).",
   "status": "ready",
   "why": "",
-  "notes": "Plus values lean to 2D anime, minus values to a photographic look; 3 or -3 is usually enough. Made because the base model's anime leans 3D.",
-  "tested": "Mac, DGX Spark"
+  "notes": "Plus values lean to 2D anime, minus values to a photographic look; 3 or -3 is usually enough. Made because the base model's anime leans 3D. Works on clips from text, a first frame or references.",
+  "tested": "Mac, DGX Spark",
+  "flow": "slider"
  },
  {
   "id": "lineart-anime",
@@ -494,9 +499,11 @@
   ],
   "needs": "source-video",
   "what": "Colours a line-art video into finished anime.",
-  "status": "unsupported",
-  "why": "It takes a line-art video as its input and is saved in DiffSynth-Studio's own layout for its Ref2VA pipeline, which the Studio's engines do not read.",
-  "notes": "1.26 GB."
+  "status": "ready",
+  "why": "",
+  "notes": "Works on a clip from references with one video, a line-art video (white lines on black) at the clip's own size: “Make line art of Video 1” draws one from any clip. Scene and Action describe the finished picture. 1.26 GB, in DiffSynth-Studio's layout: the Studio rewrites it for each engine at install.",
+  "flow": "lineart",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "3d-animation-style",
