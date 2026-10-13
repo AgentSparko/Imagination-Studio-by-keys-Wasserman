@@ -36,6 +36,11 @@
    "id": "finish",
    "name": "06 Support & Finishing",
    "folder": "06-support-finishing"
+  },
+  {
+   "id": "fun",
+   "name": "07 Fun",
+   "folder": "07-fun"
   }
  ],
  "loras": {
@@ -161,7 +166,8 @@
   },
   "person-remover": {
    "category": [
-    "character"
+    "character",
+    "fun"
    ],
    "spark": {
     "file": "03-character-editing/person-remover/spark/person-remover.safetensors",
@@ -203,6 +209,36 @@
     "file": "04-motion-action/spatial-physics/mac/spatial-physics.mlx.safetensors",
     "size": 155103466,
     "sha256": "5b97bdb4434d758b060828efa8fee9ef88f80a1114cd08ba7734f6ba0a304ad3"
+   }
+  },
+  "vh5tape-vhs": {
+   "category": [
+    "fun"
+   ],
+   "spark": {
+    "file": "07-fun/vh5tape-vhs/spark/vh5tape-vhs.safetensors",
+    "size": 131242912,
+    "sha256": "2966503f53d6448c53ac492f5d1055feba410f094abc739592cef5dc0961da7d"
+   },
+   "mac": {
+    "file": "07-fun/vh5tape-vhs/mac/vh5tape-vhs.mlx.safetensors",
+    "size": 131226404,
+    "sha256": "ee69c50700603388a9a1c92cd91669243a489a92043273fe3219d246cf446b2d"
+   }
+  },
+  "wushu-action": {
+   "category": [
+    "fun"
+   ],
+   "spark": {
+    "file": "07-fun/wushu-action/spark/wushu-action.safetensors",
+    "size": 155109672,
+    "sha256": "136c16924f7413f0edb1c439f29c1e4c9da13d2cf07117c4e46556691193aa16"
+   },
+   "mac": {
+    "file": "07-fun/wushu-action/mac/wushu-action.mlx.safetensors",
+    "size": 155103463,
+    "sha256": "e668eea743676d3689efcad5e80daeabb5ef96ab008e25ed27c41aff852b09f2"
    }
   }
  }

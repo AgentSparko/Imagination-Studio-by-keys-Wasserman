@@ -726,8 +726,11 @@ Both are slower than the usual path and have no time estimate. A LoRA is not app
 bash oneshot-essential-bundle.sh          # both installers run it; --no-loras on an installer skips it
 ```
 
-It fetches every preset of the hub once, each from its author's own page (about 4 GB, about 2 minutes on a fast line;
-9.6 GB with the three Keyframe Animation adapters, which need your Hugging Face account's acceptance of their licence),
+It fetches every preset of the hub once: thirteen in one essential package per platform (1.8 GB, from
+`huggingface.co/drowzeys/keys-studio-lora-essential`, the LoRAs whose stated licences allow passing them on, each with its
+author's card and licence; `LORA_PACKAGE=none` skips it) and the rest each from its author's own page (about 6.5 GB in
+all and 4 minutes measured on a fast line;
+the three Keyframe Animation adapters, 5.6 GB of it, need your Hugging Face account's acceptance of their licence),
 into `~/TensorFoldStudio/lora-bundle/`, laid out by the hub's groups (`01-camera-viewpoint` ... `06-support-finishing`, `07-fun`,
 with `bundle.json` as the menu), checks each sha256, keeps the author's model card and licence beside each file, and
 installs the set into the hub (on a Mac, rewritten for the MLX engine). After that the Studio needs none of those
