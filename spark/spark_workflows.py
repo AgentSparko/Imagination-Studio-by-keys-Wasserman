@@ -376,7 +376,20 @@ def mend(clip: Path, size: dict, reach: int = 4) -> tuple[int, int]:
              and len(frames) > 2]
     for i in alien:
         green[i] = True
-    flagged = sorted(set(flagged) | set(alien))
+    # What a window leaves where it half took the person out is not always the mask's own green: measured at a clip's
+    # end, a dull green block the size of a few latent points. A frame whose share of greenish points jumps above the
+    # frames before it is mended too, where it is greenish and the frame it is mended from is not.
+    wide = frames.astype(np.int16)
+    tint = (wide[..., 1] - wide[..., 0] > 14) & (wide[..., 1] - wide[..., 2] > 14)
+    level = tint.reshape(len(frames), -1).mean(1)
+    for i in range(1, len(frames)):
+        calm = [j for j in range(max(0, i - 8), i) if j not in flagged and not green[j].any()]
+        if i in alien or not calm or level[i] - float(np.median(level[calm])) < 0.015:
+            continue
+        stain = tint[i] & ~grown(tint[calm[-1]], 6)
+        if stain.mean() > 0.004:
+            green[i] |= stain
+    flagged = sorted(set(flagged) | set(alien) | {i for i in range(len(frames)) if green[i].mean() > 0.002})
     if not flagged:
         return 0, 0
     out, bad, mended = frames.copy(), set(flagged), 0
