@@ -376,7 +376,7 @@ def attach(home: Path, pack: Path, spark: bool):
         """The prompt with each LoRA's trigger and look phrase at the start of the shot, unless it is there already."""
 
         # most triggers open the shot as a sentence; one whose author writes "trigger, subject, ..." keeps its comma
-        words = " ".join(p["lead"] + "," if p.get("comma") else p["lead"] if p["lead"].endswith(".") else p["lead"] + "."
+        words = " ".join(p["lead"] + "," if p.get("comma") and not p["lead"].endswith(".") else p["lead"] if p["lead"].endswith(".") else p["lead"] + "."
                          for p in picked if p["lead"] and (not p["trigger"] or p["trigger"] not in prompt))
         if not words:
             return prompt

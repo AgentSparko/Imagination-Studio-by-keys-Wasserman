@@ -25,18 +25,18 @@ def fake(path: Path) -> str:
 
 def test_presets_are_well_formed():
     ids = [r["id"] for r in PRESETS]
-    assert len(ids) == len(set(ids)) == 19
+    assert len(ids) == len(set(ids)) == 22
     for r in PRESETS:
         assert r["name"] and r["author"] and r["page"] and r["licence"], r["id"]
         assert set(r["category"]) <= GROUPS and r["category"], r["id"]
         assert r["status"] in ("ready", "gated", "unsupported"), r["id"]
         assert len(r["sha256"]) == 64 and r["url"].startswith("https://"), r["id"]
-        assert r["needs"] in ("text", "first-last", "reference", "source-video", "workflow"), r["id"]
+        assert r["needs"] in ("text", "first-last", "reference", "source-video", "workflow", "image"), r["id"]
         assert r["status"] == "ready" or r["why"], r["id"]
         assert r["range"][0] <= r["strength"] <= r["range"][1], r["id"]
-    for group in ("camera", "transform", "character", "motion", "style", "finish"):
+    for group in ("camera", "transform", "character", "motion", "style", "finish", "fun"):
         assert sum(group in r["category"] for r in PRESETS) >= 3, group
-    assert [r["id"] for r in PRESETS if len(r["category"]) == 2] == ["natural-face-speech", "motion-continuity-repair"]
+    assert [r["id"] for r in PRESETS if len(r["category"]) == 2] == ["person-remover", "natural-face-speech", "motion-continuity-repair"]
 
 
 def test_install_reads_a_bundle_and_checks_it(tmp_path, monkeypatch):

@@ -126,7 +126,7 @@ A LoRA is a small file that teaches the video model one thing: a camera move, a 
 **Keys and Wasserman LoRA Hub** is in step 1 of Create (and on the Production board and in a Slate film's settings).
 
 1. Press **▸ Browse the hub**. The LoRAs are in groups: *Wasserman*, *01 Camera & Viewpoint*, *02 Transformation &
-   Morphing*, *03 Character Editing*, *04 Motion & Action*, *05 Art Style*, *06 Support & Finishing*. Pick a group or
+   Morphing*, *03 Character Editing*, *04 Motion & Action*, *05 Art Style*, *06 Support & Finishing*, *07 Fun*. Pick a group or
    type in the search box.
 2. Each card says what the LoRA does, who made it, what it works from, its licence and its size. After
    `bash oneshot-essential-bundle.sh` (the installer runs it) every usable LoRA is already installed; otherwise press

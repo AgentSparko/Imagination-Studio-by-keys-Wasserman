@@ -5,7 +5,7 @@
 # author's model card and licence beside it, and installs the set into the hub. After one run the Studio needs none of
 # those links again; copy the folder to another machine or drive and install from it with no network:
 #   bash oneshot-essential-bundle.sh                                  # everything (about 4 GB), then install into the hub
-#   bash oneshot-essential-bundle.sh --categories camera,style        # some groups: wasserman camera transform character motion style finish
+#   bash oneshot-essential-bundle.sh --categories camera,style        # some groups: wasserman camera transform character motion style finish fun
 #   bash oneshot-essential-bundle.sh --only camera-motion,anime-slider
 #   bash oneshot-essential-bundle.sh --dest /Volumes/Drive/lora-bundle   # where the bundle is kept (default ~/TensorFoldStudio/lora-bundle)
 #   bash oneshot-essential-bundle.sh --source /Volumes/Drive/lora-bundle # take the files from another copy of a bundle (or LORA_BUNDLE=...)

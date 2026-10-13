@@ -285,7 +285,8 @@
   "licence": "The weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement, with its territory limits, commercial terms and Acceptable Use Policy. Read the licence on the LoRA's page before downloading.",
   "licence_tag": "H3 Community",
   "category": [
-   "character"
+   "character",
+   "fun"
   ],
   "needs": "workflow",
   "what": "Removes a chosen person from a video and rebuilds the background.",
@@ -550,5 +551,94 @@
   "status": "unsupported",
   "why": "It is one part of the author's ComfyUI upscale node, with a separate latent upscaler model, and is not a LoRA for making a clip. The Studio doubles a clip with its own 2x decoder (the 2K and QHD sizes).",
   "notes": "620 MB."
+ },
+ {
+  "id": "vh5tape-vhs",
+  "name": "VH5 Tape (VHS)",
+  "author": "KennethFal",
+  "url": "https://huggingface.co/KennethFal/vh5tape-vhs-lora-minimax-h3/resolve/main/vh5tape-comfyui.safetensors",
+  "page": "huggingface.co/KennethFal/vh5tape-vhs-lora-minimax-h3",
+  "sha256": "2966503f53d6448c53ac492f5d1055feba410f094abc739592cef5dc0961da7d",
+  "size": 131242912,
+  "trigger": "vh5tape",
+  "comma": true,
+  "styles": {
+   "Medium wear": "worn VHS tape recording with visible tape damage.",
+   "Light wear": "lightly worn VHS tape with slight analog noise.",
+   "Heavy damage": "badly damaged VHS tape with heavy tracking errors and distortion."
+  },
+  "strength": 1.0,
+  "range": [
+   0.7,
+   1.0
+  ],
+  "base": "MiniMax H3",
+  "licence": "The weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement, with its territory limits, commercial terms and Acceptable Use Policy. Read the licence on the LoRA's page before downloading.",
+  "licence_tag": "H3 Community",
+  "category": [
+   "fun"
+  ],
+  "needs": "text",
+  "what": "A 1980s home-video look with a damage dial: light wear, visible tape damage, or heavy tracking errors.",
+  "status": "ready",
+  "why": "",
+  "notes": "Trigger first, damage level second, then the scene: the hub writes the first two for you. Period details help: wood panelling, studio lighting, 4:3, 1980s clothes. 0.7 to 0.9 softens the wear.",
+  "tested": "Mac, DGX Spark"
+ },
+ {
+  "id": "wushu-action",
+  "name": "Wushu Action",
+  "author": "Jojocodex",
+  "url": "https://huggingface.co/Jojocodex/minimax-h3-wushu-action-lora/resolve/main/old/wushu_action_h3_lora_v5_3000_fl2va_no-adaln.safetensors",
+  "page": "huggingface.co/Jojocodex/minimax-h3-wushu-action-lora",
+  "sha256": "136c16924f7413f0edb1c439f29c1e4c9da13d2cf07117c4e46556691193aa16",
+  "size": 155109672,
+  "trigger": "wushu_action",
+  "comma": true,
+  "styles": {},
+  "strength": 0.5,
+  "range": [
+   0.4,
+   1.0
+  ],
+  "base": "MiniMax H3",
+  "licence": "The author publishes this file under Apache-2.0. It was trained on MiniMax H3, whose Community License Agreement (territory limits, Acceptable Use Policy) still governs the base model you run it on.",
+  "licence_tag": "Apache-2.0",
+  "category": [
+   "fun"
+  ],
+  "needs": "text",
+  "what": "Kung fu and wushu moves with weight behind them: punches, kicks, spins, staff work.",
+  "status": "ready",
+  "why": "",
+  "notes": "Write: who, the moves and how the force travels ('powerful hip rotation and weight transfer'), the place, the shot ('full-body shot, stable camera'). The author pairs it at 0.5 with Spatial Physics at 0.3. The page's current file sits in its 'old' folder (v5, 3000 steps).",
+  "tested": "Mac, DGX Spark"
+ },
+ {
+  "id": "qwen-multiple-angles",
+  "name": "Multiple Angles (image)",
+  "author": "akhaliq",
+  "url": "https://huggingface.co/akhaliq/Qwen-Image-2.1-Multiple-Angles-LoRA/resolve/main/checkpoints_v2/angles_v2_full_qwen21_multiple_angles_v2_qwen21_multiple_angles_v2_000001500.safetensors",
+  "page": "huggingface.co/akhaliq/Qwen-Image-2.1-Multiple-Angles-LoRA",
+  "sha256": "548c57977c3f1c09c2c9e5f4e83e930cbc6f719c878a576ab8666ce29fef39b6",
+  "size": 318819792,
+  "trigger": "<mva>",
+  "styles": {},
+  "strength": 0.9,
+  "range": [
+   0.8,
+   1.0
+  ],
+  "base": "Qwen-Image-2.1",
+  "licence": "The author publishes this file under Apache-2.0. It is for Qwen-Image-2.1, under that model's own licence.",
+  "licence_tag": "Apache-2.0",
+  "category": [
+   "fun"
+  ],
+  "needs": "image",
+  "what": "Shows the subject of a picture from another camera angle: 12 directions at 4 heights, each also as a close-up.",
+  "status": "unsupported",
+  "why": "It is a LoRA for the image model, Qwen-Image-2.1, used to edit a picture you give it. The hub's LoRAs go to the video model, and the Studio's image step makes pictures from text only.",
+  "notes": "Prompt shape: '<mva> front-right quarter view, eye-level shot'. v2, step 1500, is the file the author recommends."
  }
 ]
