@@ -111,6 +111,7 @@ CONVERSATION DISCIPLINE:
 - Don't interrogate — after at most one round of questions, make strong professional assumptions, state them briefly in the reply, and ACT.
 - When you act, the reply should read like an AD reporting back: what you set up and why, in a few tight sentences. Never paste full prompts into the reply — they're in the shots.
 - When the director asks for changes, use update_shot/update_scene on the existing work, not duplicates.
+- To change a character, location, prop, music cue or voice that is already in the bible (a recast, a new wardrobe, another time of day), use update_character/update_location/update_art/update_music_cue/update_voice with only the fields that change; send "replace":true to rewrite the whole sheet. Never add a second sheet with the same name. Shots that name the sheet in "cast" or "location" pick the change up when they compile; rewrite a shot's own "prompt" (update_shot) only where its text repeats the old description.
 
 PROMPT QUALITY: every "prompt" you write uses the sectioned format below, in vivid, concrete, production-ready cinematography language — no vague adjectives, no "8k masterpiece" filler. Repeat character/location descriptions verbatim from the bible in every prompt (generators see one prompt at a time). Respect all continuity facts.
 
@@ -146,9 +147,29 @@ ACTIONS — when (and only when) the director's intent is clear enough to act, i
 - {"type":"add_art","kind"("prop"|"wardrobe"|"vehicle"),"name","description"?,"materials"?,"condition"?,"era"?,"distinctive"?}
 - {"type":"add_music_cue","name","sceneRef"?,"intent"?,"genre"?,"mood"?,"tempo"?,"instrumentation"?,"era"?,"structure"?,"vocals"?("instrumental"|"vocals"|"either"),"lyricTheme"?,"durationSec"?:number}
 - {"type":"add_voice","name","characterName"?,"ageGender"?,"accent"?,"timbre"?,"pitch"?,"pacing"?,"energy"?,"texture"?,"emotionalRange"?,"sampleLine"?}
+- {"type":"update_character","character":"<name or id>","name"?:"<new name>","replace"?:true, ...any add_character field}
+- {"type":"update_location","location":"<name or id>","name"?,"replace"?:true, ...any add_location field}
+- {"type":"update_art","art":"<name or id>","name"?,"replace"?:true, ...any add_art field}
+- {"type":"update_music_cue","cue":"<name or id>","name"?,"replace"?:true, ...any add_music_cue field}
+- {"type":"update_voice","voice":"<name or id>","name"?,"replace"?:true, ...any add_voice field}
 - {"type":"select","scene"?:"<name or id>","shot"?:"<name or id>"} — focus the UI on something you created or changed
 
 Spec vocabulary: size EWS|WS|MWS|MS|MCU|CU|ECU|Insert; angle eye level|low|high|overhead|dutch|over-shoulder|POV; movement locked|handheld|push-in|pull-back|orbit|pan|tilt|track|crane|drone|steadicam; lens 14mm|24mm|35mm|50mm|85mm|135mm|anamorphic|macro|tilt-shift.`;
+// The bible's sheets as the First AD writes them: `read` gives every field of a sheet (`all`, defaults filled in) and the ones this action sent (`sent`).
+const slSheetRead = (fields, fix = {}) => (a, str, p) => { const all = {}, sent = {}; for (const k of fields) { const v = fix[k] ? fix[k](a[k], str, p, a) : str(a[k]); all[k] = v; if (a[k] !== undefined && a[k] !== null) sent[k] = v; } return { all, sent }; };
+const SL_BIBLE = {
+  add_character: { key: "characters", ref: "character", id: "char", noun: "character", added: "Cast", unnamed: "Unnamed", blank: () => ({ scenario: "cinematic", notes: "" }),
+    read: slSheetRead(["age", "gender", "ethnicity", "faceFeatures", "hair", "clothing", "expression", "eyeDirection", "mood", "environment", "keyLightSide", "lightingMood"], { keyLightSide: (v, str) => str(v) || "Key light from left", lightingMood: (v, str) => str(v) || "Natural soft light" }) },
+  add_location: { key: "locations", ref: "location", id: "loc", noun: "location", added: "Scouted", unnamed: "Unnamed", blank: () => ({ notes: "" }),
+    read: slSheetRead(["interiorExterior", "description", "timeOfDay", "weather", "architecture", "textures", "practicalLights"], { interiorExterior: (v, str) => ["interior", "both"].includes(str(v)) ? str(v) : "exterior" }) },
+  add_art: { key: "artDept", ref: "art", id: "art", noun: "prop, wardrobe or vehicle", added: "Added", unnamed: "Unnamed", blank: () => ({ notes: "" }),
+    read: slSheetRead(["kind", "description", "materials", "condition", "era", "distinctive"], { kind: (v, str) => ["wardrobe", "vehicle"].includes(str(v)) ? str(v) : "prop" }) },
+  add_music_cue: { key: "music", ref: "cue", id: "cue", noun: "music cue", added: "Spotted cue", unnamed: "Untitled cue", blank: () => ({ lyrics: "", notes: "" }),
+    read: slSheetRead(["sceneRef", "intent", "genre", "mood", "tempo", "instrumentation", "era", "structure", "vocals", "lyricTheme", "durationSec"], { vocals: (v, str) => ["vocals", "either"].includes(str(v)) ? str(v) : "instrumental", durationSec: v => typeof v === "number" ? v : null }) },
+  add_voice: { key: "voices", ref: "voice", id: "voice", noun: "voice", added: "Cast voice", unnamed: "Unnamed voice", blank: () => ({ characterId: null, notes: "" }),
+    read: (a, str, p) => { const out = slSheetRead(["ageGender", "accent", "timbre", "pitch", "pacing", "energy", "texture", "emotionalRange", "sampleLine"])(a, str, p);
+      if (a.characterName !== undefined) { const who = p.characters.find(c => c.name.toLowerCase() === str(a.characterName).toLowerCase()); out.all.characterId = out.sent.characterId = who ? who.id : null; } return out; } } };
+const SL_BIBLE_CHANGE = { update_character: "add_character", update_location: "add_location", update_art: "add_art", update_music_cue: "add_music_cue", update_voice: "add_voice" };
 function slApply(actions) { const p = SL.p, receipts = [], str = v => typeof v === "string" ? v : "";
   const scene = ref => p.scenes.find(s => s.id === ref) || p.scenes.find(s => s.name.toLowerCase() === String(ref || "").trim().toLowerCase());
   const shotOf = ref => { for (const sc of p.scenes) { const sh = sc.shots.find(s => s.id === ref) || sc.shots.find(s => s.name.toLowerCase() === String(ref || "").trim().toLowerCase()); if (sh) return [sc, sh]; } };
@@ -167,15 +188,15 @@ function slApply(actions) { const p = SL.p, receipts = [], str = v => typeof v =
     else if (a.type === "update_shot") { const hit = shotOf(a.shot); if (!hit) { receipts.push(`✗ Shot "${a.shot}" not found`); continue; } const [sc, shot] = hit;
       if (a.prompt !== undefined && a.prompt !== shot.prompt) { slKeep(shot, "before First AD change"); shot.prompt = a.prompt; slTf(shot).h3Auto = true; } if (a.name) shot.name = a.name; if (a.intent !== undefined) shot.intent = a.intent; spec(shot.spec, a.spec);
       if (a.beatSheet !== undefined) shot.beatSheet = a.beatSheet; gear(shot, a); delete SL.plan[shot.id]; shot.updatedAt = slNow(); SL.sceneId = sc.id; SL.shotId = shot.id; receipts.push(`✓ Updated "${shot.name}"`); }
-    else if (a.type === "add_character") { p.characters.push({ id: slId("char"), name: str(a.name) || "Unnamed", age: str(a.age), gender: str(a.gender), ethnicity: str(a.ethnicity), faceFeatures: str(a.faceFeatures), hair: str(a.hair), clothing: str(a.clothing), expression: str(a.expression),
-      eyeDirection: str(a.eyeDirection), mood: str(a.mood), environment: str(a.environment), keyLightSide: str(a.keyLightSide) || "Key light from left", lightingMood: str(a.lightingMood) || "Natural soft light", scenario: "cinematic", notes: "" }); receipts.push(`✓ Cast "${str(a.name)}"`); }
-    else if (a.type === "add_location") { const ie = str(a.interiorExterior); p.locations.push({ id: slId("loc"), name: str(a.name) || "Unnamed", interiorExterior: ["interior", "both"].includes(ie) ? ie : "exterior", description: str(a.description), timeOfDay: str(a.timeOfDay), weather: str(a.weather),
-      architecture: str(a.architecture), textures: str(a.textures), practicalLights: str(a.practicalLights), notes: "" }); receipts.push(`✓ Scouted "${str(a.name)}"`); }
-    else if (a.type === "add_art") { const kind = ["wardrobe", "vehicle"].includes(str(a.kind)) ? str(a.kind) : "prop"; p.artDept.push({ id: slId("art"), kind, name: str(a.name) || "Unnamed", description: str(a.description), materials: str(a.materials), condition: str(a.condition), era: str(a.era), distinctive: str(a.distinctive), notes: "" }); receipts.push(`✓ Added ${kind} "${str(a.name)}"`); }
-    else if (a.type === "add_music_cue") { (p.music = p.music || []).push({ id: slId("cue"), name: str(a.name) || "Untitled cue", sceneRef: str(a.sceneRef), intent: str(a.intent), genre: str(a.genre), mood: str(a.mood), tempo: str(a.tempo), instrumentation: str(a.instrumentation), era: str(a.era), structure: str(a.structure),
-      vocals: ["vocals", "either"].includes(str(a.vocals)) ? str(a.vocals) : "instrumental", lyricTheme: str(a.lyricTheme), lyrics: "", durationSec: typeof a.durationSec === "number" ? a.durationSec : null, notes: "" }); receipts.push(`✓ Spotted cue "${str(a.name)}"`); }
-    else if (a.type === "add_voice") { const who = p.characters.find(c => c.name.toLowerCase() === str(a.characterName).toLowerCase()); (p.voices = p.voices || []).push({ id: slId("voice"), name: str(a.name) || "Unnamed voice", characterId: who ? who.id : null, ageGender: str(a.ageGender), accent: str(a.accent), timbre: str(a.timbre),
-      pitch: str(a.pitch), pacing: str(a.pacing), energy: str(a.energy), texture: str(a.texture), emotionalRange: str(a.emotionalRange), sampleLine: str(a.sampleLine), notes: "" }); receipts.push(`✓ Cast voice "${str(a.name)}"`); }
+    else if (SL_BIBLE[a.type] || SL_BIBLE_CHANGE[a.type]) { const adding = !!SL_BIBLE[a.type], def = SL_BIBLE[a.type] || SL_BIBLE[SL_BIBLE_CHANGE[a.type]], list = p[def.key] || (p[def.key] = []);
+      // an add with a name the bible already has is a rewrite of that sheet, and an update changes the fields it gives: the id stays, so every shot that casts it follows
+      const ref = adding ? a.name : a[def.ref], hit = list.find(x => x.id === ref) || named(list, ref);
+      if (!adding && !hit) { receipts.push(`✗ ${def.noun} "${ref}" not found — nothing changed`); continue; }
+      const given = def.read(a, str, p);
+      if (!hit) { list.push({ id: slId(def.id), ...def.blank(), ...given.all, name: str(a.name) || def.unnamed }); receipts.push(`✓ ${def.added} "${str(a.name)}"`); continue; }
+      const whole = adding || a.replace === true, was = hit.name;
+      Object.assign(hit, whole ? given.all : given.sent, { name: (str(a.name).trim() && (adding ? hit.name : str(a.name).trim())) || hit.name });
+      SL.plan = {}; receipts.push(`✓ ${whole ? "Rewrote" : "Changed"} ${def.noun} "${was}"${hit.name !== was ? ` → "${hit.name}"` : ""}${whole ? "" : Object.keys(given.sent).length ? ": " + Object.keys(given.sent).join(", ") : hit.name !== was ? "" : ": nothing to change"}`); }
     else if (a.type === "select") { const hit = a.shot && shotOf(a.shot), sc = !hit && a.scene && scene(a.scene); if (hit) { SL.sceneId = hit[0].id; SL.shotId = hit[1].id; } else if (sc) { SL.sceneId = sc.id; SL.shotId = null; } }
     else receipts.push("✗ Unknown action " + (a.type || "?"));
   } catch (e) { receipts.push(`✗ ${a.type} failed: ${e.message}`); }
