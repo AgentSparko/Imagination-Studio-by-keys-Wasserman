@@ -53,7 +53,8 @@
   "status": "ready",
   "why": "",
   "notes": "Write the prompt as: subject, place, the camera move, light and style. Name the move in plain words, for example 'slow push-in with subtle lateral tracking' or 'slow pull-back combined with a gentle orbit'. 0.8 is gentle, 1.0 is definite, above 1.2 the picture can turn unstable. The author's page has a library of 55 prompts.",
-  "comma": true
+  "comma": true,
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "headmounted-fpv",
@@ -80,7 +81,8 @@
   "what": "A first-person view from a camera on the head, with the bob of walking or running.",
   "status": "ready",
   "why": "",
-  "notes": "The author's page gives no trigger word or settings (it mirrors a Civitai upload). Describe the shot as seen through the person's own eyes: 'first-person view from a head-mounted camera, hands visible, the view bobs with each step'."
+  "notes": "The author's page gives no trigger word or settings (it mirrors a Civitai upload). Describe the shot as seen through the person's own eyes: 'first-person view from a head-mounted camera, hands visible, the view bobs with each step'.",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "equi360",
@@ -109,7 +111,8 @@
   "what": "A full-sphere 360° panorama video with sound, for VR players.",
   "status": "ready",
   "why": "",
-  "notes": "Made for a 21:9 frame: pick Custom size, 1120x480. The whole frame is the sphere: resize the clip to 2:1 and add 360 metadata for a VR player. Describe the place, the motion and the sound; a still camera works best. Seams at the wrap and stretching at the poles can still happen."
+  "notes": "Made for a 21:9 frame: pick Custom size, 1120x480. The whole frame is the sphere: resize the clip to 2:1 and add 360 metadata for a VR player. Describe the place, the motion and the sound; a still camera works best. Seams at the wrap and stretching at the poles can still happen.",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "orbit-360",
@@ -199,7 +202,7 @@
   "url": "https://huggingface.co/alvdansen/h3-keyframe-animation/resolve/main/adapters/h3_seq_step12000.safetensors",
   "page": "huggingface.co/alvdansen/h3-keyframe-animation",
   "sha256": "1a82a85859cccf207afe171c51bafdfd4e85076fe74300d84991d14beeb71bf5",
-  "size": 1880934296,
+  "size": 5642802888,
   "trigger": "",
   "styles": {},
   "strength": 1.0,
@@ -216,8 +219,25 @@
   "needs": "reference",
   "what": "Hand-drawn animation on held frames: the next key drawing, an inbetween, or a short held sequence from one or two drawings.",
   "status": "unsupported",
-  "why": "The files are gated on the author's page (you accept the author's licence there), each is 1.9 GB, and they work from reference drawings. The Studio's LoRA hub does not reach reference clips yet.",
-  "notes": "Three adapters: hero (1 drawing), tween (2 drawings), sequence (2 drawings)."
+  "why": "Its three adapters work from reference drawings (one for Hero, two for Tween and Sequence), and the Studio's LoRA hub does not reach reference clips yet. The files are gated: accept the author's licence on the page with your Hugging Face account; the essential bundle then fetches them with that account's token.",
+  "notes": "Three adapters: hero (1 drawing), tween (2 drawings), sequence (2 drawings).",
+  "variants": {
+   "Sequence (2 drawings: a short held sequence)": {
+    "url": "https://huggingface.co/alvdansen/h3-keyframe-animation/resolve/main/adapters/h3_seq_step12000.safetensors",
+    "sha256": "1a82a85859cccf207afe171c51bafdfd4e85076fe74300d84991d14beeb71bf5",
+    "size": 1880934296
+   },
+   "Hero (1 drawing: the next key drawing)": {
+    "url": "https://huggingface.co/alvdansen/h3-keyframe-animation/resolve/main/adapters/h3_hero_step12000.safetensors",
+    "sha256": "91a7581b6e43797ea04256b55e94b6458067abf577f6602290d07468dd83b74c",
+    "size": 1880934304
+   },
+   "Tween (2 drawings: the next inbetween)": {
+    "url": "https://huggingface.co/alvdansen/h3-keyframe-animation/resolve/main/adapters/h3_tween_step12000.safetensors",
+    "sha256": "4bb1225df5f2a3ba34092c1a43f8d65931f6ac5b7464666a2aa88d907807cb55",
+    "size": 1880934296
+   }
+  }
  },
  {
   "id": "character-swap",
@@ -299,7 +319,8 @@
   "what": "More natural face muscles and clearer English speech for a person talking to the camera.",
   "status": "ready",
   "why": "",
-  "notes": "Text to video or from a first frame. Author's prompt shape: 'she is speaking into a mic, she maintains eye contact with the viewer saying: ...'. Made for 720x1280 at 20 to 30 passes."
+  "notes": "Text to video or from a first frame. Author's prompt shape: 'she is speaking into a mic, she maintains eye contact with the viewer saying: ...'. Made for 720x1280 at 20 to 30 passes.",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "motion-continuity-repair",
@@ -330,7 +351,8 @@
   "what": "Keeps fast movement connected: fewer broken transitions, less unwanted slow motion, closer to the prompt.",
   "status": "ready",
   "why": "",
-  "notes": "For running, sport, dance, tumbling, fights. About 0.9 alone; 0.5 to 0.7 beside Combat Base V2. Too high can rebuild the whole movement or change the sound. The trigger word is optional."
+  "notes": "For running, sport, dance, tumbling, fights. About 0.9 alone; 0.5 to 0.7 beside Combat Base V2. Too high can rebuild the whole movement or change the sound. The trigger word is optional.",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "combat-base-v2",
@@ -361,7 +383,8 @@
   "what": "Faster, harder-hitting fight movement, and livelier body movement and sound in dialogue scenes.",
   "status": "ready",
   "why": "",
-  "notes": "The prompt still decides what the fighters do; the LoRA changes how it is performed. Write the action first, then any dialogue. The author gives no strength figure."
+  "notes": "The prompt still decides what the fighters do; the LoRA changes how it is performed. Write the action first, then any dialogue. The author gives no strength figure.",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "weapon-combat",
@@ -388,7 +411,8 @@
   "what": "Sword, staff and other weapon fights that hold together better.",
   "status": "ready",
   "why": "",
-  "notes": "Use it alone: stacked with Combat Base V2 or Motion Continuity Repair it can turn unstable. The author says its training includes finishing moves and dismemberment, so it can produce graphic violence if the prompt asks for a kill."
+  "notes": "Use it alone: stacked with Combat Base V2 or Motion Continuity Repair it can turn unstable. The author says its training includes finishing moves and dismemberment, so it can produce graphic violence if the prompt asks for a kill.",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "spatial-physics",
@@ -415,7 +439,8 @@
   "what": "Objects that collide, stack, fall and block each other more believably; also firmer contact in fights.",
   "status": "ready",
   "why": "",
-  "notes": "The author calls it a test release and suggests 0.3 to 0.5: a light push toward real physics on top of the base model."
+  "notes": "The author calls it a test release and suggests 0.3 to 0.5: a light push toward real physics on top of the base model.",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "anime-slider",
@@ -442,7 +467,8 @@
   "what": "A slider between flat 2D anime (plus) and photorealism (minus).",
   "status": "ready",
   "why": "",
-  "notes": "Plus values lean to 2D anime, minus values to a photographic look; 3 or -3 is usually enough. Made because the base model's anime leans 3D."
+  "notes": "Plus values lean to 2D anime, minus values to a photographic look; 3 or -3 is usually enough. Made because the base model's anime leans 3D.",
+  "tested": "Mac, DGX Spark"
  },
  {
   "id": "lineart-anime",
@@ -495,7 +521,7 @@
   "needs": "text",
   "what": "The look of a 3D animated feature.",
   "status": "gated",
-  "why": "The author approves each download by hand. Ask for access on the LoRA's page with your Hugging Face account, then put that account's token in HF_TOKEN (or sign in with the hf tool) and press Install.",
+  "why": "Waiting for the author's approval of your access request: the author approves each download by hand. Ask on the LoRA's page with your Hugging Face account; once approved, Install (or the essential bundle) fetches it with that account's token.",
   "notes": "Not tested by us: the author's approval is needed to download it. Trigger word and settings are on the author's page once you have access."
  },
  {

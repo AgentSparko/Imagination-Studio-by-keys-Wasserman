@@ -215,6 +215,13 @@ def attach(home: Path, pack: Path, spark: bool):
     def prebuilt(recipe: dict, state: dict) -> bool:
         """On a Mac with no file from a bundle: the hosted build already in the MLX engine's layout, when there is one."""
 
+        if not spark and not source(recipe["id"]).is_file():  # a Mac build an essential package put in the bundle
+            where, name = bundle(), recipe["id"] + ".mlx.safetensors"
+            local = None if not where or where.startswith(("http://", "https://")) else Path(where).expanduser() / FOLDERS.get((recipe.get("category") or ["mine"])[0], "") / recipe["id"] / name
+            wanted = ((HOSTED.get(recipe["id"]) or {}).get("mac") or {}).get("sha256")
+            if local and local.is_file() and wanted and hashlib.sha256(local.read_bytes()).hexdigest() == wanted:
+                shutil.copyfile(local, ready(recipe["id"]))
+                return True
         build = None if spark or source(recipe["id"]).is_file() or bundled(recipe) else hosted(recipe["id"], "mac")
         if not build or os.environ.get("LORA_OFFLINE") == "1":
             return False
@@ -241,7 +248,8 @@ def attach(home: Path, pack: Path, spark: bool):
 
         for recipe in recipes():
             lora_id = recipe["id"]
-            if recipe.get("status") == "unsupported" or ready(lora_id).is_file() or not (bundled(recipe) or source(lora_id).is_file()):
+            packed = not spark and bundle() and not bundle().startswith("http") and (Path(bundle()).expanduser() / FOLDERS.get((recipe.get("category") or ["mine"])[0], "") / lora_id / (lora_id + ".mlx.safetensors")).is_file()
+            if recipe.get("status") == "unsupported" or ready(lora_id).is_file() or not (bundled(recipe) or source(lora_id).is_file() or packed):
                 continue
             with lock:
                 if lora_id in busy:
@@ -396,6 +404,17 @@ def main(argv: list[str]) -> int:
         if not wanted & set(recipe.get("category") or []) or recipe.get("status", "ready") == "unsupported":
             continue
         target = folder / f"{recipe['id']}.safetensors"
+        where = bundle()
+        build = None if not where or where.startswith(("http://", "https://")) else Path(where).expanduser() / FOLDERS.get(recipe["category"][0], "") / recipe["id"] / f"{recipe['id']}.mlx.safetensors"
+        made = folder / f"{recipe['id']}.mlx.safetensors"
+        if sys.platform == "darwin" and not made.is_file() and build and build.is_file() \
+                and hashlib.sha256(build.read_bytes()).hexdigest() == ((HOSTED.get(recipe["id"]) or {}).get("mac") or {}).get("sha256"):
+            shutil.copyfile(build, made)  # an essential package's Mac build: installed as it is
+            print(f"got   {recipe['name']} by {recipe['author']} ({made.stat().st_size >> 20} MB), the Mac build from the package")
+            continue
+        if made.is_file() and not target.is_file():
+            print(f"have  {recipe['name']}")
+            continue
         if not target.is_file() and not bundled(recipe) and os.environ.get("LORA_OFFLINE") == "1":
             continue  # only what the bundle holds
         if recipe.get("status") == "gated" and not target.is_file() and not bundled(recipe) and not token():

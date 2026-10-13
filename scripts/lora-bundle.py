@@ -74,6 +74,111 @@ def fetch(url: str, target: Path, token: str, retries: int) -> None:
         time.sleep(2 * (attempt + 1))
 
 
+def make_package(args, dest: Path, presets: list, hosted: dict, folder_of: dict, groups: list, say) -> int:
+    """One plain tar per platform with the hosted set only: the six group folders, that platform's build of each LoRA,
+    its author's card and licence, SOURCE.md, and bundle.json as the menu. A .sha256 beside each; parts of 1.9 GB when
+    an archive is over 2 GB."""
+
+    import tarfile
+    out = Path(args.make_package).expanduser()
+    out.mkdir(parents=True, exist_ok=True)
+    notes = Path(args.notes_dir).expanduser() if args.notes_dir else None
+    stamp, made = time.strftime("%Y-%m-%d"), 0
+    for platform in ("spark", "mac"):
+        members, menu = [], []
+        for recipe in presets:
+            if recipe["id"] not in hosted or platform not in hosted[recipe["id"]]:
+                continue
+            home = dest / folder_of[recipe["category"][0]] / recipe["id"]
+            inside = f"{folder_of[recipe['category'][0]]}/{recipe['id']}"
+            if platform == "spark":
+                build, name = home / recipe["url"].rsplit("/", 1)[-1], recipe["url"].rsplit("/", 1)[-1]
+            else:
+                name = recipe["id"] + ".mlx.safetensors"
+                build = next((d / name for d in ([Path(args.mlx_dir).expanduser()] if args.mlx_dir else []) + [dest.parent / "loras", home] if (d / name).is_file()), home / name)
+            if not build.is_file():
+                continue
+            members.append((build, f"{inside}/{name}"))
+            for card in CARDS:
+                if (home / card).is_file():
+                    members.append((home / card, f"{inside}/{card}"))
+            if notes and (notes / inside / "SOURCE.md").is_file():
+                members.append((notes / inside / "SOURCE.md", f"{inside}/SOURCE.md"))
+            menu.append({**{k: recipe[k] for k in KEEP if k in recipe}, "category": recipe["category"], "folder": inside, "file": name,
+                         "size": build.stat().st_size, "build_sha256": sha(build)})
+        if not menu:
+            say(f"  no {platform} builds here: no {platform} package")
+            continue
+        index = out / f".bundle-{platform}.json"
+        index.write_text(json.dumps({"version": 1, "platform": platform, "built": stamp, "groups": groups, "loras": menu}, indent=1, ensure_ascii=False) + "\n")
+        members.append((index, "bundle.json"))
+        for extra in ("README.md", "LICENCES.md"):
+            if notes and (notes / extra).is_file():
+                members.append((notes / extra, extra))
+        archive = out / f"keys-studio-lora-essential-{platform}-{stamp}.tar"
+        with tarfile.open(archive, "w") as tar:
+            for path, name in members:
+                tar.add(path, arcname=name)
+        index.unlink()
+        digest = sha(archive)
+        archive.with_name(archive.name + ".sha256").write_text(f"{digest}  {archive.name}\n")
+        say(f"  {archive}  {archive.stat().st_size / 1e9:.2f} GB  {len(menu)} LoRAs  sha256 {digest}")
+        if archive.stat().st_size > 2_000_000_000:  # a GitHub release takes 2 GB an asset
+            with open(archive, "rb") as whole:
+                for n in range(99):
+                    chunk = whole.read(1_900_000_000)
+                    if not chunk:
+                        break
+                    archive.with_name(f"{archive.name}.part{n:02d}").write_bytes(chunk)
+            say(f"    over 2 GB: also written as {archive.name}.partNN (cat them in order, then check the .sha256)")
+        made += 1
+    return 0 if made else 1
+
+
+def unpack(package: str, dest: Path, presets: list, folder_of: dict, retries: int, say) -> str:
+    """An essential package into the bundle folder: fetched when it is an address (resumable), checked against the
+    .sha256 beside it, then unpacked. Returns what went wrong, or an empty string."""
+
+    import tarfile
+    if package.startswith(("http://", "https://")):
+        local = dest / package.rsplit("/", 1)[-1]
+        try:
+            if not local.is_file():
+                fetch(package, local, "", retries)
+            if not Path(str(local) + ".sha256").is_file():
+                fetch(package + ".sha256", Path(str(local) + ".sha256"), "", retries)
+        except (urllib.error.URLError, OSError) as error:
+            return f"could not fetch {package} ({getattr(error, 'reason', error)})"
+    else:
+        local = Path(package).expanduser()
+        if not local.is_file():
+            parts = sorted(local.parent.glob(local.name + ".part*"))
+            if not parts:
+                return f"no file {local}"
+            with open(local, "wb") as whole:
+                for part in parts:
+                    whole.write(part.read_bytes())
+    stated = Path(str(local) + ".sha256")
+    if not stated.is_file():
+        return f"no {stated.name} beside the package: it is not unpacked unchecked"
+    if sha(local) != stated.read_text().split()[0]:
+        return "the package does not match its sha256"
+    base = dest.resolve()
+    with tarfile.open(local) as tar:
+        for member in tar.getmembers():
+            target = (dest / member.name).resolve()
+            if not member.isfile() or base not in target.parents:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if member.name == "bundle.json":
+                target = dest / "package.json"
+            if not target.is_file() or target.stat().st_size != member.size:
+                with tar.extractfile(member) as src, open(target, "wb") as out:
+                    shutil.copyfileobj(src, out, 1 << 22)
+    say(f"  unpacked the package {local.name} into {dest}")
+    return ""
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lora-bundle.py", description="Build or check the essential LoRA bundle.")
     parser.add_argument("--dest", default=os.path.join(os.environ.get("STUDIO_HOME", str(Path.home() / "TensorFoldStudio")), "lora-bundle"))
@@ -84,6 +189,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--retries", type=int, default=3)
+    parser.add_argument("--package", default=os.environ.get("LORA_PACKAGE", ""), help="an essential package (.tar file or address) to unpack into the bundle first")
+    parser.add_argument("--make-package", default="", metavar="OUTDIR", help="write the package archives of the hosted set from this bundle")
+    parser.add_argument("--mlx-dir", default="", help="with --make-package: where the Mac builds (ID.mlx.safetensors) are")
+    parser.add_argument("--notes-dir", default="", help="with --make-package: a folder laid out like the bundle with SOURCE.md files, README.md and LICENCES.md to include")
     try:
         args = parser.parse_args(argv)
     except SystemExit:
@@ -99,8 +208,19 @@ def main(argv: list[str]) -> int:
     chosen = [r for r in presets if (not wanted or wanted & set(r["category"])) and (not only or r["id"] in only)]
     dest = Path(args.dest).expanduser()
     say = (lambda *a: None) if args.json else (lambda *a: print(*a, flush=True))
-    token = os.environ.get("HF_TOKEN", "")
+    saved = Path.home() / ".cache/huggingface/token"  # your own account's token, for a file its author gates
+    token = os.environ.get("HF_TOKEN", "") or (saved.read_text().strip() if saved.is_file() else "")
     source = args.source.rstrip("/")
+    # a LoRA with several adapters (variants) is one card and several files: each is fetched and checked like any other
+    presets = [dict(r) for r in presets]
+    extra = []
+    for r in presets:
+        for label, v in list((r.get("variants") or {}).items())[1:]:
+            extra.append({**r, "url": v["url"], "sha256": v["sha256"], "size": v["size"], "id": r["id"], "_variant": label, "name": r["name"] + ": " + label.split(" (")[0]})
+        if r.get("variants"):
+            first = next(iter(r["variants"].values())); r.update(url=first["url"], sha256=first["sha256"], size=first["size"])
+    chosen = [r for r in presets if (not wanted or wanted & set(r["category"])) and (not only or r["id"] in only)]
+    chosen_extra = [r for r in extra if any(c["id"] == r["id"] for c in chosen)]
     if source and not source.startswith(("http://", "https://")) and Path(source).expanduser().resolve() == dest.resolve():
         source = ""
 
@@ -110,6 +230,14 @@ def main(argv: list[str]) -> int:
     def good(recipe: dict, path: Path) -> bool:
         return path.is_file() and (not recipe.get("sha256") or sha(path) == recipe["sha256"])
 
+    hosted = json.loads((APP / "lora-host.json").read_text()).get("loras", {})
+    if args.make_package:
+        return make_package(args, dest, presets, hosted, folder_of, groups, say)
+    if args.package and not args.verify and not args.dry_run:
+        dest.mkdir(parents=True, exist_ok=True)
+        problem = unpack(args.package, dest, presets, folder_of, args.retries, say)
+        if problem:
+            say(f"  ! the package was not used: {problem}")
     if not args.verify and not args.dry_run:
         dest.mkdir(parents=True, exist_ok=True)
         for recipe in chosen:  # a bundle laid out flat by an earlier version moves into its group's folder
@@ -117,7 +245,12 @@ def main(argv: list[str]) -> int:
             if flat.is_dir() and not place(recipe).parent.exists():
                 place(recipe).parent.parent.mkdir(parents=True, exist_ok=True)
                 flat.rename(place(recipe).parent)
-    missing = [r for r in chosen if not place(r).is_file()]
+    def packed(recipe: dict) -> bool:
+        """A Mac build from an essential package stands in for the author's file (the hub installs it as it is)."""
+        build = place(recipe).parent / (recipe["id"] + ".mlx.safetensors")
+        return sys.platform == "darwin" and build.is_file() and sha(build) == ((hosted.get(recipe["id"]) or {}).get("mac") or {}).get("sha256")
+
+    missing = [r for r in chosen if not place(r).is_file() and not packed(r)]
     need = sum(r.get("size") or 0 for r in missing)
     total = sum(r.get("size") or 0 for r in chosen)
     say(f"Essential LoRA bundle: {len(chosen)} LoRAs, {total / 1e9:.1f} GB in all; {len(missing)} to fetch ({need / 1e9:.1f} GB) into {dest}")
@@ -131,6 +264,8 @@ def main(argv: list[str]) -> int:
         target, name = place(recipe), recipe["url"].rsplit("/", 1)[-1]
         if target.is_file():
             states[recipe["id"]] = "already there" if good(recipe, target) else "checksum mismatch"
+        elif packed(recipe):
+            states[recipe["id"]] = "already there"
         elif args.verify or args.dry_run:
             states[recipe["id"]] = "to fetch" if args.dry_run else "missing"
         else:
@@ -146,7 +281,7 @@ def main(argv: list[str]) -> int:
                             if (local.parent / card).is_file():
                                 shutil.copyfile(local.parent / card, target.parent / card)
                         break
-            if not target.is_file() and not (source and os.environ.get("LORA_BUNDLE_ONLY") == "1"):
+            if not target.is_file() and not (source and os.environ.get("LORA_BUNDLE_ONLY") == "1") and os.environ.get("LORA_OFFLINE") != "1":
                 tries.append((recipe["url"], token))
             why = "unavailable at source"
             for url, auth in tries:
@@ -176,16 +311,26 @@ def main(argv: list[str]) -> int:
         if states[recipe["id"]] in ("missing", "unavailable at source") and (recipe.get("status") == "gated" or "gated" in (recipe.get("licence_tag") or "").lower()):
             states[recipe["id"]] = "gated by its author"  # not in this bundle because its author approves each download
         say(f"  {states[recipe['id']]:22} {recipe['name']} ({(recipe.get('size') or 0) / 1e6:.0f} MB)")
+    for recipe in chosen_extra:
+        target = place(recipe)
+        if not target.is_file() and not args.verify and not args.dry_run and states.get(recipe["id"]) in ("ok", "already there"):
+            try:
+                fetch(recipe["url"], target, token, args.retries)
+                if not good(recipe, target):
+                    target.rename(target.with_name(target.name + ".bad"))
+            except (urllib.error.URLError, OSError):
+                pass
+        say(f"  {'already there' if target.is_file() else 'missing':22} {recipe['name']} ({recipe['size'] / 1e6:.0f} MB)")
     present = lambda r: states.get(r["id"]) in ("ok", "already there")
     entries = []
     for order, recipe in enumerate(presets):
         if recipe not in chosen and not place(recipe).is_file():
             continue
-        here = place(recipe).is_file()
+        here = place(recipe).is_file() or packed(recipe)
         entries.append({**{k: recipe[k] for k in KEEP if k in recipe}, "category": recipe["category"], "order": order,
-                        "folder": f"{folder_of[recipe['category'][0]]}/{recipe['id']}", "file": recipe["url"].rsplit("/", 1)[-1] if here else None,
-                        "size": place(recipe).stat().st_size if here else recipe.get("size"),
-                        "fetched": time.strftime("%Y-%m-%d", time.gmtime(place(recipe).stat().st_mtime)) if here else None,
+                        "folder": f"{folder_of[recipe['category'][0]]}/{recipe['id']}", "file": (recipe["url"].rsplit("/", 1)[-1] if place(recipe).is_file() else recipe["id"] + ".mlx.safetensors") if here else None,
+                        "size": place(recipe).stat().st_size if place(recipe).is_file() else recipe.get("size"),
+                        "fetched": time.strftime("%Y-%m-%d") if here else None,
                         "state": states.get(recipe["id"], "already there" if here else "missing")})
     if not args.verify and not args.dry_run:
         (dest / "bundle.json").write_text(json.dumps({"version": 1, "groups": groups, "loras": entries}, indent=1, ensure_ascii=False) + "\n")
