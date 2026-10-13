@@ -28,11 +28,11 @@ while [ $# -gt 0 ]; do
     *) ARGS+=("$1");;
   esac; shift
 done
-# The essential package: one archive per platform with the LoRAs whose stated licences allow passing them on (13 of the
-# 22), so a first run takes one download and does not depend on thirteen authors' pages. The rest come from their authors.
+# The essential package: one archive per platform with the LoRAs whose stated licences allow passing them on (14 of the
+# 22), so a first run takes one download and does not depend on fourteen authors' pages. The rest come from their authors.
 # LORA_PACKAGE=none goes to the authors' pages for everything; LORA_PACKAGE=<file or address> names another package.
 PKG_BASE="https://huggingface.co/drowzeys/keys-studio-lora-essential/resolve/main"
-PKG_FILE="keys-studio-lora-essential-$([ "$(uname -s)" = Darwin ] && echo mac || echo spark)-2026-10-12-r2.tar"
+PKG_FILE="keys-studio-lora-essential-$([ "$(uname -s)" = Darwin ] && echo mac || echo spark)-2026-10-13-r3.tar"
 case " ${ARGS[*]-} " in *" --package"*|*" --source"*|*" --make-package"*|*" --verify "*|*" --dry-run "*) ;; *)
   if [ "${LORA_PACKAGE:-}" != none ] && [ -z "${LORA_BUNDLE:-}" ] && [ ! -e "${DEST:-${STUDIO_HOME:-$HOME/TensorFoldStudio}/lora-bundle}/package.json" ]; then
     ARGS+=(--package "${LORA_PACKAGE:-$PKG_BASE/$PKG_FILE}")
