@@ -131,6 +131,7 @@ PROMPT QUALITY: every "prompt" you write uses the sectioned format below, in viv
 (Only include sections with content, keep this order.)
 
 THIS SLATE RENDERS ITS OWN SHOTS: it runs inside TensorFold Studio on MiniMax H3, video with sound in one pass. A shot is 1 to 15 seconds, 24 fps (5, 8, 10 and 15 are the usual lengths). One or two actions fit in 5 seconds; put each further action in its own shot.
+INTENT: a shot's "intent" is a one-line note for the crew (what the shot is for, where it sits in the cut). It never reaches the generator: everything that must be seen goes in the "prompt", the action in its Subject section or in "beatSheet".
 SPEECH AND SOUND: never write spoken words inside a "prompt". Every spoken line goes in the shot's "lines" with its speaker, about three words per second of the shot at most; a shot with no "lines" is rendered with nobody speaking. Describe ambience and physical sound in "soundscape".
 CAST AND PLACE: add characters and locations BEFORE the shots that use them, then name them in each shot's "cast" and "location" so their sheets are repeated in the compiled prompt.
 "opensOn": "previous" makes a shot start on the last frame of the shot before it (one continuous move, no cut); "text" is a fresh frame, a cut.
@@ -342,7 +343,7 @@ function slWorkspace(scene, shot) { if (!SL.open.cat) SL.open.cat = SL.data.cate
   edit.addEventListener("input", () => { shot.prompt = edit.value; shot.updatedAt = slNow(); slTf(shot).h3Auto !== false && delete SL.plan[shot.id]; slSave(); });
   const note = el("input", { placeholder: "Talk to the shot: make it rain, keep the neon", onkeydown: e => { if (e.key === "Enter" && note.value.trim()) slNote(shot, note.value.trim()); } }), cats = SL.data.categories, cat = cats.find(c => c.id === SL.open.cat) || cats[0], lines = shot.prompt.split("\n");
   const flip = (list, n) => { list.includes(n) ? list.splice(list.indexOf(n), 1) : list.push(n); delete SL.plan[shot.id]; slDraw(); };
-  return el("div", {}, el("div", { class: "row" }, field("Shot", slIn(shot, "name")), field("Intent: what the shot is for", slIn(shot, "intent", { placeholder: "She realises the letter is gone." }, () => { delete SL.plan[shot.id]; }))),
+  return el("div", {}, el("div", { class: "row" }, field("Shot", slIn(shot, "name")), field("Intent: what the shot is for (a note for people, kept out of the prompt)", slIn(shot, "intent", { placeholder: "She realises the letter is gone." }))),
     el("div", { class: "row" }, el("div", { class: "fit", style: "width:110px" }, el("label", {}, "Seconds"), bind(shot.spec, "durationSec", el("input", { type: "number", min: 1, max: 15 }), () => { delete SL.plan[shot.id]; slSave(); })),
       ...["aspectRatio", "size", "angle", "lens", "movement"].map(k => el("div", { style: "min-width:96px" }, el("label", {}, { aspectRatio: "Aspect", size: "Size", angle: "Angle", lens: "Lens", movement: "Movement" }[k]), slPick(shot.spec, k, slOpts(SL_SPEC[k]), () => { delete SL.plan[shot.id]; render(); })))),
     el("div", { "data-clear": "slate-shot" }, el("div", { class: "seghead" }, el("label", { style: "flex:1;margin:0" }, "Prompt · Subject, Composition, Lighting, Camera, Style, Mood"), clearButton("slate-shot", "Clear", "Empty this shot's prompt (Undo puts it back)")), edit),

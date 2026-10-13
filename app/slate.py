@@ -401,8 +401,11 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
     camera = " ".join(bit for bit in (sentence(framing), MOVES.get(spec.get("movement") or "", ""), part["camera"]) if bit)
     beats = [b for b in shot.get("beatSheet") or [] if (b.get("text") or "").strip()]
     lead = ["First,", "Then,", "After that,", "Next,", "Finally,"]
+    # What happens is the Subject section's, or the beat sheet's when there is one. The shot's intent is a note for
+    # people (what the shot is for, where it sits in the song): it used to stand in as the action when there were no
+    # beats, and a production run's timecodes and "the audience sees the collision coming" went to the model.
     action = " ".join(f"{lead[min(i, 3)] if i < len(beats) - 1 or i == 0 else lead[4]} {sentence(b['text'][0].lower() + b['text'][1:])}"
-                      for i, b in enumerate(beats)) if beats else sentence(shot.get("intent") or "")
+                      for i, b in enumerate(beats))
     voices, order, lines = by_id("voices"), [sheet.get("id") for sheet in cast], []
     for line in extra.get("lines") or []:
         if not (line.get("text") or "").strip():
