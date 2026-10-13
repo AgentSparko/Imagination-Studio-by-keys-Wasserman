@@ -758,8 +758,8 @@ clip as the keys; one seed each, looked at on contact sheets):
 |---|---|---|---|---|---|
 | Character Swap, 1.0 | Turbo 4 | 281 s / 287 s | the swap holds either way; with the LoRA her pose sits a little closer to the source's | 210 s / 516 s | the same: both swap her in on the same rooftop, small differences in hands |
 | Lineart Anime, 1.0 | Turbo 4 | 271 s / 278 s | both colour the line art as anime on the lines; with the LoRA flatter cel shading | 541 s / 331 s | the same |
-| Lineart Anime, 1.0 | 20 | - / 706 s | on the lines, but darker and closer to 3D than at Turbo 4 | SPARK_LINE20 | SPARK_LINE20_EYE |
-| Keyframe Animation (sequence), 1.0 | 20 | 258 s / 302 s | without: a photographed man, the drawings ignored; with: the line drawing itself moves, held on white | SPARK_KEY | SPARK_KEY_EYE |
+| Lineart Anime, 1.0 | 20 | - / 706 s | on the lines, but darker and closer to 3D than at Turbo 4 | - / 605 s | anime on the lines, as clean as at Turbo 4 |
+| Keyframe Animation (sequence), 1.0 | 20 | 258 s / 302 s | without: a photographed man, the drawings ignored; with: the line drawing itself moves, held on white | 315 s / 306 s | a moving line drawing on white both times (without the adapter the Spark ran its 8-bit file); small differences in line weight |
 | Anime Slider, +3 / -3 | Turbo 4 | 91 s / 92 s / 92 s | +3 smoother and flatter, -3 more photographic; mild next to the Spark | 235 s / 110 s / 110 s | +3 flat 2D anime with a drawn background, -3 photographic |
 
 The Spark's times include starting ComfyUI and loading the 40 GB bfloat16 Ref2VA file, and a render that follows
