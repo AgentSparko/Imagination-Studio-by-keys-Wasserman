@@ -173,6 +173,34 @@ def test_a_comfy_file_with_alpha_keeps_its_scale_in_the_bias():
         assert float(got[name + ".alpha"]) == 2.0
 
 
+
+
+def test_a_kohya_file_is_named_by_the_checkpoint_and_rewritten_with_its_alpha():
+    """kohya's and musubi-tuner's saves (SOLRICKS' 3D Animation Style): lora_unet_ names with _ for every dot."""
+
+    rng = np.random.default_rng(3)
+    tensors = {}
+    for flat in ("blocks_0_attn_qkv_proj", "blocks_12_attn_out_proj", "blocks_49_mlp_fc1", "blocks_49_mlp_fc2"):
+        tensors[f"lora_unet_{flat}.lora_down.weight"] = rng.standard_normal((4, 8)).astype(np.float32)
+        tensors[f"lora_unet_{flat}.lora_up.weight"] = rng.standard_normal((6, 4)).astype(np.float32)
+        tensors[f"lora_unet_{flat}.alpha"] = np.asarray(4.0, dtype=np.float32)
+    assert L.layout(list(tensors)) == "kohya"
+    assert L.modules(list(tensors)) == ["blocks.0.attn.qkv_proj", "blocks.12.attn.out_proj", "blocks.49.mlp.fc1", "blocks.49.mlp.fc2"]
+    assert all(L.MODULE.match(m) for m in L.modules(list(tensors)))
+    assert L.kohya_module("token_refiner_blocks_1_attn_qkv_proj") == "token_refiner.blocks.1.attn.qkv_proj"
+    assert L.kohya_module("blocks_3_adaln_proj_linear") == "blocks.3.adaln_proj.linear"
+    assert L.kohya_module("double_blocks_0_img_attn_qkv") is None
+    with tempfile.TemporaryDirectory() as scratch:
+        source, target = Path(scratch) / "k.safetensors", Path(scratch) / "c.safetensors"
+        save(source, tensors)
+        assert L.to_comfy(source, target) == {"modules": 4, "adaln": 0, "layout": "kohya"}
+        made, _ = load(target)
+        assert L.layout(list(made)) == "comfy"
+        assert np.array_equal(made["diffusion_model.blocks.0.attn.qkv_proj.lora_A.weight"], tensors["lora_unet_blocks_0_attn_qkv_proj.lora_down.weight"])
+        assert np.array_equal(made["diffusion_model.blocks.49.mlp.fc2.lora_B.weight"], tensors["lora_unet_blocks_49_mlp_fc2.lora_up.weight"])
+        assert float(made["diffusion_model.blocks.12.attn.out_proj.alpha"]) == 4.0
+
+
 if __name__ == "__main__":
     for name, test in sorted(globals().items()):
         if name.startswith("test_"):

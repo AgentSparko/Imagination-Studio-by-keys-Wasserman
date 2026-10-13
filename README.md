@@ -821,7 +821,7 @@ author's, for credit.
 |---|---|---|---|---|---|
 | Anime Slider | adf99 | A slider between flat 2D anime (plus) and photorealism (minus). | text or a first frame | None stated | Mac (90 s), DGX Spark (150 s) |
 | Lineart Anime | DiffSynth-Studio | Colours a line-art video into finished anime. | a source video | Apache-2.0 | Mac (280 s), DGX Spark (205 s) |
-| 3D Animation Style | SOLRICKS | The look of a 3D animated feature. | text or a first frame | H3 Community, gated | not tested (gated) |
+| 3D Animation Style | SOLRICKS | The look of a 3D animated feature. Start the prompt with `3dsrx`. | text or a first frame | H3 Community, gated | DGX Spark (Mac: rewritten for the engine, no clip rendered yet) |
 
 **06 Support & Finishing**
 
@@ -843,7 +843,7 @@ author's, for credit.
 "Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a clip does
 not have in this version. Its card says which. Three LoRAs are not for a clip at all and have a job of their own,
 which the Library runs as an action (see *Library actions*): Turnaround, Person Remover and Video Upscaler LoRA.
-Multiple Angles is a LoRA for the image model: it is used in *Edit a picture*, not on a clip. 3D Animation Style is approved download by download by its author.
+Multiple Angles is a LoRA for the image model: it is used in *Edit a picture*, not on a clip. 3D Animation Style is approved download by download by its author; its file is in kohya's own layout (`lora_unet_blocks_0_attn_qkv_proj`), which ComfyUI reads as it is and the Mac converter renames.
 
 **What a picked LoRA asks for.** A LoRA that needs more than a prompt says so in its own row and again in the Render
 step, each with a button to the step that takes it, and "Queue this clip" waits until nothing is missing: a last frame

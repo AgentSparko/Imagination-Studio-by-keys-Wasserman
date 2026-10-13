@@ -3,7 +3,7 @@
     $PREFIX/venv/bin/python scripts/convert-lora.py 80s_horror_wk.safetensors out.safetensors $H3_MODEL_DIR
 
 The source has `diffusion_model.<module>.lora_A/lora_B.weight` (or kohya's `lora_down`/`lora_up` with `.alpha`)
-under the checkpoint's own module names and row order, or DiffSynth-Studio's and PEFT's
+under the checkpoint's own module names and row order, kohya's own `lora_unet_blocks_0_attn_qkv_proj` names, or DiffSynth-Studio's and PEFT's
 `<module>.lora_A.default.weight` / `.lora_B.default.weight` with no prefix and no alpha (app/lora_layout.py names the
 layouts). The result drops the prefix and the adapter name, multiplies alpha / rank into lora_B and stores the fused
 QKV rows as [q_all; k_all; v_all], which the loader interleaves back per head. Nothing is merged here:
@@ -19,6 +19,9 @@ import sys
 from pathlib import Path
 
 import mlx.core as mx
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+import lora_layout  # noqa: E402
 
 PAIRS = ((".lora_A.weight", ".lora_B.weight"), (".lora_down.weight", ".lora_up.weight"),
          (".lora_A.default.weight", ".lora_B.default.weight"))
@@ -45,6 +48,10 @@ def main(source: str, target: str, model_dir: str) -> None:
             raise SystemExit(f"{source}: unsupported tensor {key} (a low-rank LoRA with lora_A/lora_B is read)")
         stem = key[: -len(pair[0])]
         module = stem[len("diffusion_model."):] if stem.startswith("diffusion_model.") else stem
+        if module.startswith("lora_unet_"):
+            module = lora_layout.kohya_module(module[len("lora_unet_"):]) or module
+            if module.startswith("lora_unet_"):
+                raise SystemExit(f"{source}: {module} is not a layer of MiniMax H3's transformer")
         a, b = weights[key], weights[stem + pair[1]].astype(mx.float32)
         rank = a.shape[0]
         if a.ndim != 2 or b.ndim != 2:
