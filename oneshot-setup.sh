@@ -7,6 +7,8 @@
 #   bash oneshot-setup.sh --turbo       # also MiniMax H3's own transformer and its Turbo adapter (64 GB more, 128 GB of memory)
 #   bash oneshot-setup.sh --ref2va      # also MiniMax H3's Ref2VA transformer: reference pictures to video (64 GB more, 128 GB of memory)
 #   bash oneshot-setup.sh --motion      # also the Motion Previs tab's analysis: pose, camera solve and AI depth (0.5 GB, own environment)
+#   bash oneshot-setup.sh --image-edit  # also Qwen-Image-2.1's 40-step base transformer, 13 GB more (Qwen Research License,
+#                                       # non-commercial): Edit a picture works without it, on Turbo's 8 steps
 #   bash oneshot-setup.sh --image-only  # the image model only (33 GB), render a test image
 #   bash oneshot-setup.sh --no-render   # install and fetch only
 #   bash oneshot-setup.sh --no-loras    # skip the essential LoRA bundle (about 4 GB from the LoRAs' authors; --loras=camera,style
@@ -70,7 +72,7 @@ REF_ADAPTER_NAME="lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 X2_REPO="speach1sdef178/MiniMax-H3-X2-Detail-VAE"
 X2_NAME="MiniMax-H3-X2-Detail-v1.safetensors"
 X2_SHA256="2296840f4acedcaa976688e7d7b97f7bf570b136e400385d3f46224011897aac"
-MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""
+MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""; IMAGE_EDIT=0
 for arg in "$@"; do
   case "$arg" in
     --image-only) VIDEO=0;;
@@ -78,6 +80,7 @@ for arg in "$@"; do
     --turbo) TURBO=1;;
     --ref2va) REF2VA=1;;
     --motion) MOTION=1;;
+    --image-edit) IMAGE_EDIT=1;;
     --app) APP=1;;
     --verify|--no-render) MODE="$arg";;
     --upgrade) UPGRADE=1; MODE="--no-render"; MOTION=1;;
@@ -187,6 +190,25 @@ if [ ! -f "$QWEN_MODEL_DIR/transformer/diffusion_pytorch_model-00002-of-00002.sa
 fi
 grep -q sample_sigmas "$QWEN_MODEL_DIR/model_index.json" || die "$QWEN_MODEL_DIR is not Qwen-Image-2.1-Turbo (its model_index.json has no saved schedule)"
 ok "Qwen-Image-2.1-Turbo at $QWEN_MODEL_DIR ($(du -shL "$QWEN_MODEL_DIR" | cut -f1))"
+
+if [ "$IMAGE_EDIT" = 1 ]; then
+  # Edit a picture runs on Turbo as it is. The 40-step base model is what image LoRAs are trained on: its transformer
+  # is fetched, and the text encoder, image coder and processor are Turbo's own, linked.
+  BASE="${QWEN_BASE_DIR:-$(dirname "$QWEN_MODEL_DIR")/Qwen-Image-2.1}"
+  step "Qwen-Image-2.1 base transformer (13 GB) -> $BASE"
+  if [ ! -f "$BASE/transformer/diffusion_pytorch_model-00002-of-00002.safetensors" ] && ! absent "no Qwen-Image-2.1 base transformer at $BASE"; then
+    echo "  Qwen-Image-2.1 is under the Qwen Research License Agreement: NON-COMMERCIAL use only. Read it first:"
+    echo "  https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
+    FREE=$(df -g "$(dirname "$BASE")" | awk 'NR==2{print $4}')
+    [ "${FREE:-0}" -ge 20 ] || die "only ${FREE} GB free where $BASE goes: the base transformer is 13 GB"
+    mkdir -p "$BASE"
+    for part in text_encoder vae processor; do [ -e "$BASE/$part" ] || ln -s "$QWEN_MODEL_DIR/$part" "$BASE/$part"; done
+    "$PREFIX/venv/bin/hf" download Qwen/Qwen-Image-2.1 model_index.json LICENSE scheduler/scheduler_config.json transformer/config.json \
+      transformer/diffusion_pytorch_model-00001-of-00002.safetensors transformer/diffusion_pytorch_model-00002-of-00002.safetensors \
+      transformer/diffusion_pytorch_model.safetensors.index.json --local-dir "$BASE"
+  fi
+  [ ! -d "$BASE/transformer" ] || ok "Qwen-Image-2.1 base model at $BASE: BASE=1 bash scripts/edit.sh, and the 40 steps choice of Edit a picture"
+fi
 
 if [ "$VIDEO" = 1 ]; then
   step "Text encoder, audio decoder and MP4 writer for H3: minimax-h3-mlx @ ${REF_COMMIT:0:8}"

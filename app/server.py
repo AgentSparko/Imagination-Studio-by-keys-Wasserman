@@ -753,6 +753,8 @@ def build(kind: str, params: dict, job_id: str) -> tuple[list[str], dict, list[s
         return ["bash", str(scripts / "scout.sh"), prompt, str(count), str(folder)], env, outputs
     if kind == "export":
         return ["python3", "-c", "pass"], {}, []
+    if kind == "edit":  # a picture re-drawn by the image model (picture_edit.py)
+        return edit_build(params, job_id)
     preset = params.get("preset", "small" if SPARK else "draft")
     quality = params.get("quality", "standard")
     seconds = int(params.get("seconds", 5))
@@ -1116,7 +1118,7 @@ def estimate_time(body: dict) -> dict:
 def submit(body: dict) -> dict:
     kind = body.get("kind")
     params = dict(body.get("params") or {})
-    if kind not in ("scout", "video", "studio", "export", "long") + actions.KINDS:
+    if kind not in ("scout", "video", "studio", "export", "long", "edit") + actions.KINDS:
         raise HTTPException(400, "unknown job kind")
     if kind == "long" and (params.get("last_image") or params.get("last_same") or params.get("last_frame_from")):
         raise HTTPException(400, "a last frame is for single clips: a long video is a chain of clips")
@@ -1126,7 +1128,7 @@ def submit(body: dict) -> dict:
             raise HTTPException(400, f"a long video is over {LONGEST} seconds and at most {max(LONG) // 60} minutes")
         pieces = plan(total, int(params.get("segment_seconds", LONGEST)))
         build("video", {**params, "seconds": pieces[0], "output": None}, "check")
-    if kind not in ("export",) + actions.KINDS and not (params.get("prompt") or "").strip():
+    if kind not in ("export", "edit") + actions.KINDS and not (params.get("prompt") or "").strip():
         raise HTTPException(400, "a prompt is needed")
     if kind != "video" and params.get("references"):
         raise HTTPException(400, "reference pictures are for single clips")
@@ -1349,6 +1351,9 @@ import loras  # noqa: E402  (Keys and Wasserman LoRA Hub, beside this file)
 lora_router, lora_resolve, lora_lead = loras.attach(HOME, PACK, SPARK)
 app.include_router(lora_router)
 app.include_router(lineart.attach(HOME))
+import picture_edit  # noqa: E402  (a picture re-drawn by the image model, with the hub's image LoRAs)
+edit_router, edit_build = picture_edit.attach(HOME, PACK, SPARK, lora_resolve, inside, relative)
+app.include_router(edit_router)
 import pace  # noqa: E402  (whether a clip's sound and motion agree, beside this file)
 import qa  # noqa: E402  (Sam Wasserman's QA gate, beside this file)
 import slate  # noqa: E402  (Wasserman Slate AI Studio, beside this file)

@@ -64,11 +64,17 @@ def token() -> str:
     return found.strip() or (saved.read_text().strip() if saved.is_file() else "")
 
 
-def check(path: Path) -> int:
+def check(path: Path, target: str = "video") -> int:
     """The number of adapted modules, after making sure the file is a low-rank LoRA for MiniMax H3's transformer, in
-    any of the layouts LoRAs are published in (lora_layout.py)."""
+    any of the layouts LoRAs are published in (lora_layout.py). An image LoRA (`target: image`) is one for
+    Qwen-Image-2.1's transformer, whose blocks are named transformer_blocks.N."""
 
     names = list(lora_layout.header(path)[0])
+    if target == "image":
+        pairs = [name for name in names if re.search(r"(^|\.)transformer_blocks\.\d+\..*lora_(A|down)", name)]
+        if not pairs:
+            raise ValueError("not a LoRA for Qwen-Image-2.1's transformer (no lora_A tensors on transformer_blocks.N)")
+        return len(pairs)
     found = lora_layout.modules(names)
     if lora_layout.layout(names) == "unknown" or not any(re.search(r"(^|\.)blocks\.\d+\.(attn|mlp)\.", name) for name in found):
         raise ValueError("not a LoRA for MiniMax H3's transformer (no lora_A tensors on blocks.N.attn / blocks.N.mlp)")
@@ -181,7 +187,7 @@ def download(recipe: dict, target: Path, state: dict) -> None:
                 state["done"] += len(chunk)
         if recipe.get("sha256") and digest.hexdigest() != recipe["sha256"]:
             raise RuntimeError("the downloaded file does not match the recipe's sha256")
-        check(part)
+        check(part, recipe.get("target", "video"))
         part.replace(target)
     finally:
         part.unlink(missing_ok=True)
@@ -238,9 +244,17 @@ def attach(home: Path, pack: Path, spark: bool):
     def source(lora_id: str) -> Path:
         return folder / f"{lora_id}.safetensors"
 
-    def ready(lora_id: str) -> Path:
-        """The file a render reads: the author's on a Spark, the rewritten one on a Mac."""
+    def images(lora_id: str) -> bool:
+        """Whether this is a LoRA for the image model (Edit a picture), not for a clip."""
 
+        return any(r["id"] == lora_id and r.get("target") == "image" for r in recipes())
+
+    def ready(lora_id: str) -> Path:
+        """The file a render reads: the author's on a Spark, the rewritten one on a Mac. An image LoRA is read as its
+        author wrote it on both."""
+
+        if images(lora_id):
+            return source(lora_id)
         if not spark:
             return folder / f"{lora_id}.mlx.safetensors"
         given, made = source(lora_id), folder / f"{lora_id}.comfy.safetensors"
@@ -251,11 +265,13 @@ def attach(home: Path, pack: Path, spark: bool):
 
     def public(recipe: dict) -> dict:
         state = busy.get(recipe["id"])
-        return {**recipe, "installed": ready(recipe["id"]).is_file() and not state, "installing": state,
+        installed = ready(recipe["id"]).is_file() and not state
+        # usable: its file is here and this machine has what it runs on (a clip, a Library action or Edit a picture)
+        return {**recipe, "installed": installed, "installing": state, "usable": installed and recipe.get("status") != "unsupported",
                 "flow": lora_flows.public(recipe["id"]) if recipe.get("flow") else None}
 
     def prepare(lora_id: str) -> None:
-        if ready(lora_id).is_file():
+        if ready(lora_id).is_file() or images(lora_id):
             return
         if not spark:
             convert(source(lora_id), ready(lora_id), pack)
@@ -268,6 +284,8 @@ def attach(home: Path, pack: Path, spark: bool):
     def prebuilt(recipe: dict, state: dict) -> bool:
         """On a Mac with no file from a bundle: the hosted build already in the MLX engine's layout, when there is one."""
 
+        if recipe.get("target") == "image":
+            return False  # read as its author wrote it: there is no build to fetch
         if not spark and not source(recipe["id"]).is_file():  # a Mac build an essential package put in the bundle
             where, name = bundle(), recipe["id"] + ".mlx.safetensors"
             local = None if not where or where.startswith(("http://", "https://")) else Path(where).expanduser() / FOLDERS.get((recipe.get("category") or ["mine"])[0], "") / recipe["id"] / name
@@ -399,12 +417,15 @@ def attach(home: Path, pack: Path, spark: bool):
                 book.write_text(json.dumps([r for r in added() if r.get("id") != lora_id], indent=1))
         return {"removed": lora_id, "recipe": not recipe["builtin"]}
 
-    def resolve(picked) -> list[dict]:
-        """A job's `loras` as [{"path", "strength", "lead"}]; 400 when one is unknown or not installed."""
+    def resolve(picked, target: str = "video") -> list[dict]:
+        """A job's `loras` as [{"path", "strength", "lead"}]; 400 when one is unknown, not installed, or made for the
+        other model (`target`: "video" for a clip, "image" for Edit a picture)."""
 
         out = []
         for item in picked or []:
             recipe = find(str(item.get("id")))
+            if recipe.get("target", "video") != target:
+                raise HTTPException(400, f"{recipe['name']} is a LoRA for " + ("pictures: use it in Create, Edit a picture" if target == "video" else "clips, not for the image model"))
             if not ready(recipe["id"]).is_file():
                 raise HTTPException(400, f"the LoRA {recipe['name']} is not installed: install it in the LoRA hub first")
             try:
@@ -483,7 +504,7 @@ def main(argv: list[str]) -> int:
                 came = "the bundle" if bundled(recipe) or bundle().startswith("http") else recipe["page"]
                 download(recipe, target, {"done": 0, "of": 0})
                 print(f"got   {recipe['name']} by {recipe['author']} ({target.stat().st_size >> 20} MB), from {came}")
-            if sys.platform == "darwin" and not mlx.is_file():
+            if sys.platform == "darwin" and not mlx.is_file() and recipe.get("target") != "image":
                 convert(target, mlx, Path(__file__).resolve().parent.parent)
         except Exception as error:  # noqa: BLE001 - one author's page being down does not stop the rest
             failed += 1
