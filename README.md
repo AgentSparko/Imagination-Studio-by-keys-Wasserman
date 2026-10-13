@@ -591,6 +591,15 @@ in from its edges, and one window of the remover itself then draws that rough pl
 eight copies of its last frame and the result cut back, because the last frames of the last window kept patches of
 green. The whole picture is drawn again, so details outside the person can change; the clip's own sound is put back,
 with the removed person's voice still in it unless "No sound" is ticked.
+After the windows, green that came back for a frame or two is painted over from the clean frames beside it (at most
+four frames away), and so is a frame that is a different picture altogether; what is left is counted and said on the
+job. The upscaler's and the remover's node packs each
+replace the layout of H3's packed sequence when they first run and do not share a server: after one of the two
+actions the other starts ComfyUI again, which costs the model load.
+
+![A turnaround sheet in the Library](samples/ui_action_turnaround.png)
+
+![Remove a person in the Library](samples/ui_action_remove.png)
 
 What was measured (2026-10-12, one run each unless said; Mac Studio M5 Ultra 256 GB; DGX Spark GB10 with the models
 already loaded unless said; the test pictures and the clip are generated ones):
@@ -600,8 +609,10 @@ already loaded unless said; the test pictures and the clip are generated ones):
 | Turnaround, 512 | a toy robot, a person in a stance, an animated knight | 42 to 51 s (28 passes at 1.1 s) | 45 s; 77 to 81 s with the model load | 35 GB | upright in all, same subject in all five; robot front to back, person about a quarter turn |
 | Turnaround, 1024 | the same | 150 to 162 s | 188 s | 36 GB | as at 512, sharper |
 | Upscale to 2 megapixels | 5 s at 864x480 | not available | 303 s, to 1984x1088 | 32 GB | wood grain, rope and lettering sharper; framing, motion and sound unchanged |
+| Upscale to 1 megapixel | the same | not available | 190 s through the app's queue | 31 GB | not looked at closely |
 | Find the person | 5 s at 864x480, "man in a blue shirt" | not available | 40 s | 38 GB | the whole man in every frame, hands included |
-| Remove a person, clean frame built | the same clip: the camera pushes in until the man fills a third of the frame | not available | 663 s in all: mask 40 s, clean frame 94 s, six windows 525 s | 28 GB | REMOVE_NOTE |
+| Remove a person, clean frame built | the same clip: the camera pushes in until the man fills a third of the frame | not available | 663 s in all: mask 40 s, clean frame 94 s, six windows 525 s | 28 GB | the man gone from every frame and the rooftop drawn again behind him, the push-in kept; green had flashed back on 22 of the 121 frames where his hand moved fast and was painted over from the frames beside them, which leaves a faint green tint on a few; the last three frames keep a dim green patch on the wall |
+| The same through the app's queue | the same | not available | 775 s | 13 GB (another agent's render was loaded beside it; 28 to 30 GB alone) | as above; the clip's very last frame came out as another picture altogether, which the repair now replaces from the frame before (checked on the saved clip, not by a new render) |
 
 Not tested: 2048 views, clips longer than 5 seconds, a clip with two people where one is removed, windows of 39 and
 56 frames, and any of it on a machine other than these two.

@@ -366,6 +366,17 @@ def mend(clip: Path, size: dict, reach: int = 4) -> tuple[int, int]:
 
     frames = read_frames(clip, size["width"], size["height"])
     green, flagged = green_of(frames)
+    # A frame that is another picture altogether (measured: the very last frame of a clip came out as a different
+    # scene) differs from the frames on both its sides several times more than frames of one shot do. It is replaced
+    # whole, the same way.
+    small = frames[:, ::8, ::8].astype(np.int16)
+    step = np.abs(small[1:] - small[:-1]).reshape(len(frames) - 1, -1).mean(1)
+    jump = max(4 * float(np.median(step)), 25.0)          # measured: 60 against 6 to 8 between frames of the shot
+    alien = [i for i in range(len(frames)) if (i == 0 or step[i - 1] > jump) and (i == len(frames) - 1 or step[i] > jump)
+             and len(frames) > 2]
+    for i in alien:
+        green[i] = True
+    flagged = sorted(set(flagged) | set(alien))
     if not flagged:
         return 0, 0
     out, bad, mended = frames.copy(), set(flagged), 0
@@ -405,7 +416,7 @@ def mend(clip: Path, size: dict, reach: int = 4) -> tuple[int, int]:
         if done.returncode or not fresh.is_file():
             return 0, len(flagged)
         fresh.replace(clip)
-    return mended, len(green_of(out)[1])
+    return mended, len(set(green_of(out)[1]) | {i for i in alien if (out[i] == frames[i]).all()})
 
 
 def cut(source: Path, target: Path, frames: int, sound: str | None = None) -> bool:
