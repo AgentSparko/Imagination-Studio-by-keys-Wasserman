@@ -632,13 +632,13 @@ author's, for credit.
 | Camera Motion | Jojocodex | Camera moves the base model tends to miss: push-in, pull-back, orbit, tracking, aerial, crane, pan, macro. | text or a first frame | Apache-2.0 | Mac (84 s), DGX Spark (150 s) |
 | Head-mounted FPV | neph1 | A first-person view from a camera on the head, with the bob of walking or running. | text or a first frame | H3 Community | Mac (84 s), DGX Spark (150 s) |
 | Equirectangular 360° | shamanic | A full-sphere 360° panorama video with sound, for VR players. | text or a first frame | H3 Community | Mac (108 s), DGX Spark (180 s) |
-| 360° Orbit | pablodawson | One photo becomes a frozen-moment 360° orbit that ends on the frame it started from. | first and last frame | H3 Community | not usable yet |
+| 360° Orbit | pablodawson | One photo becomes a frozen-moment 360° orbit that ends on the frame it started from. | first and last frame | H3 Community | Mac, DGX Spark (147 s on FastH3) |
 
 **02 Transformation & Morphing**
 
 | LoRA | By | What it does | Works from | Licence as stated | Rendered with it on |
 |---|---|---|---|---|---|
-| Transformation | Ashmotv | Morphs one picture into another, element by element. | first and last frame | H3 Community | not usable yet |
+| Transformation | Ashmotv | Morphs one picture into another, element by element. | first and last frame | H3 Community | Mac (108 s), DGX Spark (158 s on FastH3) |
 | Turnaround | matlod | A five-view character sheet (front to back) from one reference picture. | its own workflow | H3 Community | not usable yet |
 | Keyframe Animation | alvdansen | Hand-drawn animation on held frames: the next key drawing, an inbetween, or a short held sequence from one or two drawings. | reference pictures | Custom, gated | not usable yet |
 
@@ -676,9 +676,10 @@ author's, for credit.
 | Video Upscaler LoRA | dntpi | Doubles the size of a finished clip: a latent upscale, then one guided re-draw in tiles. | its own workflow | MIT code, weights other | not usable yet |
 
 "Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a hub clip
-does not have in this version: a last frame beside the first (360° Orbit, Transformation), reference pictures or a
+does not have in this version: reference pictures or a
 source video on the reference path (Keyframe Animation, Character Swap, Lineart Anime), or its author's own workflow
-(Turnaround, Person Remover, Video Upscaler LoRA). Its card says which. 3D Animation Style is approved download by
+(Turnaround, Person Remover, Video Upscaler LoRA). Its card says which. 360° Orbit and Transformation need a last frame beside
+the first, which step 2 of Create now takes (see *A last frame: the clip ends on a picture*). 3D Animation Style is approved download by
 download by its author.
 
 What was tested (2026-10-12, one seed each, 5 seconds at 864x480, FastH3 8 passes, text to video; 1120x480 for the 360°

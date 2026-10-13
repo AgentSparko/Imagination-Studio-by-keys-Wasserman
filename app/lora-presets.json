@@ -137,9 +137,10 @@
   ],
   "needs": "first-last",
   "what": "One photo becomes a frozen-moment 360° orbit that ends on the frame it started from.",
-  "status": "unsupported",
-  "why": "It needs the same picture as the first and the last frame of the clip. The Studio sets a first frame only, so this LoRA cannot do its orbit here yet.",
-  "notes": "Author's settings: 768x768, 73 frames, 28 passes, strength 1.0, no sound, and the author's fixed prompt."
+  "status": "ready",
+  "why": "",
+  "notes": "Give the same picture as the first and the last frame (step 2, 'Same as the first frame') and use the author's prompt as it is. Author's settings: 768x768, 73 frames, 28 passes, strength 1.0, no sound. It also orbited here at the Studio's usual passes.",
+  "prompt": "One frozen instant. Only the camera moves. In a continuous 360 orbit. Preserve every person and object in exactly the same world position, orientation, shape and pose throughout the shot. Airborne objects remain suspended at the captured height and angle: no wobbling, shaking, spinning, drifting, falling or continued action. Keep faces, hands, clothing, liquids and the background motionless while retaining their natural appearance. Camera parallax is the only source of apparent movement. No cuts, zoom, morphing or added objects."
  },
  {
   "id": "transformation",
@@ -164,9 +165,10 @@
   ],
   "needs": "first-last",
   "what": "Morphs one picture into another, element by element.",
-  "status": "unsupported",
-  "why": "It needs two pictures: the start frame and the target frame of the clip. The Studio sets a first frame only, and its LoRA hub does not reach reference clips yet.",
-  "notes": "Author's prompt: '[Shot 1] Picture 1 Tr@nsf0rmation into Picture 2 with individual elements and subjects Tr@nsf0rmation into one another.'"
+  "status": "ready",
+  "why": "",
+  "notes": "Give the start picture as the first frame and the target as the last frame (step 2), and use the author's prompt. Strength 1.0 to 1.2.",
+  "prompt": "[Shot 1] Picture 1 Tr@nsf0rmation into Picture 2 with individual elements and subjects Tr@nsf0rmation into one another."
  },
  {
   "id": "turnaround",
