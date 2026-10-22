@@ -122,7 +122,7 @@ SYSTEM = ("You are working for a filmmaker inside Imagination Studio. Save every
 
 # what the Agent room adds: a conversation that may need the user, and the Studio's own tools by name
 STUDIO_TOOLS = ("studio_state (call first), list_library, queue_still, queue_edit, queue_clip (references for Ref2VA), queue_long, "
-                "queue_voice, queue_song, queue_sound (sfx, foley), queue_soundtrack, check_clip (the QA gate), motion_previs, "
+                "queue_voice, queue_song, queue_sound (sfx, foley), queue_soundtrack, make_graphics (titles, captions, slideshows, music videos), check_clip (the QA gate), motion_previs, "
                 "job_status, wait_for_jobs, cancel_job, list_jobs, list_projects, add_to_timeline, export_timeline, upload_file, "
                 "and Slate's slate_films, slate_film, slate_new_film, slate_add_scene, slate_add_shot and slate_render_shot")
 ROOM = (" This is a conversation with the filmmaker in the Studio's Agent room, and it continues over several turns."
@@ -2146,7 +2146,7 @@ def answer_of(base: str, body: dict, stopped) -> dict | None:
 # the system prompt (no gain), and Bolt's reasoning, `think` (as exact, three times slower; kept as a part to turn on).
 
 MAKERS = ("queue_still", "queue_clip", "queue_voice", "queue_song", "queue_edit", "queue_long", "queue_sound", "queue_soundtrack",
-          "check_clip", "motion_previs", "slate_new_film", "slate_add_scene", "slate_add_shot", "slate_render_shot",
+          "make_graphics", "check_clip", "motion_previs", "slate_new_film", "slate_add_scene", "slate_add_shot", "slate_render_shot",
           "add_to_timeline", "export_timeline", "upload_file")
 LOCAL_RULES = (" Do only what the filmmaker asked, exactly: one call for each thing asked for, the number of pictures, takes or "
                "shots they asked for (one picture is count 1), the names and lengths they gave, word for word. Never add a picture, "

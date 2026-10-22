@@ -110,6 +110,16 @@ TOOLS = [
      "inputSchema": text_schema({"song": {"type": "string", "description": "the song's job id"},
                                  "video": {"type": "string", "description": "Library path of the clip"},
                                  "music_db": {"type": "number", "description": "the song's level, -30 to 0 dB (default -10)"}}, ("song", "video"))},
+    {"name": "make_graphics", "description": "Queue a motion graphic rendered to .mp4 on this machine (HyperFrames): template title "
+                                             "{title, subtitle?, seconds?, video?}, lower-third {video, name, role?, at?, seconds?}, kinetic "
+                                             "{text, song?, beats? or bpm?}, captions {video} (its speech is transcribed here), slideshow "
+                                             "{pictures[], voice?, song?, seconds_each?}, music-video {clips[], song, beats? or bpm?, every?, "
+                                             "transition?}, explainer {sections[{heading, text, picture?}], voice?}. Paths are Library paths; "
+                                             "a voice or song may be its take id. size: 1080p (default), 720p, vertical, square, or match (the clip's).",
+     "inputSchema": text_schema({"template": {"type": "string", "enum": ["title", "lower-third", "kinetic", "captions", "slideshow", "music-video", "explainer"]},
+                                 "data": {"type": "object", "description": "the template's settings, as listed for it (the words on screen go here, title included)"},
+                                 "size": {"type": "string", "enum": ["1080p", "720p", "vertical", "square", "match"]},
+                                 "title": {"type": "string", "description": "the job's name in the queue"}}, ("template", "data"))},
     {"name": "check_clip", "description": "Run the QA gate on a finished clip: its sound, the people's identity across the clip and its "
                                           "sharpness. Returns a job; its qa holds the report (passed and each check).",
      "inputSchema": text_schema({"path": {"type": "string", "description": "Library path of the clip"},
@@ -361,6 +371,11 @@ def run(name: str, args: dict):
         keys = ("prompt", "seconds", "seed") if kind == "sfx" else ("prompt", "video", "keep_sound", "seed")
         params = {k: args[k] for k in keys if args.get(k) not in (None, "")}
         return job_summary(call("POST", "/api/jobs", {"kind": kind, **({"title": args["title"]} if args.get("title") else {}), "params": params}))
+    if name == "make_graphics":
+        if not isinstance(args.get("data"), dict):
+            raise StudioError("data is an object of the template's settings, e.g. {\"title\": \"The Long Night\"}")
+        params = {**args["data"], "template": args.get("template"), **({"size": args["size"]} if args.get("size") else {})}
+        return job_summary(call("POST", "/api/jobs", {"kind": "graphics", **({"title": args["title"]} if args.get("title") else {}), "params": params}))
     if name == "queue_soundtrack":
         body = {"take": str(args["song"]), "video": str(args["video"]), **({"music_db": args["music_db"]} if args.get("music_db") not in (None, "") else {})}
         return job_summary(call("POST", "/api/music/soundtrack", body))
