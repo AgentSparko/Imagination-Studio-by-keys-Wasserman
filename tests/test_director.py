@@ -338,3 +338,38 @@ def test_the_panel_in_the_first_ad_tab():
     assert "Watch the cut" in out["done"] and "FCPXML" in out["done"] and "Review takes" in out["done"]
     posted = out["posted"][1]
     assert posted["project"] == "p-test" and posted["logline"] == "A keeper finds a letter." and posted["scenes"] == 3 and posted["cut"] is True and posted["retakes"] == 1
+
+
+def test_with_a_song_the_cut_is_the_rough_cut_on_the_bars(studio, monkeypatch):
+    queue, brain = Queue(), Brain()
+    studio(queue, brain)
+    asked, stages = [], iter(["export", "export", "files", "done"])
+    files = {"fcpxml": "exports/The-Harbour-p1.fcpxml", "edl": "exports/The-Harbour-p1.edl", "zip": "exports/The-Harbour-p1-resolve.zip"}
+    monkeypatch.setattr(director, "rough_make", lambda body: asked.append(body) or {"project": "p1", "job": "e1", "beats": {"bpm": 120}})
+    monkeypatch.setattr(director, "rough_status", lambda pid: (lambda stage: {"project": pid, "stage": stage, "job": "e1",
+                                                                                **({"video": "exports/e1.mp4", "files": files} if stage == "done" else {})})(next(stages)))
+    project = new_film()
+    assert client.post("/api/slate/direct", json={"project": project, "scenes": 1, "shotsPerScene": 2, "seconds": 5, "song": "song-1"}).status_code == 200
+    run = until(project)
+    assert run["state"] == "done", run
+    film = slate.get_project(project)
+    best = [s["takes"][0]["mediaPath"] for s in film["scenes"][0]["shots"]]
+    assert len(asked) == 1 and asked[0]["clips"] == best and asked[0]["song"] == "song-1"
+    assert asked[0]["cut"] == "bar" and asked[0]["foley"] is False and asked[0]["order"] == "given"
+    assert not any(b["kind"] == "export" for b in queue.bodies)  # the rough cut exports; the Editor's way is not taken
+    assert run["cut"]["project"] == "p1" and run["cut"]["files"] == {"mp4": "exports/e1.mp4", **files}
+
+    # a rough cut that fails says why; one this app cannot make falls back to the Editor
+    monkeypatch.setattr(director, "rough_status", lambda pid: {"stage": "failed", "error": "the export failed"})
+    again = new_film()
+    client.post("/api/slate/direct", json={"project": again, "scenes": 1, "shotsPerScene": 1, "seconds": 5, "song": "song-1"})
+    run = until(again)
+    assert run["state"] == "failed" and "the export failed" in run["error"]
+
+    def refuse(body):
+        raise director.HTTPException(400, "no steady beat was found in that song")
+    monkeypatch.setattr(director, "rough_make", refuse)
+    third = new_film()
+    client.post("/api/slate/direct", json={"project": third, "scenes": 1, "shotsPerScene": 1, "seconds": 5, "song": "song-1"})
+    run = until(third)
+    assert run["state"] == "done" and run["cut"]["files"]["fcpxml"].endswith(".fcpxml") and any("no steady beat" in l["text"] for l in run["log"])

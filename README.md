@@ -144,6 +144,9 @@ cores · a 2x video decoder for 2K finals on the Mac
 
 ## New since 3.1.0 (on main; every install follows it by itself)
 
+- **Work on a clip you already have.** Under every clip in the Library: *Restyle* makes it again in a new look with
+  the same action and camera, *Extend* carries it on from its last frame and joins the two, *Fix* changes one thing
+  from a sentence. [Work on a clip you already have](#work-on-a-clip-you-already-have-restyle-extend-fix).
 - **Your phone and other devices, with an access key.** On the computer running the studio nothing is asked. A phone,
   a tablet or another computer signs in once: **Settings → Access key** shows a QR code that signs a phone in with one
   scan, the key itself to copy, and *Make a new key* for a lost phone. Step by step: TUTORIAL.md section 15, and
@@ -158,6 +161,25 @@ cores · a 2x video decoder for 2K finals on the Mac
   Discussions, private vulnerability reporting: [SECURITY.md](SECURITY.md)).
 - **The repository is now `drowzeys/Imagination-Studio-by-keys-Wasserman`**, matching the name. The old address
   redirects, so installs that follow it keep updating.
+
+### Bring previs and prompts into a film
+
+What the filmmaker suite made goes straight into your work, not only into a new film.
+
+- **Into a film you already have.** On the **Suite** page, open anything you brought in (a Blockout export, a Motion
+  Previs pack, a board, a screenplay) and use **Send into a film**. Pick the film, say which of its shots each imported
+  shot goes to (or *A new shot*, in a scene you choose), and press **Attach**. The still becomes the shot's first
+  frame, a previs clip becomes its motion reference when the shot is rendered, and the shot's words fill its prompt
+  when that is empty (a prompt you wrote is never replaced). A previs reference clip is sent to the Ref2VA model, so it
+  needs `oneshot-setup.sh --ref2va`; it does not combine with a first frame, and the shot's check says so.
+- **Into the Home composer.** **From the suite**, beside *Ask your agent instead*, lists what you brought in and its
+  shots. Pick one and the box fills with its words, the length is set to the nearest the model makes, and its still is
+  the clip's first frame (remove it with the small button if you only want the words).
+- **Recent imports on the Suite page** show their app's icon with *Send into a film* and *Use in the composer*.
+- **Your agent can do it too.** `suite_imports` lists what was brought in and its shots; `suite_attach` sends shots into
+  a film.
+
+It runs on this computer and needs no account.
 
 ## New in 3.1.0 (2026-10-20)
 
@@ -1931,6 +1953,26 @@ programs on the same Mac loaded 70 to 140 GB beside them; on a Mac that runs not
 room. The ComfyUI of a Mac has the kill-guard of `mac/comfy.sh` (16 GB available, `MAC_COMFY_GUARD_GB`), not the
 Spark's memory guard.
 
+### Work on a clip you already have: Restyle, Extend, Fix
+
+Every clip in the Library has three more buttons. Each opens a panel under the Library with the clip beside its
+settings and queues ordinary jobs, so the queue, the Sparks and the QA gate treat the results like any other clip.
+
+| Button | Does | Settings | Needs |
+|---|---|---|---|
+| **Restyle** | The clip made again in a new look. The clip goes in as a reference video, so its action, camera and timing stay and the picture is drawn again from your words. The new clip has the clip's size (the preset of that size, else the nearest size of your own). | the new look (required), seconds (2 to 15, default the whole clip), keep the clip's sound (default on), seed | MiniMax H3 Ref2VA |
+| **Extend** | The clip carried on: a new clip opens on its last frame, then the two are joined into one file, `renders/<job>-extended.mp4`, with the repeated frame at the join dropped. Over 15 seconds the new part is a long take (a chain of clips). | how much longer (5 to 30 s), what happens next (default: the clip's own prompt while the studio remembers it, else "continue the shot"), join (default on), seed | ffmpeg |
+| **Fix** | One thing changed from a sentence ("change the sky to a stormy sunset"), in two jobs. 1: the clip's first frame is redrawn by the picture model from the instruction. 2: the clip is made again from that frame as a reference picture and the clip as a reference video, so the motion is the clip's and the look the new frame's. | what to change (required), picture model (Qwen 2.1 Turbo or Full, FLUX3-K Fast or Full), keep the clip's sound, seed | MiniMax H3 Ref2VA and a picture model |
+
+A reference video is at most 15 seconds: a longer clip is cut to its first 15 for Restyle and Fix, and the panel says
+so. There is no mask in Fix: the whole first frame is redrawn from the instruction, so small details elsewhere can
+change too, and the new clip follows the redrawn frame's look wherever it differs from the clip. A clip without sound
+of its own gets sound made for it.
+
+Agents have the same three as `restyle_clip`, `extend_clip` and `fix_clip`; over the API they are
+`POST /api/revise {kind: "restyle" | "extend" | "fix", params}` (or `POST /api/jobs` with the same kind), which
+returns the first job and `revise`, the steps so far; `GET /api/revise/<id>` follows them.
+
 ### Clearing prompts and deleting clips
 
 From 2.6. Nothing below erases a file except *Empty trash*.
@@ -2309,8 +2351,9 @@ scene is a cut, on the cast's stills where Ref2VA is installed; the rest carry o
 character without a pinned picture gets a reference still and a turnaround of it, each place a plate, pinned to their
 sheets. Then every shot is rendered in order, at most three in the queue at once, and each take is checked by the QA
 gate; a take that fails is rendered again at the next seed. The take that passes is rated *good* and a failed one
-*no good*. Last, the best take of every shot is laid on an Editor timeline and exported, with the timeline's FCPXML,
-EDL and package beside it. The panel shows the stage, the counts (*7 of 9 shots rendered, 2 retakes*), the job at
+*no good*. Last, the best take of every shot is cut: with a song, by the rough cut on the song's bar lines with the
+song under it, its FCPXML, EDL and Resolve zip in exports/; without one, on an Editor timeline that is exported, with
+the timeline's FCPXML, EDL and package beside it. The panel shows the stage, the counts (*7 of 9 shots rendered, 2 retakes*), the job at
 work and the run's log; *Stop* takes the jobs still waiting out of the queue, and *Direct it again* carries on: what
 is written, cast and rendered is kept, and so are shots that had a take before the Director came to them. A restart
 of the app picks a run up where it was. For scripts and agents: `POST /api/slate/direct {"project", "logline",
@@ -2754,6 +2797,67 @@ the same ffmpeg step as on a Mac.
 **Licences.** Stable Audio Open 1.0: Stability AI Community License (free under US$1 million of yearly revenue); its
 Hugging Face page is gated, so accept the licence there first (the studio's Install guide signs you in to Hugging
 Face). MMAudio's weights are **CC-BY-NC 4.0: non-commercial**; its code is MIT. Do not redistribute either's weights.
+
+## Train your own LoRA
+
+**Looks → Train a LoRA** turns your own clips or stills into a LoRA for the video model: a **look** (a colour, a grain,
+a kind of light) or a **character** (one person or creature, the same in every shot). It trains on a DGX Spark, and
+the result appears in Looks under **My LoRAs**, ready to use on a clip like any other look.
+
+1. Pick at least 8 clips or stills from the Library (each clip 5 seconds or longer; clips and stills can be mixed).
+2. Give it a name and a **trigger word**, one word your prompts will use (`wk_noir`). Choose a look or a character.
+3. Choose where the captions come from: **Automatic** uses the prompt each clip was made from, else the Library's
+   caption of it, else the trigger alone; **Prompts only**; or **Trigger only**. Every caption starts with the trigger;
+   a character's also says "a video of" or "a photo of" it.
+4. Set the length (300 to 3000 steps, 1000 by default) and press **Start training**. The page says how long it takes:
+   about 110 seconds a step at the standard size (928x512, 124 frames), so 1000 steps is about 30 hours.
+
+While it trains the Spark does nothing else: ComfyUI is stopped, the brain engine, Drama 3 and Music 3 are unloaded,
+and the run holds the GPU lock and about 55 GB of memory, with the memory guard beside it. The run is a job of the
+queue with its step count; a checkpoint is saved every 100 steps, so a run you cancel (or one the memory guard stops)
+**resumes** from its last checkpoint. When it ends, the LoRA is written to `~/ImaginationStudio/loras/` in the layout
+ComfyUI reads, and its card in Looks has **Try it**, which queues a short clip with it on.
+
+Agents can do the same: `train_lora {name, trigger, kind, items, steps}` and `training_status {id}` in the Studio's
+MCP tools. Over HTTP: `POST /api/train/datasets {name, trigger, kind, items, captions}`, then
+`POST /api/train/start {dataset, steps, rank, lr, size, save_every}` (or `{resume: <lora id>}`); `GET /api/train`.
+
+**What it needs** (`bash oneshot-setup-spark.sh --train`, or `bash spark/setup-train.sh`; `--verify` checks):
+kohya-ss's [musubi-tuner](https://github.com/kohya-ss/musubi-tuner) at `f8a1b03` (Apache License 2.0) in its own
+environment under `$PREFIX/train`; MiniMax H3's FL2VA transformer (what `--h3-base` installs, fetched if missing);
+MiniMax H3's video encoder in fp16 from Comfy-Org/MiniMax-H3 and ostris's de-distillation adapter v2
+(ostris/minimax_h3_training_adapter), about 5.5 GB in `$SPARK_MODELS/Train-H3`. The adapter is merged under the LoRA
+while it trains and is not used when it renders. MiniMax H3's files are under the MiniMax H3 Community License; the
+adapter is made from MiniMax H3. The LoRA you train is yours; what it may be used for follows that licence.
+## A rough cut on the beat, straight to Resolve
+
+Slate's **Deliver** tab cuts a film to a song: pick the song (any song, voice line or sound in the Library), choose
+where the cuts fall, and press **Make a rough cut**. The studio takes the best take of every shot (circled, else
+good, else the newest that is not marked no-good) in scene and shot order, finds the song's beats, and lays the clips
+end to end so each cut lands on the music:
+
+- **Every beat** is a fast montage, **Every bar** gives each clip one bar, **Every two bars** longer, calmer shots.
+  A clip is trimmed around its middle to fill its slot; a clip shorter than its slot keeps its whole length and the
+  next cut lands back on the grid.
+- **Natural** lets each clip run about its own length and cuts it on the last beat it reaches.
+- **As filmed**, **Shuffled** or **Calm to busy** (the stillest clips first) sets the order.
+- **Foley for each clip** first makes each clip's sound for its picture (MMAudio, clips of 15 s or less; see Sound
+  effects and foley), and the cut uses those clips. Slower: one foley job a clip.
+
+The cut becomes an Editor project of its own and its export is queued with the song under it, lowered while someone
+speaks. When it is done the panel plays it and offers **Open in Resolve**: a zip with the FCPXML and every clip and
+the song in `media/` beside it (unzip it, then in DaVinci Resolve File > Import > Timeline), and the FCPXML and an EDL
+on their own. All three are kept in `~/ImaginationStudio/exports/`.
+
+In the **Library**, tick some clips and press **Trailer from these** for the same cut from a selection: shuffle it, or
+cut it calm to busy, for a different trailer from the same clips.
+
+The beats are found on this machine with numpy (no extra install): the tempo between 60 and 200 BPM, every beat, and
+the first beat of each bar (4/4). A song is measured once; the result is kept beside it as `<name>.beats.json`.
+Very fast songs may read at half tempo, which still cuts on the beat. Needs ffmpeg.
+`POST /api/music/beats {path}` gives {bpm, beats, downbeats, bars, duration, confidence};
+`POST /api/roughcut {film | clips, song, cut, order, foley, title, width, height}` makes the cut and
+`GET /api/roughcut/{project}` follows it. Agents have the same as `music_beats`, `rough_cut` and `rough_cut_status`.
 
 ## Motion Previs: a shot into control layers and a camera move
 

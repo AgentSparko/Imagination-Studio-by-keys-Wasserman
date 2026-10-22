@@ -1537,6 +1537,8 @@ def build(kind: str, params: dict, job_id: str, room: bool = True) -> tuple[list
         return built
     if kind in sound.KINDS:  # a sound effect or a clip's foley (sound.py)
         return sound_build(kind, params, job_id)
+    if kind in train.KINDS:  # a LoRA trained on this Spark (train.py: spark/train_lora.py)
+        return train_build(params, job_id)
     seed = str(int(params.get("seed", 0)))
     if kind == "scout":
         folder = HOME / "scouts" / job_id
@@ -1703,8 +1705,8 @@ def export(job: dict) -> None:
         job["progress"] = None
 
 
-STEP = re.compile(r"\[tensorfold\] (step|voice|ar|dit) (\d+)/(\d+)")
-STEP_WORDS = {"step": "picture", "voice": "sound", "ar": "the model writes the song", "dit": "the sound"}  # MiniMax Music 3: ar, dit
+STEP = re.compile(r"\[tensorfold\] (step|voice|ar|dit|train) (\d+)/(\d+)")
+STEP_WORDS = {"step": "picture", "voice": "sound", "ar": "the model writes the song", "dit": "the sound", "train": "training step"}  # MiniMax Music 3: ar, dit
 RAN_ON = re.compile(r"\[tensorfold\] engine: (\w+)")
 
 
@@ -1922,6 +1924,8 @@ def perform(job: dict, worker: dict | None = None) -> None:
         # peak does not fit beside it (bolt_need), after the answers in flight; held until the queue is empty
         if job["kind"] not in ("export", "soundtrack") and worker is None and not job.get("remote"):
             job["log"] += bolt.admit(job, lambda resident: bolt_need(job, resident))
+        if job["kind"] in train.KINDS and worker is None:  # a LoRA run holds about 55 GB for hours: ComfyUI's models go first
+            job["log"] += train_free(job)
         if params.get("first_frame_from"):  # continuity: open on the last frame of an earlier clip
             source = inside(params["first_frame_from"])
             if not source.is_file():
@@ -1973,6 +1977,8 @@ def perform(job: dict, worker: dict | None = None) -> None:
                 except Exception as error:  # noqa: BLE001
                     job["pace"] = {"verdict": "not measured", "note": str(error)[-200:]}
         hub.record(job)  # the clip, its seed and settings, and the Spark that rendered it (sparks/takes.jsonl)
+        if params.get("then") and job["status"] != "cancelled":  # the next step of Extend or Fix (revise.py)
+            revise_then(job)
         if job["status"] != "cancelled":
             job["status"] = "done"
     except sparks.Moved:  # the Spark it was on refused it, failed it or stopped answering: it is in the queue again
@@ -2164,6 +2170,8 @@ def export_clips(params: dict) -> None:
 @app.post("/api/jobs")
 def submit(body: dict) -> dict:
     try:
+        if body.get("kind") in revise.KINDS:  # Restyle, Extend, Fix (revise.py): a clip's job and what follows it
+            return revise_queue(body)
         return queue_job(body)
     except (TypeError, ValueError, AttributeError, KeyError) as error:
         # a setting sent as the wrong type (text for a number, a list for an object): said plainly, not a 500
@@ -2281,7 +2289,7 @@ def cancel(job_id: str) -> dict:
     return public(job)
 
 
-NOT_ON_COMFY = ("voice", "export", "soundtrack", "qa")  # jobs a Spark runs without its ComfyUI server
+NOT_ON_COMFY = ("voice", "export", "soundtrack", "qa", "train")  # jobs a Spark runs without its ComfyUI server
 
 
 COMFY_PROMPT = re.compile(r"^\[tensorfold\] comfy prompt ([0-9a-f-]{8,64})$", re.M)
@@ -2782,6 +2790,9 @@ action_router, action_build, action_title, action_source = actions.attach(HOME, 
 import sound  # noqa: E402  (sound effects and foley: Stable Audio Open and MMAudio, run locally, beside this file)
 sound_router, sound_build, sound_title, sound_source = sound.attach(HOME, PACK, SPARK, inside, relative, held_room, media_seconds)
 app.include_router(action_router)
+import revise  # noqa: E402  (Restyle, Extend and Fix: work on a clip you already have, Library actions, beside this file)
+revise_router, revise_queue, revise_then = revise.attach(sys.modules[__name__])
+app.include_router(revise_router)
 app.include_router(sound_router)
 import captions  # noqa: E402  (what is in each clip and picture, described by the local vision model and searched, beside this file)
 caption_router = captions.attach(HOME, library, inside, relative, lambda request, mutation=False: agents.local(request, mutation),
@@ -2789,6 +2800,9 @@ caption_router = captions.attach(HOME, library, inside, relative, lambda request
                                  lambda: hub.takes(), lambda: settings.load()["presets"].get("captions_auto", True))
 app.include_router(caption_router)
 caption_router.captioner["start"]()
+import train  # noqa: E402  (a LoRA trained from the Library's clips and stills on this Spark, beside this file)
+train_router, train_build, train_free = train.attach(HOME, PACK, SPARK, inside, media_seconds, enqueue, jobs, lock)
+app.include_router(train_router)
 import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
 app.include_router(clear.attach(HOME, jobs, order, lock)[0])
 import sparks  # noqa: E402  (worker Sparks behind this queue: a job's "sparks" number, beside this file)
@@ -2864,6 +2878,10 @@ app.include_router(telemetry.attach(HOME, jobs, order, lock, memory_guard, engin
 import suite  # noqa: E402  (the filmmaker suite's files in and out: imports, timeline, dailies, beside this file)
 app.include_router(suite.attach(HOME, jobs, lock, PRESETS, app))
 app.include_router(settings.attach(HOME))
+import beats  # noqa: E402  (a song's tempo, beats and bars, measured with numpy, beside this file)
+app.include_router(beats.attach(HOME, inside))
+import roughcut  # noqa: E402  (a rough cut on the song's beats, exported with its FCPXML, EDL and Resolve zip, beside this file)
+app.include_router(roughcut.attach(HOME, lambda body: queue_job(body), jobs, lock, inside, relative, media_seconds, public))
 try:
     import nodes  # noqa: E402  (Nodes: a canvas of the studio's own jobs, run in order, beside this file)
 except ImportError:  # an install without it keeps the rest of the app

@@ -100,6 +100,29 @@ TOOLS = [
                                  "preset": {"type": "string", "description": "a preset from studio_state"},
                                  "quality": {"type": "string", "description": "a quality from studio_state"},
                                  "seed": {"type": "integer"}, "title": {"type": "string"}}, ("prompt", "total_seconds"))},
+    {"name": "restyle_clip", "description": "Make a Library clip again in a new look: the clip is the reference video (Ref2VA), so its "
+                                            "action, camera and timing stay. At most 15 s (a longer clip is cut to its first 15).",
+     "inputSchema": text_schema({"video": {"type": "string", "description": "Library path of the clip"},
+                                 "prompt": {"type": "string", "description": "the new look (\"a watercolour painting\", \"16 mm film\")"},
+                                 "keep_sound": {"type": "boolean", "description": "keep the clip's own sound (default true)"},
+                                 "seconds": {"type": "number", "description": "only the first seconds, 2 to 15 (default the whole clip)"},
+                                 "seed": {"type": "integer"}}, ("video", "prompt"))},
+    {"name": "extend_clip", "description": "Carry a Library clip on from its last frame and join the two into one file "
+                                           "(renders/<job>-extended.mp4, the job's first output). Over 15 s the new part is a long take.",
+     "inputSchema": text_schema({"video": {"type": "string", "description": "Library path of the clip"},
+                                 "seconds": {"type": "number", "description": "how much longer, 5 to 30 (default 5)"},
+                                 "prompt": {"type": "string", "description": "what happens next (default the clip's own prompt)"},
+                                 "join": {"type": "boolean", "description": "join the new part to the clip (default true)"},
+                                 "seed": {"type": "integer"}}, ("video",))},
+    {"name": "fix_clip", "description": "Change one thing in a Library clip from an instruction, in two jobs: its first frame is "
+                                        "redrawn by the picture model (the whole frame, no mask), then the clip is made again from "
+                                        "that frame with the clip's own motion. Returns the first job; the second is queued when it "
+                                        "finishes (list_jobs: its title ends \"2/2: the clip\").",
+     "inputSchema": text_schema({"video": {"type": "string", "description": "Library path of the clip"},
+                                 "instruction": {"type": "string", "description": "the change, e.g. change the sky to a stormy sunset"},
+                                 "image_model": {"type": "string", "enum": ["qwen", "qwen-full", "flux3k-fast", "flux3k-full"]},
+                                 "keep_sound": {"type": "boolean", "description": "keep the clip's own sound (default true)"},
+                                 "seed": {"type": "integer"}}, ("video", "instruction"))},
     {"name": "queue_sound", "description": "Queue a sound: kind sfx is a sound effect from words (Stable Audio Open, 1 to 47 s, a .wav); "
                                            "kind foley makes a clip's sound for its picture (MMAudio: a .wav and the clip with it).",
      "inputSchema": text_schema({"kind": {"type": "string", "enum": ["sfx", "foley"]},
@@ -114,6 +137,23 @@ TOOLS = [
      "inputSchema": text_schema({"song": {"type": "string", "description": "the song's job id"},
                                  "video": {"type": "string", "description": "Library path of the clip"},
                                  "music_db": {"type": "number", "description": "the song's level, -30 to 0 dB (default -10)"}}, ("song", "video"))},
+    {"name": "music_beats", "description": "A song's tempo and beats, measured on this machine: bpm, beats and downbeats (seconds), "
+                                           "bars, duration and confidence (0 to 1). The song is a Library path or a song's or voice line's id.",
+     "inputSchema": text_schema({"path": {"type": "string", "description": "Library path of the song, or its take id"}}, ("path",))},
+    {"name": "rough_cut", "description": "Cut a Slate film's best takes (or Library clips, for a trailer) to a song so every cut lands "
+                                         "on the beat; the export is queued with the song under it, and FCPXML, EDL and a zip for "
+                                         "DaVinci Resolve are written when it is done. Returns the project, the export job (or the "
+                                         "foley jobs first) and the tempo. Follow it with rough_cut_status.",
+     "inputSchema": text_schema({"film": {"type": "string", "description": "a Slate film's id (its best take of each shot, in order)"},
+                                 "clips": {"type": "array", "items": {"type": "string"}, "description": "Library paths of clips, instead of a film"},
+                                 "song": {"type": "string", "description": "Library path of the song, or a song's or voice line's id"},
+                                 "cut": {"type": "string", "enum": ["beat", "bar", "two-bars", "natural"], "description": "where cuts fall (default bar)"},
+                                 "order": {"type": "string", "enum": ["given", "shuffle", "energy"], "description": "clip order (default given; energy is calm to busy)"},
+                                 "foley": {"type": "boolean", "description": "make each clip's sound for its picture first (slower)"},
+                                 "title": {"type": "string"}}, ("song",))},
+    {"name": "rough_cut_status", "description": "Where a rough cut is: stage (foley, export, song, files, done, failed), its jobs, and "
+                                                "when done its video and files (fcpxml, edl, zip).",
+     "inputSchema": text_schema({"project": {"type": "string", "description": "the project id rough_cut returned"}}, ("project",))},
     {"name": "check_clip", "description": "Run the QA gate on a finished clip: its sound, the people's identity across the clip and its "
                                           "sharpness. Returns a job; its qa holds the report (passed and each check).",
      "inputSchema": text_schema({"path": {"type": "string", "description": "Library path of the clip"},
@@ -197,6 +237,32 @@ TOOLS = [
                                               "checking, retaking, cutting, done, failed, stopped), shots rendered and checked, retakes, "
                                               "the latest lines of its log and, when done, the cut's files.",
      "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"}}, ("film",))},
+    {"name": "suite_imports", "description": "What was brought in from the filmmaker suite (Blockout previs, a screenplay, a board, a Motion Previs pack), "
+                                             "newest first: id, title, app and shot count. With import, that one's shots with their ids and prompts.",
+     "inputSchema": text_schema({"import": {"type": "string", "description": "an import's id or title, to list its shots"}})},
+    {"name": "suite_attach", "description": "Send shots of a suite import into a Slate film: the still becomes the shot's first frame, a previs "
+                                            "clip its motion reference, and the words fill an empty prompt. mapping is a list of {shot, to}: shot is "
+                                            "the import's shot id, to a film shot's id or name, or \"new\" for a new shot (then scene names the scene). "
+                                            "Returns what was changed.",
+     "inputSchema": text_schema({"import": {"type": "string", "description": "the import's id or title"},
+                                 "film": {"type": "string", "description": "the film's id or name"},
+                                 "mapping": {"type": "array", "description": "which import shot goes to which film shot",
+                                             "items": {"type": "object", "properties": {"shot": {"type": "string"}, "to": {"type": "string"}, "scene": {"type": "string"}}}}},
+                                ("import", "film", "mapping"))},
+    {"name": "train_lora", "description": "Train a LoRA on a DGX Spark from Library clips or stills (at least 8; each clip 5 s or "
+                                          "longer): a look (a style) or a character. It runs for hours (about 110 s a step) and the "
+                                          "Spark renders nothing else meanwhile, so do it only when the filmmaker asks. Returns the "
+                                          "job; follow it with training_status. The finished LoRA is in Looks under its name.",
+     "inputSchema": text_schema({"name": {"type": "string", "description": "the LoRA's name"},
+                                 "trigger": {"type": "string", "description": "one word the prompts will use, e.g. wk_noir"},
+                                 "kind": {"type": "string", "enum": ["look", "character"]},
+                                 "items": {"type": "array", "items": {"type": "string"}, "description": "Library paths of the clips and stills"},
+                                 "steps": {"type": "integer", "description": "300 to 3000 (default 1000)"},
+                                 "captions": {"type": "string", "enum": ["auto", "prompts", "none"], "description": "default auto"}},
+                                ("name", "trigger", "items"))},
+    {"name": "training_status", "description": "A LoRA training run, by its job id or the LoRA's id: the job's status and step, the "
+                                               "last checkpoint saved, and whether the LoRA is installed.",
+     "inputSchema": text_schema({"id": {"type": "string"}}, ("id",))},
     {"name": "upload_file", "description": "Copy a file from this machine into the Studio's Library (png, jpg, webp, mp4, mov, wav, mp3...). "
                                            "Returns its Library path.",
      "inputSchema": text_schema({"path": {"type": "string", "description": "absolute path of the file on this machine"}}, ("path",))},
@@ -376,6 +442,11 @@ def run(name: str, args: dict):
         if args.get("first_frame"):
             params["image"] = args["first_frame"]
         return job_summary(call("POST", "/api/jobs", {"kind": "long", "title": args.get("title") or "agent: long take", "params": params}))
+    if name in ("restyle_clip", "extend_clip", "fix_clip"):  # Restyle, Extend, Fix (app/revise.py): the first job and its chain
+        keys = {"restyle_clip": ("video", "prompt", "keep_sound", "seconds", "seed"), "extend_clip": ("video", "seconds", "prompt", "join", "seed"),
+                "fix_clip": ("video", "instruction", "image_model", "keep_sound", "seed")}[name]
+        made = call("POST", "/api/revise", {"kind": name.split("_")[0], "params": {k: args[k] for k in keys if args.get(k) not in (None, "")}})
+        return {**job_summary(made), "revise": made.get("revise")}
     if name == "queue_sound":
         kind = args.get("kind")
         if kind not in ("sfx", "foley"):
@@ -386,6 +457,17 @@ def run(name: str, args: dict):
     if name == "queue_soundtrack":
         body = {"take": str(args["song"]), "video": str(args["video"]), **({"music_db": args["music_db"]} if args.get("music_db") not in (None, "") else {})}
         return job_summary(call("POST", "/api/music/soundtrack", body))
+    if name == "music_beats":
+        return call("POST", "/api/music/beats", {"path": str(args["path"])})
+    if name == "rough_cut":
+        if bool(args.get("film")) == bool(args.get("clips")):
+            raise StudioError("give film (a Slate film's id) or clips (Library paths), one of the two")
+        body = {k: args[k] for k in ("film", "clips", "song", "cut", "order", "foley", "title") if args.get(k) not in (None, "", [])}
+        made = call("POST", "/api/roughcut", body)
+        return {k: made.get(k) for k in ("project", "job", "foley", "beats", "title", "dropped")} | {"cuts": len(made.get("timeline") or [])}
+    if name == "rough_cut_status":
+        said = call("GET", "/api/roughcut/" + urllib.request.quote(str(args["project"]), safe=""))
+        return {k: said.get(k) for k in ("project", "title", "stage", "error", "job", "foley", "video", "files", "notes")}
     if name == "check_clip":
         body = {k: args[k] for k in ("path", "prompt") if args.get(k) not in (None, "")}
         return job_summary(call("POST", "/api/qa", body))
@@ -509,6 +591,40 @@ def run(name: str, args: dict):
                 "log": [line.get("text") for line in (run.get("log") or [])[-12:]], "cut": run.get("cut")}
     if name == "list_jobs":
         return [job_summary(job) for job in call("GET", "/api/jobs")[:int(args.get("limit") or 20)]]
+    if name == "suite_imports":
+        listed = [{**one, "name": one.get("title")} for one in call("GET", "/api/suite/imports")]
+        if not args.get("import"):
+            return [{key: one.get(key) for key in ("id", "title", "app", "shots")} for one in listed]
+        found = call("GET", "/api/suite/imports/" + urllib.request.quote(named(listed, args["import"], "import")["id"], safe=""))
+        return {"id": found["id"], "title": found.get("title"), "app": found.get("app"),
+                "shots": [{key: one.get(key) for key in ("id", "title", "scene", "action", "camera", "seconds")} | {"still": bool(one.get("image")), "previs_clip": bool(one.get("reference_video"))}
+                          for one in found.get("shots") or []]}
+    if name == "suite_attach":
+        listed = [{**one, "name": one.get("title")} for one in call("GET", "/api/suite/imports")]
+        found = named(listed, args["import"], "import")
+        film = film_of(args["film"])
+        if not isinstance(args.get("mapping"), list) or not args["mapping"]:
+            raise StudioError("mapping is a list of {shot, to}")
+        flat = [shot for scene in film.get("scenes") or [] for shot in scene.get("shots") or []]
+        rows = []
+        for row in args["mapping"]:
+            to = str(row.get("to") or "")
+            if to != "new":
+                to = named(flat, to, "shot")["id"]
+            scene = named(film.get("scenes") or [], row["scene"], "scene")["id"] if to == "new" and row.get("scene") else None
+            rows.append({"shot": str(row.get("shot") or ""), "to": to, **({"scene": scene} if scene else {})})
+        made = call("POST", "/api/suite/imports/" + urllib.request.quote(found["id"], safe="") + "/attach", {"film": film["id"], "mapping": rows})
+        return {"film": made["id"], "name": made.get("name"), "sent": len(rows),
+                "shots": [{"id": s["id"], "name": s.get("name"), "first_frame": (s.get("tf") or {}).get("image"), "previs_clip": (s.get("tf") or {}).get("reference_video")}
+                          for scene in made.get("scenes") or [] for s in scene.get("shots") or []]}
+    if name == "train_lora":
+        items = args["items"] if isinstance(args["items"], list) else [args["items"]]
+        made = call("POST", "/api/train/datasets", {"name": str(args["name"]), "trigger": str(args["trigger"]), "kind": str(args.get("kind") or "look"),
+                                                    "captions": str(args.get("captions") or "auto"), "items": [str(one) for one in items]})
+        job = call("POST", "/api/train/start", {"dataset": made["id"], "name": str(args["name"]), **({"steps": int(args["steps"])} if args.get("steps") else {})})
+        return {**job_summary(job), "dataset": made["id"], "lora": (job.get("params") or {}).get("lora"), "items": made.get("items")}
+    if name == "training_status":
+        return call("GET", "/api/train/status/" + urllib.request.quote(str(args["id"]), safe=""))
     if name == "upload_file":
         source = Path(str(args["path"])).expanduser()
         if not source.is_file():

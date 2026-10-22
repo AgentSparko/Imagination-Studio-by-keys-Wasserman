@@ -10,8 +10,8 @@ restart picks it up where it stopped:
   rendering  every shot compiled (slate.compile_shot) and queued in order, at most three at a time; a shot that opens
   checking   on the shot before waits for it; each clip comes back as a take, is checked by the QA gate (the job's
   retaking   own, else POST /api/qa) and, when it fails, rendered again at the next seed, up to ``retakes`` times
-  cutting    the best take of every shot to a rough cut (POST /api/roughcut when this app has it, else an Editor
-             timeline and an export job), with the timeline's FCPXML, EDL and package
+  cutting    the best take of every shot cut on the song's bars by the rough cut (roughcut.py), with its FCPXML, EDL
+             and Resolve zip; without a song (or the rough cut) an Editor timeline and an export job
 
 The server hands in the queue and the job table (``attach``); tests stand in for them.
 """
@@ -42,7 +42,7 @@ cancel = lambda job_id: None  # POST /api/jobs/{id}/cancel
 qa_start = None  # POST /api/qa: a QA job, or an HTTPException where the gate cannot run
 editor_new = editor_save = None  # POST /api/projects, PUT /api/projects/{id}
 sizes: dict = {}  # preset -> (width, height)
-APP = None  # the FastAPI app, to find a rough cut route another part may add
+APP = None  # the FastAPI app
 ref2va = lambda: False  # whether shots can open on cast stills
 
 runs: dict[str, dict] = {}  # project -> {"thread", "stop"}
@@ -982,34 +982,29 @@ def settle(run: dict, sid: str) -> None:
 
 # ---------- cutting ----------
 
-def song_take(song: str) -> str | None:
-    """A song of the Music tab, by its take id or its file's path."""
+def rough_make(body: dict) -> dict:
+    """POST /api/roughcut in this process (roughcut.py): the cut on the song's beats, its project and export job."""
 
-    if not song:
-        return None
-    if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", song) and (HOME / "music" / f"{song}.take.json").is_file():
-        return song
-    for file in (HOME / "music").glob("*.take.json"):
-        try:
-            if json.loads(file.read_text()).get("path") == song:
-                return file.name[:-len(".take.json")]
-        except (OSError, ValueError):
-            continue
-    return None
+    import roughcut
+
+    if roughcut.queue is None:
+        raise LookupError("the rough cut is not part of this app")
+    return roughcut.make(body)
 
 
-def roughcut_route():
-    for route in getattr(APP, "routes", []) or []:
-        if getattr(route, "path", "") == "/api/roughcut" and "POST" in (getattr(route, "methods", None) or ()):
-            return route.endpoint
-    return None
+def rough_status(project: str) -> dict:
+    """GET /api/roughcut/{project}: foley, export, song, files, done or failed."""
+
+    import roughcut
+
+    return roughcut.status(project)
 
 
 def cut_stage(run: dict, stop: threading.Event) -> None:
     if not run["asked"].get("cut"):
         return
     film = film_of(run["project"])
-    clips = []
+    clips, takes = [], []
     for sid in run["order"]:
         rec = run["shots"].get(sid) or {}
         path = rec.get("best") or rec.get("fallback")
@@ -1023,41 +1018,47 @@ def cut_stage(run: dict, stop: threading.Event) -> None:
             take = next((t for t in shot.get("takes") or [] if t.get("mediaPath") == path), {})
             frames = (take.get("settings") or {}).get("frames")
             clips.append({"path": path, "in": 0, "out": 0, "duration": round(frames / 24, 3) if frames else float((shot.get("spec") or {}).get("durationSec") or 5)})
+            takes.append(take)
     if not clips:
         raise Failed("no shot has a take to cut")
+    settings = (takes[0] if takes else {}).get("settings") or {}
+    width, height = (settings.get("width"), settings.get("height")) if settings.get("width") else sizes.get(settings.get("preset"), (1920, 1080))
+    title = film.get("name") or "Film"
     song = run["asked"].get("song") or ""
-    taken = song_take(song)
-    if song and not taken:
-        say(run, "The song is not one of the Music tab's songs: cutting without it")
-    endpoint = roughcut_route()
-    if endpoint is not None:
-        say(run, f"Cutting {len(clips)} shots")
+    if song:  # the rough cut: every cut on the song's bar lines, the song under it, FCPXML, EDL and a Resolve zip
+        say(run, f"Cutting {len(clips)} shots on the song's bars")
         try:
-            made = endpoint({"film": run["project"], **({"song": taken} if taken else {}), "cut": "best", "foley": False, "title": film.get("name") or "Rough cut"})
-        except Exception as error:  # noqa: BLE001 - the Editor's export below does the same
-            say(run, f"The rough cut was refused ({str(getattr(error, 'detail', error))[:200]}): cutting in the Editor instead")
-            made = None
-        if isinstance(made, dict):
-            job_id = made.get("job") if isinstance(made.get("job"), str) else (made.get("job") or {}).get("id") or made.get("id")
-            run["cut"] = {"project": made.get("project"), "job": job_id, "files": made.get("files") or {}}
-            if job_id:
-                done = finish(run, job_id, stop)
-                run["cut"]["files"] = {**{"mp4": (done.get("outputs") or [None])[0]}, **(done.get("files") or {}), **run["cut"]["files"]}
-            save(run)
+            made = rough_make({"clips": [c["path"] for c in clips], "song": song, "cut": "bar", "foley": False, "order": "given",
+                               "title": title, "width": int(width), "height": int(height)})
+        except LookupError as error:
+            say(run, f"{error}: cutting in the Editor instead")
+        except HTTPException as error:
+            say(run, f"The rough cut was refused ({str(error.detail)[:200]}): cutting in the Editor instead, the song left out")
+        else:
+            run["cut"] = {"project": made["project"], "job": made.get("job"), "files": {}, "beats": made.get("beats")}
+            say(run, "Exporting the cut", job=made.get("job"))
+            while True:
+                state = rough_status(made["project"])
+                if state.get("stage") == "done":
+                    break
+                if state.get("stage") == "failed":
+                    raise Failed("the rough cut failed: " + str(state.get("error") or "no reason given"))
+                if state.get("job") and state["job"] != run["cut"]["job"]:
+                    run["cut"]["job"] = state["job"]
+                    run["current"]["job"] = state["job"]
+                    save(run)
+                wait(stop)
+            files = state.get("files") or {}
+            run["cut"]["files"] = {"mp4": state.get("video"), **{k: files.get(k) for k in ("fcpxml", "edl", "zip")}}
+            say(run, "The cut is ready: " + str(run["cut"]["files"]["mp4"]))
             return
     if editor_new is None or editor_save is None:
         raise Failed("this app has no Editor to cut in")
     say(run, f"Cutting {len(clips)} shots in the Editor")
-    edit = editor_new({"name": (film.get("name") or "Film") + " · the Director's cut"})
+    edit = editor_new({"name": title + " · the Director's cut"})
     edit["timeline"] = clips
-    if taken:
-        edit["soundtrack"] = taken
     editor_save(edit["id"], edit)
-    first = next((t for sid in run["order"] for t in (slate.find_shot(film, sid)[1].get("takes") or []) if t.get("mediaPath") == clips[0]["path"]), {}) if clips else {}
-    settings = first.get("settings") or {}
-    width, height = (settings.get("width"), settings.get("height")) if settings.get("width") else sizes.get(settings.get("preset"), (1920, 1080))
-    job = queue({"kind": "export", "title": "The Director's cut: " + (film.get("name") or ""), "params": {"clips": clips, "width": int(width), "height": int(height),
-                                                                                                         **({"soundtrack": {"take": taken}} if taken else {})}})
+    job = queue({"kind": "export", "title": "The Director's cut: " + title, "params": {"clips": clips, "width": int(width), "height": int(height)}})
     run["cut"] = {"project": edit["id"], "job": job["id"], "files": {}}
     say(run, "Exporting the cut", job=job["id"])
     done = finish(run, job["id"], stop)

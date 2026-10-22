@@ -40,6 +40,7 @@ function importView(imp) {
         (s.dialogue || []).length ? el("span", { class: "su-line" }, s.dialogue.map(d => (d.character ? d.character + ": " : "") + "“" + d.line + "”").join(" ")) : null,
         el("div", { class: "su-shotfoot" }, s.seconds ? el("span", { class: "tag2" }, s.seconds + " s") : null, el("span", { class: "su-grow" }),
           el("button", { class: "small", onclick: () => shotToCreate(s) }, "Open in Create")))))) : el("div", { class: "note" }, "No shots were found in this file."),
+    typeof suiteAttachPanel === "function" && shots.length && imp.id ? suiteAttachPanel(imp.id) : null,
     (imp.cast || []).length ? el("div", {}, el("h3", {}, "Cast"), el("div", { class: "chips" }, imp.cast.map(c => el("span", { class: "tag2", title: c.description || "" }, c.name)))) : null,
     (imp.locations || []).length ? el("div", {}, el("h3", {}, "Locations"), el("div", { class: "chips" }, imp.locations.map(c => el("span", { class: "tag2", title: c.description || "" }, c.name)))) : null);
 }
@@ -78,6 +79,7 @@ function viewImport() {
   const picked = () => [...PICK].length ? [...PICK] : jobs.filter(j => j.status === "done").slice(0, 24).map(j => j.id);
   const dailies = () => { const ids = picked(); if (!ids.length) return toast("Finish a take first"); location.assign("/api/export/dailies.zip?jobs=" + ids.join(",")); };
   const act = { bring: () => input.click(), dailies };
+  const openImport = (m, panel) => async () => { try { SU.cur = await api("/api/suite/imports/" + m.id); } catch { SU.cur = m; } render(); if (panel) setTimeout(() => { const n = typeof document !== "undefined" && document.querySelector && document.querySelector("[data-attach]"); if (n && n.scrollIntoView) n.scrollIntoView({ behavior: "smooth", block: "start" }); }, 50); };
   return el("div", {},
     vaultHead("suite", "Wasserman's Filmmaker Suite", "The entire Wasserman Filmmaker Suite of apps, built in: bring work in, send the cut out."),
     el("div", { class: "su-apps" }, suApps().map(a => suAppCard(a, act))),
@@ -86,8 +88,10 @@ function viewImport() {
       el("div", { class: "note su-flat" }, "Fountain or Final Draft scripts, a ScriptBreak project, Cork Board or Master Canvas JSON, a Master Canvas hand-off, a Storyboard Reference export or a Blockout package (.zip), or a Slate project.json.")),
     el("div", { class: "split su-gap" },
       el("div", { class: "stack" }, SU.cur ? importView(SU.cur) : el("div", { class: "panel" }, el("h2", {}, "Nothing open"), el("div", { class: "note" }, "Drop a file above, or open one you brought in before.")),
-        (SU.imports || []).length ? el("div", { class: "panel" }, el("h2", {}, "Brought in before"), el("div", { class: "list" }, SU.imports.slice(0, 20).map(m => el("button", { class: SU.cur && SU.cur.id === m.id ? "on" : "",
-          onclick: async () => { try { SU.cur = await api("/api/suite/imports/" + m.id); } catch { SU.cur = m; } render(); } }, el("div", {}, el("b", {}, m.title || m.id), el("span", {}, (m.app || "") + " · " + count(typeof m.shots === "number" ? m.shots : (m.shots || []).length, "shot"))))))) : null),
+        (SU.imports || []).length ? el("div", { class: "panel" }, el("h2", {}, "Brought in before"), el("div", { class: "list" }, SU.imports.slice(0, 20).map(m => el("div", { class: "stack su-tight su-imp", "data-import": m.id },
+          el("button", { class: SU.cur && SU.cur.id === m.id ? "on" : "", onclick: openImport(m) }, typeof suiteAppIcon === "function" ? suiteAppIcon(m.app) : null, el("div", {}, el("b", {}, m.title || m.id), el("span", {}, (typeof suiteAppName === "function" ? suiteAppName(m.app) : m.app || "") + " · " + count(typeof m.shots === "number" ? m.shots : (m.shots || []).length, "shot")))),
+          el("div", { class: "m-acts" }, el("button", { class: "small", onclick: openImport(m, true) }, "Send into a film"),
+            typeof suitePromptPicker === "function" ? el("button", { class: "small", onclick: () => suitePromptPicker(typeof hcFromSuite === "function" ? p => { hcFromSuite(p); go("Home"); } : () => {}, m.id) }, "Use in the composer") : null))))) : null),
       el("div", { class: "stack" },
         el("div", { class: "panel stack", id: "su-sendout" }, el("h2", {}, "Send out"),
           el("div", { class: "note su-flat" }, "The timeline, a cut list and dailies, in the formats the other tools read."),
