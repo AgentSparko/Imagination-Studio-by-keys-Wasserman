@@ -10,7 +10,7 @@ const SET_DEFAULTS = {
 const SET = { data: null, loaded: false, section: "appearance", saving: false, local: { endpoint: null, found: null, finding: false, said: null, testing: false },
   agents: { name: "", endpoint: "", model: "", nearby: null, finding: false, adding: false, said: {}, testing: {} }, about: null };
 const SET_SECTIONS = [["appearance", "Appearance", "type, glow, poster, accent"], ["layout", "Studio layout", "what the sidebar shows"],
-  ["presets", "Presets & preferences", "what a new take starts from"], ["connections", "Connections", "subscriptions, local models, tools"], ["access", "Access key", "sign in your phone, a new key"],
+  ["presets", "Presets & preferences", "what a new take starts from"], ["connections", "Connections", "subscriptions, local models, tools"], ["access", "Access key", "sign in your phone, a new key"], ["notify", "Notifications", "a night shift done, on your phone"],
   ["models", "Models & weights", "what the studio needs, found and linked"], ["sparks", "Sparks", "one to five DGX Sparks for a job"],
   ["brains", "Brains & tools", "your agents, another computer, MCP tools"], ["updates", "Updates", "the version and the branch it follows"], ["about", "About", "version, credits, licences"]];
 // Machine's own pages, opened here too: each is the same view, and its data is drawn again when it arrives
@@ -307,7 +307,7 @@ function setEmbedded(section) { const [name, data] = SET_VIEWS[section], view = 
   return [el("div", { class: "st-embed", "data-embed": section }, view())]; }
 function viewSettings() {
   const draw = { appearance: setAppearance, layout: setLayout, presets: setPresets, connections: setConnections, access: setAccess, about: setAbout,
-    models: () => setEmbedded("models"), sparks: () => setEmbedded("sparks"), brains: () => setEmbedded("brains"), updates: () => setEmbedded("updates") }[SET.section] || setAppearance;
+    models: () => setEmbedded("models"), sparks: () => setEmbedded("sparks"), brains: () => setEmbedded("brains"), updates: () => setEmbedded("updates"), notify: () => typeof nightNotify === "function" ? nightNotify() : [setPanel("Notifications", "Not in this build.")] }[SET.section] || setAppearance;
   return el("div", { class: "settings" },
     typeof pageHead === "function" ? pageHead("Studio Vault", "Settings", "How the studio looks, what it shows, and what it connects to.") : el("h1", { class: "display" }, "Settings"),
     el("div", { class: "st-wrap" },

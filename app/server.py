@@ -2854,6 +2854,10 @@ import telemetry  # noqa: E402  (this machine's readings for the status bar: GPU
 app.include_router(telemetry.attach(HOME, jobs, order, lock, memory_guard, engines=lambda: {"bolt": bolt.summary()}))
 import suite  # noqa: E402  (the filmmaker suite's files in and out: imports, timeline, dailies, beside this file)
 app.include_router(suite.attach(HOME, jobs, lock, PRESETS, app))
+import push  # noqa: E402  (notifications on a phone: Web Push with the studio's own keys, beside this file)
+app.include_router(push.attach(HOME, lambda request: agents.local(request, True)))
+import nightshift  # noqa: E402  (the night shift: a batch rendered overnight, dailies in the morning, beside this file)
+app.include_router(nightshift.attach(HOME, jobs, order, lock, queue_job, cancel, PRESETS, suite.probe, suite.dailies_package, lambda: environment({})["PATH"], push.send))
 app.include_router(settings.attach(HOME))
 try:
     import nodes  # noqa: E402  (Nodes: a canvas of the studio's own jobs, run in order, beside this file)
@@ -2941,6 +2945,7 @@ if __name__ == "__main__":
     if os.environ.get("STUDIO_PIDFILE"):  # a worker Spark's app, started by another Spark's Studio: how that one finds it again
         Path(os.environ["STUDIO_PIDFILE"]).write_text(str(os.getpid()))
     hub.start()
+    nightshift.start()  # the night shift's scheduler: planned shifts start at their time or when the queue is idle
     app.router.on_shutdown.append(stop_session_comfy)  # the detached ComfyUI belongs to this process, not to one render
 
     # Update authorization needs the actual socket peer. Tailscale Serve forwards the browser's IP,

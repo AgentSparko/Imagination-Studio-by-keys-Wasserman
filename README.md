@@ -2704,6 +2704,38 @@ the same ffmpeg step as on a Mac.
 Hugging Face page is gated, so accept the licence there first (the studio's Install guide signs you in to Hugging
 Face). MMAudio's weights are **CC-BY-NC 4.0: non-commercial**; its code is MIT. Do not redistribute either's weights.
 
+## The night shift
+
+Plan a batch before bed, and wake up to dailies on your phone.
+
+- **Plan it.** On **Home**, the *Night shift* panel: pick a film from Production and *Plan the shots without a good take*
+  (every shot with a prompt and no take that is good or circled), or in the film's Slate, *Render the rest tonight*.
+  An agent can do the same with the `night_shift` tool.
+- **When it starts:** *When idle* (once the queue has had nothing in it for two minutes), *At 23:00* (any time you
+  set), or *Now*. A planned shift can be started by hand or cancelled; one shift runs at a time.
+- **While it runs** the shots go into the queue one after another, never more than two waiting, so anything you queue
+  yourself still gets its turn. Each shot's take is logged in the film as it is queued, with its QA gate and shot
+  check results added when it finishes. The plan is kept in `~/ImaginationStudio/nightshift/`: if the studio restarts,
+  the shift carries on from the next shot that has no clip.
+- **In the morning,** in `~/ImaginationStudio/dailies/`, named by date and shift:
+  - a **reel** (`.mp4`): every clip after a 1.5 s title card with the shot's name, its seed and whether it passed its
+    checks; 1280x720, 24 fps, with sound. Play it in the panel.
+  - the **dailies package** (`.zip`) for Circle Take: each clip named by its shot, with its prompt, seed and model beside it.
+  - **notes** (`.md`): each clip's verdict, why it failed and where it is, the ones to look at first.
+  - a **notification**: "Night shift done: 7 of 8 clips, 2 to look at".
+
+**Notifications on your phone.** Open the studio on the phone at its Tailscale HTTPS address (see
+[Using it on your phone](#using-it-on-your-phone)), then **Settings → Notifications → Turn on**, and *Send a test*.
+On an iPhone or iPad, first *Share → Add to Home Screen*, open the studio from that icon, and turn notifications on
+there: iOS shows them only for a studio added to the Home Screen (iOS 16.4 or later). Android Chrome works in a tab.
+The studio makes its own keys (kept in `~/ImaginationStudio/push/`) and sends through the phone's own push service;
+there is no account. It needs the `cryptography` Python package (installed by the setup, with `pywebpush`).
+
+The reel needs ffmpeg; without a font on the machine the title cards are plain black. Routes:
+`GET/POST /api/nightshift` (`{film, shots?, start, name?}` or `{items: [{kind: "shot", film, shot} | {kind: "job", body}], start}`),
+`GET/DELETE /api/nightshift/{id}`, `POST /api/nightshift/{id}/start|cancel`; `GET /api/push/key`,
+`POST/DELETE /api/push/subscribe`, `POST /api/push/test`.
+
 ## Motion Previs: a shot into control layers and a camera move
 
 **New to it? Start with the walkthrough:** [TUTORIAL.md, section 9](TUTORIAL.md#9-motion-previs-make-a-clip-that-moves-like-another)

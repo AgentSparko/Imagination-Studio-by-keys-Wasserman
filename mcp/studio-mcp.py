@@ -178,6 +178,15 @@ TOOLS = [
      "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"},
                                  "shot": {"type": "string", "description": "the shot's id or name"},
                                  "first_frame": {"type": "string", "description": "Library path of the opening picture"}}, ("film", "shot"))},
+    {"name": "night_shift", "description": "Plan a night shift: Slate shots rendered one after another, overnight, then a reel, "
+                                          "the dailies package and notes made, and a notification sent to the filmmaker's phone. With film "
+                                          "and no shots, every shot of the film with a prompt and no good take; shots names some of them. "
+                                          "start is when: idle (when the queue has been idle for 2 minutes, the default), now, or a time "
+                                          "like 23:00.",
+     "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"},
+                                 "shots": {"type": "array", "items": {"type": "string"}, "description": "shot ids or names; all shots without a good take if left out"},
+                                 "start": {"type": "string", "description": "idle, now, or HH:MM"},
+                                 "name": {"type": "string", "description": "a name for the shift"}}, ("film",))},
     {"name": "upload_file", "description": "Copy a file from this machine into the Studio's Library (png, jpg, webp, mp4, mov, wav, mp3...). "
                                            "Returns its Library path.",
      "inputSchema": text_schema({"path": {"type": "string", "description": "absolute path of the file on this machine"}}, ("path",))},
@@ -475,6 +484,16 @@ def run(name: str, args: dict):
                                                for k in ("preset", "quality", "frames", "seconds", "width", "height") if (job.get("params") or compiled["plan"]).get(k) is not None}})
         save_film(film)
         return {**job_summary(job), "take": output, "warnings": compiled.get("warnings") or []}
+    if name == "night_shift":
+        film = named(call("GET", "/api/slate/projects"), args["film"], "film")
+        body = {"film": film["id"], "start": str(args.get("start") or "idle")}
+        if args.get("shots"):
+            body["shots"] = [str(one) for one in args["shots"]]
+        if args.get("name"):
+            body["name"] = str(args["name"])
+        plan = call("POST", "/api/nightshift", body)
+        return {"shift": plan["id"], "name": plan["name"], "state": plan["state"], "clips": plan["count"], "start": plan["start"],
+                "note": "The shift renders on its own; the reel, dailies and notes land in the dailies folder when it is done."}
     if name == "list_jobs":
         return [job_summary(job) for job in call("GET", "/api/jobs")[:int(args.get("limit") or 20)]]
     if name == "upload_file":

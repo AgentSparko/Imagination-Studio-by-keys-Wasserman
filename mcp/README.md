@@ -106,6 +106,7 @@ from an agent on your Mac, run the server there over ssh, so nothing is opened t
 | `slate_add_scene` | `film`, `name`, `synopsis?` | Adds a scene and returns its id. |
 | `slate_add_shot` | `film`, `scene`, `prompt`, `name?`, `intent?`, `seconds?`, `size?`, `angle?`, `movement?`, `soundscape?` | Adds a shot (a sectioned prompt: `# Subject`, `# Composition`, ...; no spoken words) and returns its id. |
 | `slate_render_shot` | `film`, `shot`, `first_frame?` | Compiles the shot as the page does, queues its clip into the film's takes folder and logs the take in the shot; `first_frame` opens it on a finished Library picture. |
+| `night_shift` | `film`, `shots?`, `start?`, `name?` | Plans a night shift: the film's shots without a good take (or the ones named) rendered one after another, starting when the queue is idle, now, or at a time like `23:00`; a reel, the dailies package and notes are made when it is done. |
 | `upload_file` | `path` | Copies a file from the agent's machine into the Library (pictures, video, sound) and returns its path. |
 
 Jobs run one at a time, in the order queued. A queued job returns at once with its `id`; follow it with `wait_for_jobs`

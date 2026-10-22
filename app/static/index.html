@@ -69,6 +69,8 @@ try { const a = JSON.parse(localStorage.getItem("studio-look") || "null"), c = d
 <script src="settings.js"></script>
 <script src="nodes.js"></script>
 <script src="discover.js"></script>
+<script src="nightshift.js"></script>
+<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});  // notifications (sw.js)</script>
 <script>
 "use strict";
 if (location.search.includes("shot")) document.write('<img src="/api/wait?ms=4000" style="display:none">');
