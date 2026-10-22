@@ -555,8 +555,23 @@ def search_path() -> str:
     return os.pathsep.join([os.environ.get("PATH", ""), *slate.CLI_DIRS, str(Path.home() / ".npm-global/bin")])
 
 
+# names that mark an environment variable as a credential: a name carrying one of these never reaches a child
+# by default (the studio's own downloads authenticate through the code that asks for them, not through the
+# environment of every harness, CLI and MCP server it starts -- those are third-party code pulled at run time)
+SECRET_MARKS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "PRIVATE_KEY", "API_KEY", "APIKEY", "ACCESS_KEY")
+
+
 def child_env(extra: dict | None = None) -> dict:
-    env = {**os.environ, "PATH": search_path(), **(extra or {})}
+    env = {**os.environ, "PATH": search_path()}
+    # a child that genuinely needs a credential gets it through ``extra`` at the call that starts it; anything the
+    # person exported for the studio's own tools (HF_TOKEN above all, which hf_gate reads from the environment)
+    # stops at the studio's door. AGENTS_CHILD_ENV_KEEP=NAME,NAME is the escape hatch for a CLI that really must
+    # have a token-named variable of the person's own.
+    keep = {k.strip().upper() for k in os.environ.get("AGENTS_CHILD_ENV_KEEP", "").split(",") if k.strip()}
+    for name in [k for k in env if k.upper() not in keep and (k.upper() in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
+                                                           or any(m in k.upper() for m in SECRET_MARKS))]:
+        env.pop(name, None)
+    env.update(extra or {})  # what the caller vouches for arrives even by name
     env.pop("CLAUDECODE", None)  # a Studio started from inside a Claude Code session must not look like a nested one
     # PREFIX is the Studio's runtime folder, and npm reads PREFIX as its global prefix: an Install from Connect went into
     # $PREFIX/bin, where no one looks. The CLIs and their installers get npm's own prefix (or ~/.npm-global) instead.
