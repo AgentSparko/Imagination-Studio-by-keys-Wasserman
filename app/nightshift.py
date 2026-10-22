@@ -1,7 +1,8 @@
 """The night shift: a batch of clips rendered overnight, and dailies to wake up to.
 
 A shift is a plan kept in <studio folder>/nightshift/<id>.json: Slate shots ({"kind": "shot", "film", "shot"}) and
-plain jobs ({"kind": "job", "body": <a POST /api/jobs body>}). It starts at a time ("23:00", or a date and time), when
+plain jobs ({"kind": "job", "body": <a POST /api/jobs body>}; one job each, so not Restyle, Extend or Fix, whose
+later steps follow the first). It starts at a time ("23:00", or a date and time), when
 the queue has been idle for two minutes ("idle"), or at once ("now"). The scheduler thread queues its items one after
 another, never more than two waiting ahead of the queue, and records each job's clip and checks as it finishes. A
 plan is read again from its file on every tick, so a restart loses nothing: a running shift carries on from the next
@@ -113,6 +114,9 @@ def check_items(items) -> list[dict]:
         elif item.get("kind") == "job":
             if not isinstance(item.get("body"), dict) or not item["body"].get("kind"):
                 raise HTTPException(400, "a job item carries the body of a job: {kind, title, params}")
+            import revise
+            if item["body"]["kind"] in revise.KINDS:  # a chain of jobs: the shift would follow its first step only
+                raise HTTPException(400, f"a night shift takes single jobs: {item['body']['kind']} (Restyle, Extend, Fix) is queued from the Library")
             out.append({"kind": "job", "body": item["body"]})
         else:
             raise HTTPException(400, 'an item is {"kind": "shot", "film", "shot"} or {"kind": "job", "body"}')

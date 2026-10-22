@@ -2945,7 +2945,8 @@ The studio makes its own keys (kept in `~/ImaginationStudio/push/`) and sends th
 there is no account. It needs the `cryptography` Python package (installed by the setup, with `pywebpush`).
 
 **What it needs.** It runs on a Mac and on a DGX Spark with no install flag. The reel needs ffmpeg; without a font on the machine the title cards are plain black. Routes:
-`GET/POST /api/nightshift` (`{film, shots?, start, name?}` or `{items: [{kind: "shot", film, shot} | {kind: "job", body}], start}`),
+`GET/POST /api/nightshift` (`{film, shots?, start, name?}` or `{items: [{kind: "shot", film, shot} | {kind: "job", body}], start}`;
+a job item is one job, not a Restyle, Extend or Fix),
 `GET/DELETE /api/nightshift/{id}`, `POST /api/nightshift/{id}/start|cancel`; `GET /api/push/key`,
 `POST/DELETE /api/push/subscribe`, `POST /api/push/test`.
 

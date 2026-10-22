@@ -180,6 +180,8 @@ def test_a_plan_is_refused_without_items_or_with_a_bad_start(queue):
     assert client.post("/api/nightshift", json={"items": []}).status_code == 400
     assert client.post("/api/nightshift", json={"items": jobs_body(1), "start": "tonight"}).status_code == 400
     assert client.post("/api/nightshift", json={"items": [{"kind": "shot", "film": "x"}]}).status_code == 400
+    chain = client.post("/api/nightshift", json={"items": [{"kind": "job", "body": {"kind": "extend", "params": {"video": "renders/a.mp4"}}}]})
+    assert chain.status_code == 400 and "single jobs" in chain.json()["error"]  # a chain of jobs is queued from the Library
     assert client.get("/api/nightshift/..%2Fsecret").status_code in (400, 404)
 
 
