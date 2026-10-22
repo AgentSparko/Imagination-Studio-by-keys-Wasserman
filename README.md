@@ -2227,10 +2227,10 @@ copying anything anywhere.
 |---|---|
 | **First AD** | Say what you are making. It creates scenes and shots, writes their prompts, casts characters, scouts locations, sets spoken lines and sound, and lists what it did. It changes or replaces a character, place, prop, cue or voice that is already there (the sheet keeps its id, so every shot that casts it follows), sets the song, a shot's slot in bars and a shot's LoRA. |
 | **Bible** | Logline, world and tone, defaults, the song (tempo, beats in a bar, first beat), how the film renders (resolution tier, quality), and which brain to use. |
-| **Studios** | Casting, Art Department, Locations, Lookbook: sheets filled from one line by ✦ Fill. A still pinned to a character is its reference picture. |
+| **Studios** | Casting, Art Department, Locations, Lookbook: sheets filled from one line by ✦ Fill. A still pinned to a character or a place is its reference picture; a character gets a turnaround sheet, a place a plate, and either a LoRA. |
 | **Shots** | Specs (seconds, aspect, size, angle, lens, movement) and the six-section prompt; ✦ Structure, Tighten, Enrich, Distill, Shot, Angle, Beats, Variants; Director's notes; Slate's setups; picture-lock and mute; history. ✦ Coverage lays out a scene from one of Slate's twelve coverage plans. |
 | **Roll camera** | What the shot opens on (text, the last frame of the shot before, an image, the cast's stills), who is in it and where, spoken lines, soundscape, cue. The shot compiles to MiniMax H3's prompt form with a preflight list; one button queues it. Clips come back as takes: circle the one that works. A LoRA from the hub can be put on one shot in place of the film's. *Import a take rendered on another machine* logs a clip another app made into the shot, with its seed and settings. |
-| **Sound** | Voice sheets (the voice of a spoken line) and music cues (the score line of a shot). **Cast voice** speaks a sheet's sample line with Fish Audio Drama 3 in the voice it describes; ticked, the take goes into shots that open on cast stills as that speaker's reference audio. |
+| **Sound** | Voice sheets (the voice of a spoken line) and music cues (the score line of a shot). **Cast voice** speaks a sheet's sample line with Fish Audio Drama 3 in the voice it describes; ticked, the take is that speaker's reference audio in shots whose dialogue is voiced by Drama 3. A voice can also be kept from a take. |
 | **Deliver** | Render a whole scene in order, a continuity check, the shot list as Markdown or CSV, and the film's takes to the Editor's timeline. |
 
 The brain is Slate's: your own Claude Code or Codex sign-in on the machine that runs the app, or a local
@@ -2281,6 +2281,24 @@ by its own app. *Import a take* takes that app's address and one of its job ids 
 what its checks said are read from the job), or a path in its folder, or an uploaded file, and logs the take in the
 shot. `POST /api/slate/takes {"projectId", "shot", "from", "job"}` does the same for a script (`"log": true` writes
 it into the project file). An app forgets its jobs when it restarts; the clip's path still works.
+
+**The bible keeps faces, places and voices consistent.** With *The bible in shots* on (the Bible tab, on by default),
+every shot that opens on text or on cast stills takes the bible's pictures as references: up to two pinned pictures of
+each person in it (the first is their reference, the second another look) and, beside them, two of its place, nine in
+all with the cast first. A shot that opens on the shot before or on an image cannot take references; it keeps the
+bible's descriptions in words. On a character sheet, *Make a turnaround* turns the reference still into five views
+(the Library's turnaround action, which needs Turnaround installed in the LoRA hub) and pins them; on a location
+sheet, *Make a plate* makes one still of the place from its description and pins it. A *LoRA* on either sheet goes on
+every shot with that person or place, after the shot's own, four at most. On the take of a shot with lines, *Keep this
+voice for* a speaker keeps the take's sound (its first 15 s; at least 2 s) as that character's voice: it is written to
+the Voice folder and set as their voice sheet's cast voice (a sheet named after them is made when they have none).
+Reference pictures need the Ref2VA model; without it shots render from text as before.
+
+**Dialogue: by the video model or by Drama 3.** In the Bible tab, *Dialogue spoken by the video model* (the default)
+writes the lines into the prompt and MiniMax H3 speaks them with the picture, in the voice the voice sheet describes.
+*Dialogue voiced by Drama 3 and matched* also gives each speaker's cast voice (made on the Sound tab, or kept from a
+take) to the model as the timbre reference of their lines; this needs a shot on reference pictures, and the preflight
+says so otherwise. A shot can choose otherwise next to its spoken lines.
 
 Not ported from Slate: sequence chunks, alt takes, punch-ups, the tone dial, pickups on a selected span, reference
 and audio analysis, the stills library, compiles for other generators, and its MCP server. The app has no sign-in of

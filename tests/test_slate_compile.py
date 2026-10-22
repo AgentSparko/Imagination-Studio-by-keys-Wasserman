@@ -184,6 +184,195 @@ def test_a_speaker_not_pictured_is_an_offscreen_voice():
         slate.ready = had
 
 
+def bible_film() -> dict:
+    """The film with two pictures pinned on Leo, three on Mia and two on the walkway, every one on disk."""
+
+    folder = Path(slate.HOME) / "casting"
+    folder.mkdir(parents=True, exist_ok=True)
+    made = film()
+    for sheet, names in ((made["characters"][0], ["leo1", "leo2"]), (made["characters"][1], ["mia1", "mia2", "mia3"]), (made["locations"][0], ["walk1", "walk2"])):
+        sheet["images"] = []
+        for name in names:
+            (folder / f"{name}.png").write_bytes(b"png")
+            sheet["images"].append(f"casting/{name}.png")
+    return made
+
+
+def with_ref2va(test):
+    had = slate.ready
+    slate.ready = lambda: {"ref2va": True}
+    try:
+        return test()
+    finally:
+        slate.ready = had
+
+
+def test_the_bible_puts_the_casts_and_the_places_pictures_in_a_shot():
+    def test():
+        made = bible_film()
+        told = slate.compile_shot(made, "shot-1")  # a shot from text: the bible makes it a shot on reference pictures
+        refs = told["plan"]["references"]
+        assert told["mode"] == "references"
+        # each person's reference first (<Subject 1>, <Subject 2>), then their second look, then two of the place
+        assert refs == ["casting/leo1.png", "casting/mia1.png", "casting/leo2.png", "casting/mia2.png", "casting/walk1.png", "casting/walk2.png"]
+        prompt = told["prompt"]
+        assert "<Subject 1> is Leo" in prompt and "<Subject 2> is Mia" in prompt and "<Subject 3>" not in prompt
+        assert "<Picture 3> is another view of <Subject 1>: the look of Leo" in prompt and "<Picture 4> is another view of <Subject 2>: the look of Mia" in prompt
+        assert "<Picture 5> is the place: Campus Walkway" in prompt and "<Picture 6> is the place: Campus Walkway" in prompt
+        assert "Campus Walkway: A paved walkway under old trees" in prompt  # the place in words as well
+        # nine pictures at most, the cast first
+        for n in range(4):
+            made["characters"].append({"id": f"char-{n}", "name": f"Extra {n}", "images": ["casting/leo1.png", "casting/mia3.png"]})
+            made["scenes"][0]["shots"][0]["tf"]["cast"].append(f"char-{n}")
+        full = slate.compile_shot(made, "shot-1")["plan"]["references"]
+        assert len(full) == 9 and "casting/walk1.png" not in full
+        # off: a shot from text is a shot from text
+        made = bible_film()
+        made["tf"]["bible"] = "off"
+        assert slate.compile_shot(made, "shot-1")["mode"] == "text"
+        made["scenes"][0]["shots"][0]["tf"]["start"] = "cast"  # and one on cast stills takes the references only
+        assert slate.compile_shot(made, "shot-1")["plan"]["references"] == ["casting/leo1.png", "casting/mia1.png"]
+        # a place alone is no reference: with nobody pictured the shot stays one from text
+        made = bible_film()
+        made["scenes"][0]["shots"][0]["tf"]["cast"] = []
+        assert slate.compile_shot(made, "shot-1")["mode"] == "text"
+    with_ref2va(test)
+    # without the Ref2VA model a shot from text stays one, and says nothing of pictures
+    told = slate.compile_shot(bible_film(), "shot-1")
+    assert told["mode"] == "text" and not any("Ref2VA" in w for w in told["warnings"])
+
+
+def test_a_shot_from_the_shot_before_or_an_image_takes_no_pictures_but_the_words():
+    def test():
+        made = bible_film()
+        shot = made["scenes"][0]["shots"][0]
+        before = {**shot, "id": "shot-0", "name": "1.3", "takes": [{"mediaPath": "renders/before.mp4", "rating": "circled"}]}
+        made["scenes"][0]["shots"].insert(0, before)
+        shot["tf"]["start"] = "previous"
+        told = slate.compile_shot(made, "shot-1")
+        assert told["mode"] == "previous" and "references" not in told["plan"] and told["plan"]["first_frame_from"] == "renders/before.mp4"
+        assert "Leo is 21 years old, male" in told["prompt"] and "Campus Walkway" in told["prompt"]
+        (Path(slate.HOME) / "casting" / "frame.png").write_bytes(b"png")
+        shot["tf"].update(start="image", image="casting/frame.png")
+        told = slate.compile_shot(made, "shot-1")
+        assert told["mode"] == "image" and "references" not in told["plan"] and "Mia is 20 years old" in told["prompt"]
+    with_ref2va(test)
+
+
+def test_the_bibles_loras_join_the_shots_own_up_to_four():
+    def test():
+        made = film()
+        made["characters"][0]["lora"] = {"id": "leo-face", "strength": 0.8}
+        made["characters"][1]["lora"] = {"id": "camera-motion", "strength": 0.5}  # the shot has it already: once
+        made["locations"][0]["lora"] = {"id": "walkway-look", "style": "Autumn"}
+        tf = made["scenes"][0]["shots"][0]["tf"]
+        tf["loras"] = [{"id": "camera-motion", "strength": 0.9, "style": "Orbit"}]
+        plan = slate.compile_shot(made, "shot-1")["plan"]
+        assert plan["loras"] == [{"id": "camera-motion", "strength": 0.9, "style": "Orbit"}, {"id": "leo-face", "strength": 0.8}, {"id": "walkway-look", "style": "Autumn"}]
+        # in every mode: a shot on reference pictures keeps them too
+        made2 = bible_film()
+        made2["characters"][0]["lora"] = {"id": "leo-face"}
+        with_refs = slate.compile_shot(made2, "shot-1")
+        assert with_refs["mode"] == "references" and with_refs["plan"]["loras"] == [{"id": "leo-face"}]
+        # no shot LoRA: the film's stand in, and the bible's join them
+        tf["loras"] = []
+        made["tf"]["loras"] = [{"id": "film-grain"}]
+        assert [one["id"] for one in slate.compile_shot(made, "shot-1")["plan"]["loras"]] == ["film-grain", "leo-face", "camera-motion", "walkway-look"]
+        # at most 4, said
+        tf["loras"] = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+        told = slate.compile_shot(made, "shot-1")
+        assert [one["id"] for one in told["plan"]["loras"]] == ["a", "b", "c", "leo-face"]
+        assert any("at most 4 LoRAs" in w and "camera-motion" in w and "walkway-look" in w for w in told["warnings"])
+    with_ref2va(test)
+
+
+def test_dialogue_by_the_video_model_takes_no_voice_reference_and_by_drama_3_does():
+    def test():
+        made = bible_film()
+        (Path(slate.HOME) / "voice").mkdir(exist_ok=True)
+        (Path(slate.HOME) / "voice" / "leo.wav").write_bytes(b"wav")
+        made["voices"] = [{"id": "v-leo", "name": "Leo", "characterId": "char-leo", "ageGender": "a young man", "drama": {"path": "voice/leo.wav", "seconds": 5.0, "use": True}}]
+        tf = made["scenes"][0]["shots"][0]["tf"]
+        tf["lines"] = [{"characterId": "char-leo", "text": "Here, take these."}]
+        h3 = slate.compile_shot(made, "shot-1")  # the default: the video model speaks the line from the words
+        assert h3["dialogue"] == "h3" and "reference_audios" not in h3["plan"] and "<d>[English] Here, take these.</d>" in h3["prompt"]
+        assert "<Audio" not in h3["prompt"]
+        made["tf"]["dialogue"] = "drama3"
+        drama = slate.compile_shot(made, "shot-1")
+        assert drama["dialogue"] == "drama3" and drama["plan"]["reference_audios"] == ["voice/leo.wav"] and "<Audio 1>" in drama["prompt"]
+        tf["dialogue"] = "h3"  # the shot's own choice wins
+        assert "reference_audios" not in slate.compile_shot(made, "shot-1")["plan"]
+        made["tf"]["dialogue"], tf["dialogue"] = "h3", "drama3"
+        assert slate.compile_shot(made, "shot-1")["plan"]["reference_audios"] == ["voice/leo.wav"]
+        # Drama 3 on a shot that cannot take references: said, and spoken from the words
+        made["tf"]["bible"] = "off"
+        told = slate.compile_shot(made, "shot-1")
+        assert "reference_audios" not in told["plan"] and any("Drama 3 needs a shot on reference pictures" in w for w in told["warnings"])
+    with_ref2va(test)
+
+
+def test_a_takes_sound_becomes_a_characters_voice():
+    import shutil as sh
+    import subprocess as sp
+    import wave
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(server.app)
+    home = Path(slate.HOME)
+    made = film()
+    made["id"] = "p-voicetake"
+    tf = made["scenes"][0]["shots"][0]["tf"]
+    tf["lines"] = [{"characterId": "char-mia", "text": "Thank you."}, {"characterId": "char-leo", "text": "Any time."}]
+    (home / "slate" / "p-voicetake" / "takes").mkdir(parents=True, exist_ok=True)
+    made["scenes"][0]["shots"][0]["takes"] = [{"id": "take-a", "mediaPath": "slate/p-voicetake/takes/a.mp4", "seed": 7},
+                                              {"id": "take-b", "mediaPath": "slate/p-voicetake/takes/b.mp4", "seed": 8}]
+    made["voices"] = [{"id": "v-mia", "name": "Mia's voice", "characterId": "char-mia"}]
+    slate.write(made)
+    seconds = {"a.mp4": 20.0, "b.mp4": 1.2}
+    had = slate.take_sound
+
+    def stand_in(source, target):  # the first 15 s of the take, as ffmpeg would cut it
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"wav")
+        return min(seconds[source.name], 15.0)
+
+    for name in seconds:
+        (home / "slate" / "p-voicetake" / "takes" / name).write_bytes(b"mp4")
+    slate.take_sound = stand_in
+    try:
+        ask = {"project": "p-voicetake", "shot": "shot-1", "take": "take-a"}
+        back = client.post("/api/slate/voice-from-take", json={**ask, "character": "char-leo"}).json()
+        leo = next(v for v in back["voices"] if v["characterId"] == "char-leo")  # a new sheet named after him
+        assert leo["name"] == "Leo" and leo["drama"]["seconds"] == 15.0 and leo["drama"]["use"] is True and leo["drama"]["origin"] == "take"
+        record = __import__("json").loads((home / leo["drama"]["path"]).with_suffix(".take.json").read_text())
+        assert record["origin"] == "take" and record["slate"] == {"project": "p-voicetake", "voice": leo["id"]} and record["text"] == "Any time."
+        assert record["path"] == leo["drama"]["path"] and record["path"].startswith("voice/")
+        mia = client.post("/api/slate/voice-from-take", json={**ask, "character": "char-mia"}).json()
+        assert [v["id"] for v in mia["voices"]].count("v-mia") == 1 and mia["voices"][0]["drama"]["text"] == "Thank you."  # her own sheet
+        assert slate.get_project("p-voicetake")["voices"][0]["drama"]["path"]  # written to the film
+        short = client.post("/api/slate/voice-from-take", json={**ask, "take": "take-b", "character": "char-leo"})
+        assert short.status_code == 400 and "at least 2 s" in short.json()["error"]
+        assert client.post("/api/slate/voice-from-take", json={**ask, "character": "nobody"}).status_code == 404
+        assert client.post("/api/slate/voice-from-take", json={**ask, "take": "take-z", "character": "char-leo"}).status_code == 404
+    finally:
+        slate.take_sound = had
+    # with ffmpeg here: a real clip's sound, cut to 15 s, mono 44.1 kHz
+    ffmpeg = sh.which("ffmpeg")
+    if ffmpeg:
+        clip = home / "slate" / "p-voicetake" / "takes" / "a.mp4"
+        sp.run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=17", "-f", "lavfi", "-i", "sine=frequency=220:duration=17",
+                "-shortest", "-c:v", "libx264", "-c:a", "aac", str(clip)], check=True)
+        back = client.post("/api/slate/voice-from-take", json={**ask, "character": "char-leo"}).json()
+        leo = next(v for v in back["voices"] if v["characterId"] == "char-leo")
+        with wave.open(str(home / leo["drama"]["path"])) as sound:
+            assert sound.getnchannels() == 1 and sound.getframerate() == 44100 and abs(sound.getnframes() / 44100 - 15.0) < 0.1
+        silent = home / "slate" / "p-voicetake" / "takes" / "b.mp4"
+        sp.run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=3", "-c:v", "libx264", str(silent)], check=True)
+        none = client.post("/api/slate/voice-from-take", json={**ask, "take": "take-b", "character": "char-leo"})
+        assert none.status_code == 400 and "no sound" in none.json()["error"]
+
+
 if __name__ == "__main__":
     for name, test in list(globals().items()):
         if name.startswith("test_"):
