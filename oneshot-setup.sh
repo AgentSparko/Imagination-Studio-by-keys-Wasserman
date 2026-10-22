@@ -28,6 +28,8 @@
 #   bash oneshot-setup.sh --remove      # also Find a person and Remove a person (the same ComfyUI, Akatz Labs' H3 Relay, Meta's
 #                                       # SAM 3.1: 1.7 GB more; needs --ref2va)
 #   bash oneshot-setup.sh --moss        # also MOSS-Image (OpenMOSS, Apache 2.0) as a picture model, on the same ComfyUI (28 GB)
+#   bash oneshot-setup.sh --graphics    # also motion graphics: titles, captions, slideshows, music videos (scripts/setup-graphics.sh:
+#                                       # HyperFrames and GSAP, Node 22 if this Mac's is older, a browser; about 400 MB)
 #   bash oneshot-setup.sh --image-only  # the image model only (33 GB), render a test image
 #   bash oneshot-setup.sh --no-render   # install and fetch only
 #   bash oneshot-setup.sh --no-loras    # skip the essential LoRA bundle (about 4 GB from the LoRAs' authors; --loras=camera,style
@@ -54,7 +56,7 @@ if [ "$(uname -s)" = Linux ]; then
   SPARK_ARGS=()
   for arg in "$@"; do
     case "$arg" in
-      --all|--image-only|--no-render|--verify|--motion|--upgrade|--voice|--flux3|--music|--moss|--bolt|--sound|--ref2va|--image-edit|--h3-base|--loras|--loras=*|--no-loras|--lora-bundle=*) SPARK_ARGS+=("$arg");;
+      --all|--image-only|--no-render|--verify|--motion|--upgrade|--voice|--flux3|--music|--moss|--bolt|--sound|--graphics|--ref2va|--image-edit|--h3-base|--loras|--loras=*|--no-loras|--lora-bundle=*) SPARK_ARGS+=("$arg");;
       --upscale|--remove) echo "note: on a DGX Spark $arg comes with --ref2va (spark/setup-workflows.sh): adding --ref2va"; SPARK_ARGS+=("--ref2va");;
       --fasth3) ;;
       --turbo|--app) echo "note: $arg is for the Mac build and does nothing on a DGX Spark";;
@@ -94,7 +96,7 @@ REF_ADAPTER_NAME="lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 X2_REPO="speach1sdef178/MiniMax-H3-X2-Detail-VAE"
 X2_NAME="MiniMax-H3-X2-Detail-v1.safetensors"
 X2_SHA256="2296840f4acedcaa976688e7d7b97f7bf570b136e400385d3f46224011897aac"
-ALL=0; MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""; IMAGE_EDIT=0; VOICE=0; FLUX3=0; MUSIC=0; SOUND=0; BOLT=0; COMFY_ARGS=()
+ALL=0; MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""; IMAGE_EDIT=0; VOICE=0; FLUX3=0; MUSIC=0; SOUND=0; BOLT=0; GRAPHICS=0; COMFY_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --all) ALL=1;;  # every feature this Mac's memory runs (chosen after the preflight reads the chip and the memory)
@@ -108,6 +110,7 @@ for arg in "$@"; do
     --music) MUSIC=1;;
     --bolt) BOLT=1;;
     --sound) SOUND=1;;
+    --graphics) GRAPHICS=1;;
     --upscale|--remove|--moss) COMFY_ARGS+=("$arg");;
     --image-edit) IMAGE_EDIT=1;;
     --app) APP=1;;
@@ -143,7 +146,7 @@ ok "$CHIP, macOS $(sw_vers -productVersion), ${RAM} GB"
 if [ "$ALL" = 1 ]; then
   if [ "$RAM" -lt 64 ]; then VIDEO=0; echo "  --all on ${RAM} GB: pictures only (video, voice and music need 64 GB)"
   else
-    MOTION=1; VOICE=1; MUSIC=1; FLUX3=1; SOUND=1; IMAGE_EDIT=1; COMFY_ARGS+=(--moss)
+    MOTION=1; VOICE=1; MUSIC=1; FLUX3=1; SOUND=1; GRAPHICS=1; IMAGE_EDIT=1; COMFY_ARGS+=(--moss)
     case "$CHIP" in *M[5-9]*) BOLT=1;; *) echo "  --all: NVIDIA Nemotron 3.5 Bolt left out: its Metal engine is measured on an M5 only (add --bolt to try it)";; esac
     if [ "$RAM" -ge 128 ]; then TURBO=1; REF2VA=1; else echo "  --all on ${RAM} GB: MiniMax H3 Turbo and Ref2VA left out (128 GB)"; fi
     if [ "$RAM" -ge 192 ]; then COMFY_ARGS+=(--upscale --remove); else echo "  --all on ${RAM} GB: Upscale and Remove a person left out (their peaks are 125 and 135 GB: 192 GB)"; fi
@@ -454,6 +457,10 @@ fi
 if [ "$SOUND" = 1 ] || { [ "$MODE" = "--verify" ] && [ -x "$PREFIX/sound-venv/bin/python" ]; }; then  # sound effects and foley: their own venv and weights
   PREFIX="$PREFIX" bash "$HERE/scripts/setup-sound.sh" $([ "$MODE" = "--verify" ] && echo --verify) \
     || [ "$SOUND" = 1 ] || echo "  ! Sound effects are not fully set up: bash scripts/setup-sound.sh"
+fi
+if [ "$GRAPHICS" = 1 ] || { [ "$MODE" = "--verify" ] && [ -d "$PREFIX/graphics/node_modules/hyperframes" ]; }; then  # motion graphics: HyperFrames in its own folder
+  PREFIX="$PREFIX" bash "$HERE/scripts/setup-graphics.sh" $([ "$MODE" = "--verify" ] && echo --verify) $([ "$MODE" = "--no-render" ] && echo --no-test) \
+    || [ "$GRAPHICS" = 1 ] || echo "  ! Motion graphics are not fully set up: bash scripts/setup-graphics.sh"
 fi
 if [ "$FLUX3" = 1 ] || [ -x "$PREFIX/flux3-venv/bin/python" ]; then  # FLUX3-K picture models: their own venv and weights
   PREFIX="$PREFIX" bash "$HERE/scripts/setup-flux3.sh" $([ "$MODE" = "--verify" ] || [ "$UPGRADE" = 1 ] && echo --verify) \

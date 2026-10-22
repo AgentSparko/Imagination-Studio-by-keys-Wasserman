@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<title>Captions</title>
+<!-- Imagination Studio motion graphics: a clip's speech burned in word by word. data.js (window.STUDIO_DATA) holds
+     the words with their times (transcribed on this machine); the studio sets the size and length and adds the clip. -->
+<script src="gsap.min.js"></script>
+<script src="data.js"></script>
+<style>
+  @font-face { font-family: "Geist"; src: url("fonts/geist.woff2") format("woff2"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { margin: 0; overflow: hidden; background: #000; }
+  #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; --u: 1px; }
+  #clip { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .rail { position: absolute; left: 0; right: 0; bottom: 9%; display: flex; justify-content: center; padding: 0 8%; }
+  .rail.top { bottom: auto; top: 8%; }
+  .line { position: absolute; left: 8%; right: 8%; display: flex; flex-wrap: wrap; justify-content: center; gap: 0 0.28em;
+    font-family: "Geist", system-ui, sans-serif; font-weight: 700; font-size: calc(var(--u) * 58); line-height: 1.15; text-align: center;
+    color: #ffffff; text-shadow: 0 calc(var(--u) * 2) calc(var(--u) * 10) rgba(0, 0, 0, 0.85), 0 0 calc(var(--u) * 2) rgba(0, 0, 0, 0.9); opacity: 0; }
+  .rail.bottom .line { bottom: 0; }
+  .rail.top .line { top: 0; }
+  .cw { display: inline-block; opacity: 0.55; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="6" data-width="1920" data-height="1080" data-fps="24">
+  <!-- studio:media -->
+  <div class="rail bottom" id="rail"></div>
+</div>
+<script>
+  const D = window.STUDIO_DATA || {}, root = document.getElementById("root");
+  const u = Math.min(Number(D.width) || 1920, (Number(D.height) || 1080) * 16 / 9) / 1920;
+  root.style.setProperty("--u", (Number(D.width) || 1920) < (Number(D.height) || 1080) ? (Number(D.width) || 1080) / 1080 + "px" : u + "px");
+  const rail = document.getElementById("rail"), words = (D.words || []).filter(w => w && String(w.word).trim()), per = Number(D.per_line) || 5;
+  if (D.position === "top") rail.className = "rail top";
+  // lines of a few words, broken early at a pause; each shows from its first word to the next line
+  const lines = []; let cur = [];
+  words.forEach((w, i) => { const gap = cur.length ? w.start - cur[cur.length - 1].end : 0;
+    if (cur.length && (cur.length >= per || gap > 0.6)) { lines.push(cur); cur = []; } cur.push(w); });
+  if (cur.length) lines.push(cur);
+  const tl = gsap.timeline({ paused: true }), dur = Number(D.duration) || 6;
+  lines.forEach((line, n) => {
+    const node = document.createElement("div"); node.className = "line"; node.id = "line" + n; rail.appendChild(node);
+    const from = Math.max(0, line[0].start - 0.08), next = lines[n + 1] ? Math.max(0, lines[n + 1][0].start - 0.08) : dur;
+    const until = Math.min(next, line[line.length - 1].end + 1.2, dur);
+    tl.fromTo(node, { opacity: 0, y: 8 * u }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out", immediateRender: false }, from);
+    tl.set(node, { opacity: 0 }, Math.max(from + 0.15, until));
+    line.forEach((w, k) => { const span = document.createElement("span"); span.className = "cw"; span.id = "cw" + n + "-" + k;
+      span.textContent = String(w.word).trim(); node.appendChild(span);
+      tl.fromTo(span, { opacity: 0.55, scale: 1 }, { opacity: 1, scale: 1.06, duration: 0.08, ease: "power1.out" }, Math.max(from, w.start));
+      tl.to(span, { scale: 1, duration: 0.12, ease: "power1.out" }, Math.max(from, w.start) + 0.1); });
+  });
+  window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

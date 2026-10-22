@@ -1537,6 +1537,8 @@ def build(kind: str, params: dict, job_id: str, room: bool = True) -> tuple[list
         return built
     if kind in sound.KINDS:  # a sound effect or a clip's foley (sound.py)
         return sound_build(kind, params, job_id)
+    if kind in graphics.KINDS:  # a title, captions, a slideshow or a music video, rendered with HyperFrames (graphics.py)
+        return graphics_build(params, job_id)
     seed = str(int(params.get("seed", 0)))
     if kind == "scout":
         folder = HOME / "scouts" / job_id
@@ -2178,7 +2180,7 @@ def queue_job(body: dict) -> dict:
     if body.get("title") is not None and not isinstance(body.get("title"), str):
         raise HTTPException(400, "title is text")
     params = dict(body.get("params") or {})
-    if kind not in ("scout", "video", "studio", "export", "long", "edit") + actions.KINDS + sound.KINDS:
+    if kind not in ("scout", "video", "studio", "export", "long", "edit") + actions.KINDS + sound.KINDS + graphics.KINDS:
         raise HTTPException(400, "unknown job kind")
     if kind == "long" and (params.get("last_image") or params.get("last_same") or params.get("last_frame_from")):
         raise HTTPException(400, "a last frame is for single clips: a long video is a chain of clips")
@@ -2188,7 +2190,7 @@ def queue_job(body: dict) -> dict:
             raise HTTPException(400, f"a long video is over {LONGEST} seconds and at most {max(LONG) // 60} minutes")
         pieces = plan(total, int(params.get("segment_seconds", LONGEST)))
         build("video", {**params, "seconds": pieces[0], "output": None}, "check")
-    if kind not in ("export", "edit", "foley") + actions.KINDS and not (params.get("prompt") or "").strip():
+    if kind not in ("export", "edit", "foley") + actions.KINDS + graphics.KINDS and not (params.get("prompt") or "").strip():
         raise HTTPException(400, "a prompt is needed")
     if kind != "video" and params.get("references"):
         raise HTTPException(400, "reference pictures are for single clips")
@@ -2228,6 +2230,8 @@ def queue_job(body: dict) -> dict:
         # reject bad settings now, not when the job's turn comes; a clip other Sparks may take is held to their memory
         # guards (asked before it is handed over), not to this one's
         build(kind, params, job_id, room=not (kind in ("video", "studio") and said["used"] > 1))
+    if kind in graphics.KINDS and not body.get("title"):
+        body = {**body, "title": graphics_title(params)}
     job = {"id": job_id, "kind": kind, "status": "queued", "title": body.get("title") or (action_title(kind, params) if kind in actions.KINDS else sound_title(kind, params) if kind in sound.KINDS else kind), "params": params,
            "source": action_source(kind, params) if kind in actions.KINDS else sound_source(kind, params) if kind in sound.KINDS else None,
            "outputs": [], "progress": None, "error": None, "log": "", "created": time.time(), "started": None,
@@ -2780,6 +2784,9 @@ import sound  # noqa: E402  (sound effects and foley: Stable Audio Open and MMAu
 sound_router, sound_build, sound_title, sound_source = sound.attach(HOME, PACK, SPARK, inside, relative, held_room, media_seconds)
 app.include_router(action_router)
 app.include_router(sound_router)
+import graphics  # noqa: E402  (motion graphics: titles, captions, slideshows, music videos, rendered with HyperFrames, beside this file)
+graphics_router, graphics_build, graphics_title = graphics.attach(HOME, PACK, SPARK, inside, relative)
+app.include_router(graphics_router)
 import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
 app.include_router(clear.attach(HOME, jobs, order, lock)[0])
 import sparks  # noqa: E402  (worker Sparks behind this queue: a job's "sparks" number, beside this file)
