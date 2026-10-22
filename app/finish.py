@@ -969,20 +969,25 @@ def readme(label: str, notes: list[str]) -> str:
 def attach(home: Path, pack: Path, within, short):
     """The routes, with the server's path helpers. ``build`` is called by server.build for kind "finish"."""
 
-    global HOME, PACK, inside, relative
-    from fastapi import APIRouter
+    global HOME, PACK, inside, relative, Request  # Request: the routes' annotations are read from this module's names
+    from fastapi import APIRouter, Request
+
+    import agents
 
     HOME, PACK, inside, relative = home, pack, within, short
     router = APIRouter()
 
     @router.get("/api/finish")
-    def state(fresh: bool = False) -> dict:
+    def state(request: Request, fresh: bool = False) -> dict:
+        if remote_host():  # the probe runs ssh with the user's keys: this computer or its Tailscale address, as the brains
+            agents.local(request)
         out = ready(fresh)
         return {**out, "fonts": {role: bool(path) for role, path in font_files().items()}, "mixes": list(MIXES),
                 "sizes": list(SIZES), "rates": list(RATES)}
 
     @router.post("/api/finish/{job_id}/convert")
-    def to_editor(job_id: str, body: dict) -> dict:
+    def to_editor(job_id: str, body: dict, request: Request) -> dict:
+        agents.local(request, True)  # the converter may run over ssh with the user's keys, as the brains routes
         return convert(job_id, str((body or {}).get("to") or ""))
 
     return router

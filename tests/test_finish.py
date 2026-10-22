@@ -297,6 +297,23 @@ def test_readiness_route_says_what_it_needs(monkeypatch):
     assert state["sizes"] == ["720p", "1080p", "4k"] and set(state["fonts"]) == {"title", "text"}
 
 
+def test_the_converter_and_the_probe_over_ssh_answer_only_this_computer(monkeypatch):
+    import agents
+    asked = []
+
+    def local(request, mutation=False):
+        asked.append(mutation)
+        raise HTTPException(403, "Set up brains and agents on this computer or through its Tailscale address.")
+
+    monkeypatch.setattr(finish, "ready", lambda fresh=False: {"ok": True, "where": "here", "converter": {"ok": False}})
+    monkeypatch.setattr(agents, "local", local)
+    assert client.post("/api/finish/f1/convert", json={"to": "premiere"}).status_code == 403 and asked == [True]
+    monkeypatch.setattr(finish, "remote_host", lambda: "")
+    assert client.get("/api/finish").status_code == 200 and asked == [True]  # nothing runs over ssh: anyone may read it
+    monkeypatch.setattr(finish, "remote_host", lambda: "me@example.com")
+    assert client.get("/api/finish").status_code == 403 and asked == [True, False]
+
+
 def test_heard_finds_sound_between_silences(tmp_path):
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
