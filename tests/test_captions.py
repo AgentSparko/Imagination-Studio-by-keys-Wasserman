@@ -21,21 +21,27 @@ ANSWERS = {
     "car": {"caption": "A silver car drives along a coast road at dusk.", "tags": ["car", "road", "coast", "dusk", "driving"], "people": ["a driver"], "place": "coast road", "mood": "calm"},
 }
 LOOKS = []
+MINE = ("renders/clip_a.mp4", "renders/clip_b.mp4", "uploads/still.png")
 
 
 def fake_look(picture):
-    LOOKS.append(picture.name)
-    mark = Path(picture).read_bytes().decode(errors="ignore")[:3]
+    mark = Path(picture).read_bytes().decode(errors="ignore")
+    LOOKS.append(mark)
+    mark = mark[:3]
     return json.dumps(ANSWERS["dog" if mark == "dog" else "car"])
+
+
+def mine():
+    return [m for m in LOOKS if m in ("dog clip", "car clip", "dog still")]
 
 
 def setup(monkeypatch):
     monkeypatch.setattr(captions, "look", fake_look)
     monkeypatch.setattr(qa, "sheet", lambda clip, target: (target.write_bytes(clip.read_bytes()), [1.0])[1])
     LOOKS.clear()
-    for folder in ("renders", "uploads"):
-        for old in (server.HOME / folder).glob("*"):
-            old.unlink()
+    monkeypatch.setattr(captions, "PER_ROUND", 100)  # files other tests left in the Library must not crowd these out
+    for name in MINE:
+        (server.HOME / name).unlink(missing_ok=True)
     (server.HOME / "renders").mkdir(parents=True, exist_ok=True)
     (server.HOME / "uploads").mkdir(parents=True, exist_ok=True)
     STORE.write({})
@@ -84,22 +90,22 @@ def test_a_round_describes_new_and_changed_files_only_when_idle_and_switched_on(
     route = server.caption_router.captioner
     monkeypatch.setattr(server.settings, "load", lambda: {"presets": {"captions_auto": False}})
     route["round"]()
-    assert not LOOKS  # switched off
+    assert not mine()  # switched off
     monkeypatch.setattr(server.settings, "load", lambda: {"presets": {"captions_auto": True}})
     running = server.running["process"]
     server.running["process"] = object()  # a job holds the machine
     try:
         route["round"]()
-        assert not LOOKS
+        assert not mine()
     finally:
         server.running["process"] = running
     route["round"]()
-    assert len(LOOKS) == 3  # two clips and a picture, once each
+    assert len(mine()) == 3  # two clips and a picture, once each
     route["round"]()
-    assert len(LOOKS) == 3  # nothing changed
+    assert len(mine()) == 3  # nothing changed
     os.utime(server.HOME / "renders/clip_a.mp4", (1, 1))
     route["round"]()
-    assert len(LOOKS) == 4  # the changed file is described again
+    assert len(mine()) == 4  # the changed file is described again
 
 
 def test_a_busy_model_stops_the_round_quietly_and_bad_answers_are_skipped(monkeypatch):
