@@ -2434,8 +2434,12 @@ def library_sounds() -> list[dict]:
             if path.suffix.lower() in SOUND_FILES and path.is_file() and relative(path) not in seen:
                 seen.add(relative(path))
                 words = str(take.get("text") or take.get("caption") or take.get("title") or "")
+                try:
+                    made, bytes_of = path.stat().st_mtime, path.stat().st_size  # it may be on its way to the trash right now
+                except OSError:
+                    continue
                 out.append({"path": relative(path), "kind": "audio", "sound": which, "folder": which, "title": " ".join(words.split())[:80],
-                            "modified": path.stat().st_mtime, "size": path.stat().st_size})
+                            "modified": made, "size": bytes_of})
     for path in (HOME / "sound").rglob("*") if (HOME / "sound").is_dir() else []:
         if path.suffix.lower() in SOUND_FILES and path.is_file() and not hidden(path.relative_to(HOME)) and relative(path) not in seen:
             try:  # a sound effect's or a foley's words, from its take file (sound.py)
@@ -2443,8 +2447,12 @@ def library_sounds() -> list[dict]:
                 words = str(said.get("prompt") or ("Foley for " + Path(str(said.get("source") or "")).name if said.get("kind") == "foley" else ""))
             except (OSError, ValueError, AttributeError):
                 words = ""
+            try:
+                made, bytes_of = path.stat().st_mtime, path.stat().st_size  # it may be on its way to the trash right now
+            except OSError:
+                continue
             out.append({"path": relative(path), "kind": "audio", "sound": "sfx", "folder": "sound", "title": " ".join(words.split())[:80],
-                        "modified": path.stat().st_mtime, "size": path.stat().st_size})
+                        "modified": made, "size": bytes_of})
     return out
 
 

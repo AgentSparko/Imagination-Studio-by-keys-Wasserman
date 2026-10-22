@@ -32,3 +32,32 @@ def test_voice_lines_songs_and_sound_effects_are_in_the_library_by_kind():
     assert sounds["sound/foley/door.wav"]["sound"] == "sfx"
     assert "voice/gone.wav" not in sounds and not any(p.endswith(".txt") for p in sounds)
     assert client.delete("/api/library", params={"path": "voice/v1.wav"}).status_code == 400  # kept in Voice, not deleted here
+
+
+def test_a_sound_deleted_mid_listing_does_not_take_the_library_down(monkeypatch):
+    """Trash/clear or a finishing render can remove a file between is_file() and stat(): the listing must survive it."""
+    home = server.HOME
+    (home / "sound").mkdir(parents=True, exist_ok=True)
+    (home / "sound/keep.wav").write_bytes(b"RIFF")
+    gone = home / "sound/gone.wav"
+    gone.write_bytes(b"RIFF")
+    real_stat = Path.stat
+    calls = {}
+
+    def flaky_stat(self, **kw):
+        if Path(self) == gone:
+            calls[gone] = calls.get(gone, 0) + 1
+            if calls[gone] > 1:  # survives is_file(), dies on the listing's own stat: the real window
+                error = FileNotFoundError(str(gone))
+                error.errno = 2
+                raise error
+        return real_stat(self, **kw)
+
+    monkeypatch.setattr(Path, "stat", flaky_stat)
+    try:
+        answer = client.get("/api/library")
+    finally:
+        monkeypatch.setattr(Path, "stat", real_stat)
+    assert answer.status_code == 200
+    paths = {m["path"] for m in answer.json() if m["kind"] == "audio"}
+    assert "sound/keep.wav" in paths and "sound/gone.wav" not in paths
