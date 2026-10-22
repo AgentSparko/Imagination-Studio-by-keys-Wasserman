@@ -398,6 +398,12 @@ authors' work under its own licence; none of it is this pack's.
   **accelerate** (Hugging Face), **mlx-lm**, **mlx-whisper** and **mlx-audio** (ml-explore, Prince Canuma), **aiohttp**,
   **Pydantic**, **python-multipart**, **llguidance**, **sounddevice**, **miniaudio**, **Matplotlib**; and for
   ComfyUI-MMAudio, **open_clip**, **timm**, **librosa**, **torchdiffeq** and **OmegaConf**.
+- **Tim Dettmers** and the **bitsandbytes Foundation** contributors — **bitsandbytes** (MIT), the 8-bit optimizer the
+  LoRA trainer uses.
+- **Bitstream** and the **DejaVu** authors — the **DejaVu** fonts (Bitstream Vera licence) the dailies reel's and
+  Finish's title cards draw with when they are on the machine. Licence texts and links for HyperFrames, GSAP,
+  Playwright, Node.js, Geist, Instrument Serif, Tesseract, musubi-tuner and the rest of this section's tools are in
+  `THIRD_PARTY_NOTICES.md`.
 - **Astral** — **uv**; **Homebrew**; **Node.js** and **npm**; **Docker**.
 - **kohya-ss** — the LoRA file layout `scripts/convert-lora.py` reads; **OpenTimelineIO** (Academy Software
   Foundation), Apple's **FCPXML** and the CMX **EDL** — the timeline formats the Suite writes with its own code.
