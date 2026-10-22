@@ -668,19 +668,16 @@ def test_the_library_search_box_asks_the_server_and_shows_captions_under_the_nam
     assert "Describe now" in out["btn"] and out["called"]
 
 
-def test_the_pages_inline_script_and_every_module_parse():
+def test_the_pages_inline_script_and_every_module_parse(tmp_path):
     """index.html's own script and every static module must parse: a merge that leaves a stray line blanks the whole page."""
     import re
     html = (ROOT / "app/static/index.html").read_text()
     scripts = [m.group(1) for m in re.finditer(r"<script(?![^>]*src=)[^>]*>(.*?)</script>", html, re.S)]
     assert scripts, "index.html has inline scripts"
     for n, body in enumerate(scripts):
-        path = ROOT / "app/static" / f".inline-{n}.check.js"
-        try:
-            path.write_text(body)
-            done = subprocess.run(["node", "--check", str(path)], capture_output=True, text=True)
-        finally:
-            path.unlink(missing_ok=True)
+        path = tmp_path / f"inline-{n}.check.js"  # never in app/static, which the studio serves
+        path.write_text(body)
+        done = subprocess.run(["node", "--check", str(path)], capture_output=True, text=True)
         assert done.returncode == 0, done.stderr
     for src in re.findall(r'<script src="([^"]+\.js)"', html):
         done = subprocess.run(["node", "--check", str(ROOT / "app/static" / src)], capture_output=True, text=True)
