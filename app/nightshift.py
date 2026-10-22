@@ -45,6 +45,7 @@ HOME: Path = Path(".")
 Q: dict = {}  # the queue's own: jobs, order, lock, queue_job, cancel, presets, probe, package, path, notify
 IDLE = {"since": None}  # when the queue last became empty, by this process's clock
 guard = threading.RLock()  # one writer of the plan files at a time: the scheduler and the routes
+MAKING: set = set()  # the shifts whose morning this process is making (outside the guard: it takes minutes)
 _thread: threading.Thread | None = None
 
 
@@ -353,7 +354,7 @@ def follow(plan: dict) -> bool:
     if progress != plan.get("progress"):
         plan["progress"], changed = progress, True
     if len(done) == len(plan["items"]):
-        morning(plan)
+        plan["state"] = "morning"  # the scheduler makes the morning outside the guard (make_morning)
         changed = True
     return changed
 
@@ -377,13 +378,29 @@ def tick(now: float | None = None) -> None:
         for plan in running:
             if follow(plan):
                 write(plan)
-        if any(p.get("state") == "running" for p in running):
-            return
-        for plan in sorted((p for p in everything if p.get("state") == "planned"), key=lambda p: p.get("created") or 0):
-            if due(plan, now):
-                start_plan(plan)
+        # a shift whose items are all finished (now, or before a restart): its morning, made below
+        mornings = [p for p in everything if p.get("state") == "morning" and p["id"] not in MAKING]
+        MAKING.update(p["id"] for p in mornings)
+        if not any(p.get("state") == "running" for p in running):
+            for plan in sorted((p for p in everything if p.get("state") == "planned"), key=lambda p: p.get("created") or 0):
+                if due(plan, now):
+                    start_plan(plan)
+                    write(plan)
+                    break
+    for plan in mornings:
+        make_morning(plan)
+
+
+def make_morning(plan: dict) -> None:
+    """The morning made outside the guard (a reel takes minutes, and the routes wait on the guard), then written."""
+
+    try:
+        morning(plan)
+        with guard:
+            if plan_file(plan["id"]).is_file():  # not forgotten meanwhile
                 write(plan)
-                return
+    finally:
+        MAKING.discard(plan["id"])
 
 
 def loop() -> None:

@@ -224,6 +224,38 @@ def test_a_film_plans_its_shots_without_a_good_take_and_each_take_is_logged(queu
     assert client.post("/api/nightshift", json={"film": film["id"], "shots": ["Shot 99"]}).status_code == 404
 
 
+def test_a_slow_morning_never_holds_up_the_routes(queue, monkeypatch):
+    """The morning is made outside the plans' lock: while a reel takes its time, the shift reads as "morning" and a
+    new plan is made at once."""
+
+    going, release = threading.Event(), threading.Event()
+
+    def slow(plan):
+        going.set()
+        assert release.wait(10)
+        plan.update(state="done", finished=time.time(), problems=[])
+
+    monkeypatch.setattr(nightshift, "morning", slow)
+    made = client.post("/api/nightshift", json={"items": jobs_body(1), "start": "now"}).json()
+    finish(queue, "j1")
+    scheduler = threading.Thread(target=nightshift.tick)
+    scheduler.start()
+    try:
+        assert going.wait(10)
+        assert client.get(f"/api/nightshift/{made['id']}").json()["state"] == "morning"
+        answer = []
+        later = threading.Thread(target=lambda: answer.append(client.post("/api/nightshift", json={"items": jobs_body(1), "start": "23:00"})))
+        later.start()
+        later.join(5)
+        assert answer and answer[0].status_code == 200  # not waiting for the reel
+        nightshift.tick()  # a tick meanwhile does not make the same morning twice
+    finally:
+        release.set()
+        scheduler.join(10)
+    assert client.get(f"/api/nightshift/{made['id']}").json()["state"] == "done"
+    assert not nightshift.MAKING
+
+
 def test_only_a_good_or_circled_take_on_disk_is_a_good_take():
     (HOME / "renders").mkdir(exist_ok=True)
     (HOME / "renders" / "good.mp4").write_bytes(b"clip")

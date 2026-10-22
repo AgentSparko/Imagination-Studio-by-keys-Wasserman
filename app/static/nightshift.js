@@ -4,8 +4,8 @@
 // tonight"; nightNotify() is Settings → Notifications (app/push.py, static/sw.js).
 const NS = { list: null, films: null, film: "", start: "idle", at: "23:00", busy: false, timer: null, notes: {}, open: null };
 const NS_STARTS = { idle: "When idle", at: "At 23:00", now: "Now" };
-const NS_STATES = { planned: "planned", running: "running", done: "done", cancelled: "cancelled" };
-const nsLive = () => (NS.list || []).some(p => p.state === "running" || p.state === "planned");
+const NS_STATES = { planned: "planned", running: "running", morning: "making the dailies", done: "done", cancelled: "cancelled" };
+const nsLive = () => (NS.list || []).some(p => ["running", "planned", "morning"].includes(p.state));
 async function nsLoad() { try { const got = await api("/api/nightshift"); NS.list = Array.isArray(got) ? got : NS.list || []; } catch { NS.list = NS.list || []; }
   if (NS.films === null) { try { const got = await api("/api/slate/projects"); NS.films = Array.isArray(got) ? got : []; } catch { NS.films = []; } }
   render(); }
@@ -36,11 +36,11 @@ function nsCurrent(p) { const id = p.progress && p.progress.current, job = id &&
 function nsShift(p) { const prog = p.progress || { done: 0, total: p.count }, share = prog.total ? Math.round(100 * prog.done / prog.total) : 0;
   const looks = (p.results || []).filter(r => r.status !== "done").length;
   return el("div", { class: "job", "data-shift": p.id },
-    el("div", { class: "seghead" }, el("b", {}, p.name), el("span", { class: "pill " + (p.state === "planned" ? "queued" : p.state) }, NS_STATES[p.state] || p.state), el("span", { style: "flex:1" }),
+    el("div", { class: "seghead" }, el("b", {}, p.name), el("span", { class: "pill " + (p.state === "planned" ? "queued" : p.state === "morning" ? "running" : p.state) }, NS_STATES[p.state] || p.state), el("span", { style: "flex:1" }),
       p.state === "planned" ? el("button", { class: "small primary", onclick: () => nsAct(p, "start") }, "Start now") : null,
       ["planned", "running"].includes(p.state) ? el("button", { class: "small", onclick: () => confirm("Cancel the night shift “" + p.name + "”?") && nsAct(p, "cancel") }, "Cancel") : null,
       ["done", "cancelled"].includes(p.state) || p.state === "planned" ? el("button", { class: "small ghost", title: "Forget this night shift (its dailies stay in the dailies folder)", onclick: () => nsForget(p) }, "Forget") : null),
-    el("div", { class: "note" }, nsCount(p.count, "clip") + (p.state === "planned" ? " · starts " + nsWhen(p) : p.state === "running" ? " · " + prog.done + " of " + prog.total + " finished" : p.state === "done" ? " · " + (p.message || "done") : " · cancelled")),
+    el("div", { class: "note" }, nsCount(p.count, "clip") + (p.state === "planned" ? " · starts " + nsWhen(p) : p.state === "running" ? " · " + prog.done + " of " + prog.total + " finished" : p.state === "morning" ? " · all finished: making the reel, the dailies and the notes" : p.state === "done" ? " · " + (p.message || "done") : " · cancelled")),
     p.state === "running" ? [el("div", { class: "bar" }, el("i", { style: "width:" + Math.max(3, share) + "%" })), nsCurrent(p)] : null,
     p.state === "done" ? el("div", { class: "stack" },
       p.reel ? media(p.reel, { controls: true, preload: "metadata", style: "width:100%;border-radius:var(--r2)" }) : null,
