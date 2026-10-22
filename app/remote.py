@@ -44,11 +44,24 @@ def remember(base: str, key: str | None) -> None:
         KEYS[address(base)] = key
 
 
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """A Studio app answers in person: no legitimate answer on /api/jobs/ or /files/ arrives by way of a 302.
+    Following one would hand whoever runs the answered address the choice of what this machine fetches next --
+    a cloud's metadata service, another box on the LAN -- with the bytes coming back as a 'clip'. So a redirect
+    is refused here, once, for every route; what follows is the answer or the error."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(newurl, code, msg or "redirected", headers, fp)
+
+
+OPENER = urllib.request.build_opener(_NoRedirects)
+
+
 def opened(url: str, base: str, key: str | None, timeout: float):
     key = key or KEYS.get(address(base), "")
     request = urllib.request.Request(url, headers={"X-Studio-Key": key} if key else {})
     try:
-        return urllib.request.urlopen(request, timeout=timeout)
+        return OPENER.open(request, timeout=timeout)
     except urllib.error.HTTPError as error:
         if error.code == 401:
             raise OSError(f"{address(base)} asks for its access key: give it with the address (on that computer, "
