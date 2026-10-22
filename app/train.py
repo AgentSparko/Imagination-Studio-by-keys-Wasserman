@@ -54,8 +54,10 @@ NEED_GB = 55  # what a run holds at the standard size (measured)
 
 # the files a run reads, under SPARK_MODELS; the text encoder is the first of these that is there
 DIT = "MiniMax-H3-Comfy/diffusion_models/minimax_h3_fl2va_pruned_bf16.safetensors"
-TEXT_ENCODERS = ("FastH3-Comfy/text_encoders/qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors",
-                 "FastH3-Comfy/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors")
+# the stock int8 text encoder first: the trainer's loader refuses the NVFP4 file the Studio ships (its per-tensor
+# scales are 1-element tensors, not scalars), and a LoRA trained with the stock encoder renders the same with either
+TEXT_ENCODERS = ("FastH3-Comfy/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+                 "FastH3-Comfy/text_encoders/qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors")
 AUDIO_VAE = "FastH3-Comfy/vae/minimax_h3_audio_vae_fp32.safetensors"
 VIDEO_VAE = "Train-H3/vae/minimax_h3_video_vae_fp16.safetensors"  # Comfy-Org/MiniMax-H3; the int8 one does not load
 ADAPTER = "Train-H3/adapters/ostris_dd_adapter_v2.safetensors"   # ostris/minimax_h3_training_adapter v2
