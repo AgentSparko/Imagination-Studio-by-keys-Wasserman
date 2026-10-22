@@ -135,3 +135,24 @@ def test_run_with_many_paths_starts_the_thread_and_a_bad_path_is_refused(monkeyp
 def test_the_setting_is_on_by_default_and_checked():
     assert server.settings.load()["presets"]["captions_auto"] is True
     assert client.post("/api/settings", json={"presets": {"captions_auto": "yes"}}).status_code == 400
+
+
+def test_a_png_goes_to_the_vision_model_as_a_png(tmp_path, monkeypatch):
+    sent = []
+
+    class Answer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": "{}"}}]}).encode()
+
+    monkeypatch.setattr(captions.urllib.request, "urlopen", lambda request, timeout=None: sent.append(json.loads(request.data)) or Answer())
+    for name in ("still.png", "frame.jpg"):
+        (tmp_path / name).write_bytes(b"picture")
+        captions._vision(tmp_path / name, "http://127.0.0.1:9", "a-model")
+    urls = [one["messages"][0]["content"][1]["image_url"]["url"] for one in sent]
+    assert urls[0].startswith("data:image/png;base64,") and urls[1].startswith("data:image/jpeg;base64,")

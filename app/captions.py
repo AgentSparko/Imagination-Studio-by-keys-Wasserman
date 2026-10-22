@@ -104,7 +104,8 @@ def ask_model(picture: Path) -> str:
 
 
 def _vision(picture: Path, endpoint: str, model: str) -> str:
-    image = "data:image/jpeg;base64," + base64.b64encode(picture.read_bytes()).decode()
+    kind = "image/png" if picture.suffix.lower() == ".png" else "image/jpeg"  # a picture as it is; a frame is a JPEG
+    image = f"data:{kind};base64," + base64.b64encode(picture.read_bytes()).decode()
     body = json.dumps({"model": model, "temperature": 0, "messages": [{"role": "user", "content": [
         {"type": "text", "text": ASK}, {"type": "image_url", "image_url": {"url": image}}]}]}).encode()
     request = urllib.request.Request(endpoint.rstrip("/") + "/chat/completions", body, {"Content-Type": "application/json"})
