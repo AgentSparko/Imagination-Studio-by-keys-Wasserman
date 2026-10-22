@@ -1720,17 +1720,24 @@ def run(job: dict, command: list[str], env: dict, label: str = "") -> bool:
     process = subprocess.Popen(command, cwd=PACK, env=environment(env), stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, start_new_session=True)
     running.update(process=process, id=job["id"])
-    for line in process.stdout:
-        job["log"] = (job["log"] + line)[-20000:]
-        engine = RAN_ON.search(line)
-        if engine:
-            job["engine"] = engine.group(1)
-        found = STEP.search(line)
-        if found:
-            kind, at, total = found.group(1), int(found.group(2)), int(found.group(3))
-            job["progress"] = {"stage": label + STEP_WORDS[kind], "at": at, "of": total}
-    code = process.wait()
-    running.update(process=None, id=None)
+    try:
+        for line in process.stdout:
+            job["log"] = (job["log"] + line)[-20000:]
+            engine = RAN_ON.search(line)
+            if engine:
+                job["engine"] = engine.group(1)
+            found = STEP.search(line)
+            if found:
+                kind, at, total = found.group(1), int(found.group(2)), int(found.group(3))
+                job["progress"] = {"stage": label + STEP_WORDS[kind], "at": at, "of": total}
+        code = process.wait()
+    finally:  # a reader that died mid-render must not leave the detached group owning the GPU
+        if process.poll() is None:
+            with contextlib.suppress(ProcessLookupError, OSError):
+                os.killpg(process.pid, signal.SIGKILL)
+        with contextlib.suppress(subprocess.TimeoutExpired, OSError):
+            process.wait(10)
+        running.update(process=None, id=None)
     if job["status"] == "cancelled":
         return False
     if code:
