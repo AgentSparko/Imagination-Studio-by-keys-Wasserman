@@ -2806,7 +2806,6 @@ caption_router = captions.attach(HOME, library, inside, relative, lambda request
                                  lambda: running["process"] is None and not any(j["status"] in ("queued", "running") for j in list(jobs.values())),
                                  lambda: hub.takes(), lambda: settings.load()["presets"].get("captions_auto", True))
 app.include_router(caption_router)
-caption_router.captioner["start"]()
 import train  # noqa: E402  (a LoRA trained from the Library's clips and stills on this Spark, beside this file)
 train_router, train_build, train_free = train.attach(HOME, PACK, SPARK, inside, media_seconds, enqueue, jobs, lock)
 app.include_router(train_router)
@@ -2985,6 +2984,9 @@ if __name__ == "__main__":
         Path(os.environ["STUDIO_PIDFILE"]).write_text(str(os.getpid()))
     hub.start()
     nightshift.start()  # the night shift's scheduler: planned shifts start at their time or when the queue is idle
+    if not os.environ.get("STUDIO_PIDFILE"):  # the captioner describes this studio's Library, not a worker Spark's
+        caption_router.captioner["start"]()
+    director.resume_later()  # the Director's runs a restart cut off
     app.router.on_shutdown.append(stop_session_comfy)  # the detached ComfyUI belongs to this process, not to one render
 
     # Update authorization needs the actual socket peer. Tailscale Serve forwards the browser's IP,

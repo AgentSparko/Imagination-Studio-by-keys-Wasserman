@@ -47,6 +47,7 @@ ref2va = lambda: False  # whether shots can open on cast stills
 
 runs: dict[str, dict] = {}  # project -> {"thread", "stop"}
 guard = threading.RLock()  # one read-modify-write of a film file at a time
+starting = threading.Lock()  # one look at ``runs`` and start() at a time: two fast POSTs never start two runs
 
 
 class Stopped(Exception):
@@ -58,15 +59,19 @@ class Failed(Exception):
 
 
 def attach(home: Path, *, queue, lookup, stop_job, check, new_project, save_project, presets: dict, app=None,
-           references=None, resume: bool = True) -> APIRouter:
+           references=None) -> APIRouter:
     global HOME, submit, job_of, cancel, qa_start, editor_new, editor_save, sizes, APP, ref2va
     HOME, submit, job_of, cancel, qa_start, editor_new, editor_save = home, queue, lookup, stop_job, check, new_project, save_project
     sizes, APP, ref2va = presets, app, references or ref2va
-    if resume:
-        later = threading.Timer(5.0, resume_all)  # once the queue's worker is up
-        later.daemon = True
-        later.start()
     return router
+
+
+def resume_later() -> None:
+    """The runs a restart cut off, picked up once the queue's worker is up (server.py at start, never on import)."""
+
+    later = threading.Timer(5.0, resume_all)
+    later.daemon = True
+    later.start()
 
 
 # ---------- small helpers, in Slate's own shapes ----------
@@ -428,26 +433,27 @@ def direct(body: dict, request: Request) -> dict:
     project = str(body.get("project") or "")
     if not slate.project_file(project).is_file():
         raise HTTPException(404, "no such film")
-    if project in runs and runs[project]["thread"].is_alive():
-        raise HTTPException(409, "the Director is already at work on this film")
-    film = film_of(project)
-    logline = text(body.get("logline")).strip()
-    if logline and logline != film.get("logline"):
-        film = change(project, lambda f: apply(f, {"type": "update_project", "logline": logline}))
-    if not (film.get("logline") or "").strip() and not film.get("scenes"):
-        raise HTTPException(400, "give the film a logline: one sentence of who wants what")
-    asked = {"scenes": clamp(body.get("scenes"), 1, 12, 3), "shotsPerScene": clamp(body.get("shotsPerScene"), 1, 12, 3),
-             "seconds": clamp(body.get("seconds"), 1, 15, 8), "retakes": clamp(body.get("retakes"), 0, 3, 1),
-             "quality": text(body.get("quality")) or (film.get("tf") or {}).get("quality") or "", "cut": body.get("cut") is not False,
-             "song": text(body.get("song")).strip()}
-    before = read_status(project) or {}
-    run = {"project": project, "state": "writing", "asked": asked, "started": slate.now(), "finished": None, "error": "",
-           "done": [], "log": before.get("log", [])[-40:], "current": {}, "counts": {}, "cut": None, "rev": before.get("rev", 0),
-           # what a run that did not finish had in flight is picked up: its jobs, its takes, its casting
-           "shots": before.get("shots", {}) if before.get("state") != "done" else {},
-           "casting": before.get("casting", {}) if before.get("state") != "done" else {}, "order": []}
-    say(run, "The Director starts: " + (film.get("logline") or film.get("name") or "the film"))
-    return {**start(run), "started": True}
+    with starting:
+        if project in runs and runs[project]["thread"].is_alive():
+            raise HTTPException(409, "the Director is already at work on this film")
+        film = film_of(project)
+        logline = text(body.get("logline")).strip()
+        if logline and logline != film.get("logline"):
+            film = change(project, lambda f: apply(f, {"type": "update_project", "logline": logline}))
+        if not (film.get("logline") or "").strip() and not film.get("scenes"):
+            raise HTTPException(400, "give the film a logline: one sentence of who wants what")
+        asked = {"scenes": clamp(body.get("scenes"), 1, 12, 3), "shotsPerScene": clamp(body.get("shotsPerScene"), 1, 12, 3),
+                 "seconds": clamp(body.get("seconds"), 1, 15, 8), "retakes": clamp(body.get("retakes"), 0, 3, 1),
+                 "quality": text(body.get("quality")) or (film.get("tf") or {}).get("quality") or "", "cut": body.get("cut") is not False,
+                 "song": text(body.get("song")).strip()}
+        before = read_status(project) or {}
+        run = {"project": project, "state": "writing", "asked": asked, "started": slate.now(), "finished": None, "error": "",
+               "done": [], "log": before.get("log", [])[-40:], "current": {}, "counts": {}, "cut": None, "rev": before.get("rev", 0),
+               # what a run that did not finish had in flight is picked up: its jobs, its takes, its casting
+               "shots": before.get("shots", {}) if before.get("state") != "done" else {},
+               "casting": before.get("casting", {}) if before.get("state") != "done" else {}, "order": []}
+        say(run, "The Director starts: " + (film.get("logline") or film.get("name") or "the film"))
+        return {**start(run), "started": True}
 
 
 def start(run: dict) -> dict:
@@ -498,10 +504,11 @@ def resume_all() -> None:
         except (OSError, ValueError):
             continue
         project = run.get("project") or file.parent.name
-        if run.get("state") in ACTIVE and project not in runs and slate.project_file(project).is_file():
-            run["project"] = project
-            say(run, "Picked up after a restart.")
-            start(run)
+        with starting:
+            if run.get("state") in ACTIVE and project not in runs and slate.project_file(project).is_file():
+                run["project"] = project
+                say(run, "Picked up after a restart.")
+                start(run)
 
 
 # ---------- the run ----------
