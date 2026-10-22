@@ -55,10 +55,12 @@ MOVES = {"locked": "Static shot on a locked, still camera.", "handheld": "Handhe
 SECTIONS = ("subject", "composition", "lighting", "camera", "style", "mood")
 
 
-def attach(home: Path, durations: dict, plain, referenced, limit: int, parts, fits=None) -> APIRouter:
-    global HOME, DURATIONS, compose, compose_references, LIMIT, ready, room
+def attach(home: Path, durations: dict, plain, referenced, limit: int, parts, fits=None, within=None) -> APIRouter:
+    """``within(path)``: the server's ``inside``, a path under the studio folder or 400."""
+
+    global HOME, DURATIONS, compose, compose_references, LIMIT, ready, room, inside
     HOME, DURATIONS, compose, compose_references, LIMIT, ready = home, durations, plain, referenced, limit, parts
-    room = fits or room
+    room, inside = fits or room, within or inside
     (HOME / "slate").mkdir(parents=True, exist_ok=True)
     return router
 
@@ -596,6 +598,24 @@ def lora_list(given) -> list[dict]:
              **({"style": one["style"]} if one.get("style") else {})} for one in given or [] if isinstance(one, dict) and one.get("id")]
 
 
+def inside(path: str | Path) -> Path:
+    """A path under the studio folder, or 400 (replaced by the server's own in attach)."""
+
+    resolved = (HOME / path).resolve()
+    if HOME.resolve() not in (resolved, *resolved.parents):
+        raise HTTPException(400, "path is outside the studio folder")
+    return resolved
+
+
+def on_disk(path: str) -> bool:
+    """Whether a path the film names is a file in the studio folder (never one outside it, nor a hidden one)."""
+
+    try:
+        return inside(path).is_file()
+    except HTTPException:
+        return False
+
+
 def find_shot(project: dict, shot_id: str) -> tuple[dict, dict, int]:
     for scene in project.get("scenes") or []:
         for index, shot in enumerate(scene.get("shots") or []):
@@ -727,7 +747,7 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
         elif not previous:
             warnings.append(f"“{before.get('name')}” has no take yet: render it first, or use “Render the scene” to queue them in order.")
 
-    clip = extra.get("reference_video") if extra.get("reference_video") and (HOME / extra["reference_video"]).is_file() else None  # a previs clip brought in from the suite
+    clip = extra.get("reference_video") if extra.get("reference_video") and on_disk(extra["reference_video"]) else None  # a previs clip brought in from the suite
     if clip and not parts.get("ref2va"):
         warnings.append("A previs reference clip needs the Ref2VA model (oneshot-setup.sh --ref2va); rendering without it.")
         clip = None

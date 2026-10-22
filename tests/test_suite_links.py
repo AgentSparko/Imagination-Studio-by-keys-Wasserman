@@ -126,6 +126,17 @@ def test_compile_sends_a_previs_clip_as_a_reference_video(monkeypatch):
     monkeypatch.setattr(slate, "ready", lambda: {})
     plain = slate.compile_shot(client.get(f"/api/slate/projects/{project['id']}").json(), "sh-1")
     assert "reference_videos" not in plain["plan"] and plain["plan"]["image"] and any("Ref2VA" in w for w in plain["warnings"])
+    # a clip named outside the studio folder, or in a hidden folder of it, is never sent
+    monkeypatch.setattr(slate, "ready", lambda: {"ref2va": True})
+    outside = Path(tempfile.mkdtemp()) / "elsewhere.mp4"
+    outside.write_bytes(b"mp4")
+    hidden = HOME / ".studio-agents" / "clip.mp4"
+    hidden.parent.mkdir(exist_ok=True)
+    hidden.write_bytes(b"mp4")
+    for path in ("../" * 12 + str(outside).lstrip("/"), str(outside), ".studio-agents/clip.mp4"):
+        named = client.get(f"/api/slate/projects/{project['id']}").json()
+        named["scenes"][0]["shots"][0]["tf"]["reference_video"] = path
+        assert "reference_videos" not in slate.compile_shot(named, "sh-1")["plan"], path
 
 
 # ---- the pages (run in node, with the page's helpers stood in for: see test_shell_page.py) ----
