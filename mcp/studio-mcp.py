@@ -180,6 +180,24 @@ TOOLS = [
      "inputSchema": text_schema({"project": {"type": "string", "description": "a project id (default: the newest)"},
                                  "size": {"type": "string", "enum": ["1920x1080", "2560x1440", "2048x1152", "1344x768"],
                                           "description": "default 1920x1080"}})},
+    {"name": "finish_cut", "description": "Finish a timeline (or clips) as the final cut and mix through Tesseract: each clip's own sound "
+                                          "kept, the song under it lowered wherever someone speaks, an optional title scene. Makes an .mp4, "
+                                          "its editable .tsrct project and FCPXML/EDL for DaVinci Resolve. Follow it with job_status; "
+                                          "export_cut makes Premiere or After Effects projects of it.",
+     "inputSchema": text_schema({"project": {"type": "string", "description": "a timeline's project id (default: the newest, unless clips are given)"},
+                                 "clips": {"type": "array", "items": {"type": "string"}, "description": "Library paths of clips, in order, instead of a timeline"},
+                                 "song": {"type": "string", "description": "a queue_song job's id or a Library sound path (default: the timeline's soundtrack); \"none\" for no music"},
+                                 "voice": {"type": "string", "description": "Library path of a narration take, laid from the first shot"},
+                                 "title": {"type": "string", "description": "a title card before the first shot"},
+                                 "subtitle": {"type": "string", "description": "a line under the title"},
+                                 "mix": {"type": "string", "enum": ["dialogue", "balanced", "music"], "description": "default dialogue"},
+                                 "size": {"type": "string", "enum": ["720p", "1080p", "4k"], "description": "default 1080p"},
+                                 "fps": {"type": "integer", "enum": [24, 25, 30, 60], "description": "default 24"},
+                                 "captions": {"type": "boolean", "description": "captions of what is heard (needs speech-to-text on the Studio's computer)"}})},
+    {"name": "export_cut", "description": "A finished cut (a finish_cut job's id) as a Premiere Pro or After Effects project with its media, "
+                                          "zipped. Returns the zip's Library path. DaVinci Resolve needs no export: the finish job's .fcpxml opens there.",
+     "inputSchema": text_schema({"id": {"type": "string", "description": "the finish_cut job's id"},
+                                 "to": {"type": "string", "enum": ["premiere", "aftereffects"]}}, ("id", "to"))},
     {"name": "job_status", "description": "One job: status (queued, running, done, failed, cancelled), progress, outputs, error.",
      "inputSchema": text_schema({"id": {"type": "string"}}, ("id",))},
     {"name": "wait_for_jobs", "description": "Wait until these jobs are done, failed or cancelled, for at most `seconds` (default 50, "
@@ -523,6 +541,25 @@ def run(name: str, args: dict):
         width, height = (int(n) for n in str(args.get("size") or "1920x1080").split("x"))
         params = {"clips": project["timeline"], "width": width, "height": height, **({"soundtrack": project["soundtrack"]} if project.get("soundtrack") else {})}
         return job_summary(call("POST", "/api/jobs", {"kind": "export", "title": "Export " + str(project.get("name") or project["id"]), "params": params}))
+    if name == "finish_cut":
+        params = {k: args[k] for k in ("voice", "mix", "size", "fps", "captions") if args.get(k) not in (None, "")}
+        if args.get("clips"):
+            params["clips"] = [{"path": str(path)} for path in (args["clips"] if isinstance(args["clips"], list) else [args["clips"]])]
+            name_ = f"{len(params['clips'])} clips"
+        else:
+            project = project_of(args.get("project"))
+            if not project.get("timeline"):
+                raise StudioError(f"the timeline of {project.get('name') or project['id']} is empty: add clips with add_to_timeline first")
+            params["project"], name_ = project["id"], str(project.get("name") or project["id"])
+        if args.get("song") not in (None, ""):
+            params["song"] = None if str(args["song"]).lower() == "none" else str(args["song"])
+        if args.get("title"):
+            params["title"] = {"text": str(args["title"]), "subtitle": str(args.get("subtitle") or "")}
+        return job_summary(call("POST", "/api/jobs", {"kind": "finish", "title": "Finish: " + name_, "params": params}))
+    if name == "export_cut":
+        if args.get("to") not in ("premiere", "aftereffects"):
+            raise StudioError("to is premiere or aftereffects")
+        return call("POST", "/api/finish/" + urllib.request.quote(str(args["id"]), safe="") + "/convert", {"to": args["to"]})
     if name == "job_status":
         return job_summary(job_of(args["id"]))
     if name == "wait_for_jobs":

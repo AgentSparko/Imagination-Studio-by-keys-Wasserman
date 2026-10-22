@@ -2889,6 +2889,46 @@ The reel needs ffmpeg; without a font on the machine the title cards are plain b
 `GET/POST /api/nightshift` (`{film, shots?, start, name?}` or `{items: [{kind: "shot", film, shot} | {kind: "job", body}], start}`),
 `GET/DELETE /api/nightshift/{id}`, `POST /api/nightshift/{id}/start|cancel`; `GET /api/push/key`,
 `POST/DELETE /api/push/subscribe`, `POST /api/push/test`.
+## Finish: the final cut and mix, to Resolve, Premiere or After Effects
+
+**Finish** turns a timeline into the finished film, rendered by [Tesseract](https://github.com/mirage-hq/tesseract)
+on your own computer: each clip cut where its In and Out say, the clips' own sound (the dialogue) kept at full level,
+a narration take laid from the first shot, and the music under all of it, faded in and out and lowered wherever a clip
+or the narration has sound. A title, when you give one, opens the film as a scene of its own: a card with the title, a
+line and the subtitle, fading and rising in.
+
+The Finish panel sits on the Timeline; in the Library, tick clips and press **Finish these** to finish them as one
+cut, in the order you ticked them. Choose the **Mix** (Dialogue first: the music at -18 dB and 12 dB lower under
+speech; Balanced: -10 dB and 12 dB lower; Music forward: -5 dB and 6 dB lower), the size (720p, 1080p or 4K) and the
+frames per second, then **Finish the cut**. Captions, when ticked, are the words a speech-to-text model on this
+computer hears (`pip install faster-whisper`); without one they are left out, never made up. When the job is done:
+
+- **Download MP4**, and **.tsrct project**: the editable Tesseract project with its media packed inside.
+- **Open in Resolve**: the timeline with its media as a zip (File > Import > Timeline), or the cut's FCPXML; the job
+  also writes an EDL.
+- **Premiere** and **After Effects**: the cut as a `.prproj` or `.aep` project with its media (and the title's fonts,
+  to install before opening), made by [Tesseract Converter](https://github.com/mirage-hq/Tesseract-Converter). The
+  converter leaves out or approximates some features, and its After Effects projects are experimental: the zip's
+  README lists what it said.
+
+Everything lands in `~/ImaginationStudio/exports/`. `POST /api/jobs {kind: "finish", params: {project | clips[{path,
+in, out}], song?, voice?, title?: {text, subtitle}, captions?, mix: dialogue|balanced|music, size: 720p|1080p|4k,
+fps: 24|25|30|60}}`, `GET /api/finish` (is Tesseract ready, and where), `POST /api/finish/<job>/convert {to:
+premiere|aftereffects}`. The Agent room's tools are `finish_cut` and `export_cut`.
+
+**What it needs.** `bash scripts/setup-finish.sh` (`--verify` only reports) installs Tesseract 0.4.0 and Tesseract
+Converter 0.3.0 from their GitHub releases into `$PREFIX/finish`, each checked against its published SHA-256, with
+Instrument Serif and Geist for the title. A Tesseract already installed by itself is found too. About 150 MB; no
+account, key or sudo. Tesseract runs on macOS, Windows and Linux x86_64 (with ffmpeg and a Vulkan driver), **not on
+Linux ARM such as a DGX Spark**: there, run the script on your Mac as well and set the Mac as the remote computer in
+Settings > Connections (Brains & tools). The Spark's Studio then copies the clips to the Mac over ssh, finishes the
+cut there and brings the results back; the panel says "Runs on <your Mac> over ssh".
+
+**Licences.** Tesseract is free to download and use but not open source: it comes under Mirage's own terms (TERMS.md
+beside it), which leave out commercial use by a business with a yearly revenue of US$1 million or more without a
+separate agreement, and do not allow passing it on. It may send basic usage counts for some commands (no file names,
+paths or contents), on by default; the Studio never changes that setting, and `tsrct telemetry disable` turns it off.
+Tesseract Converter is MIT. Instrument Serif and Geist are under the SIL Open Font License.
 
 ## Motion Previs: a shot into control layers and a camera move
 

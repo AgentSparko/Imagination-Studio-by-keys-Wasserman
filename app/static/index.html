@@ -65,6 +65,7 @@ try { const a = JSON.parse(localStorage.getItem("studio-look") || "null"), c = d
 <script src="captions.js"></script>
 <script src="revise.js"></script>
 <script src="train.js"></script>
+<script src="finish.js"></script>
 <script src="edit.js"></script>
 <script src="sparks.js"></script>
 <script src="voice.js"></script>
@@ -863,7 +864,8 @@ function viewEditor() {
         el("div", { class: "cap" }, m.path.split("/").pop().slice(0, 20), el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline"))))));
     if (tl.length) load(0, false);
   }).catch(e => put(box, el("div", { class: "note" }, e.message)));
-  return box;
+  // the Finish engine (finish.js): the final cut and mix of this timeline, to Resolve, Premiere or After Effects
+  return typeof finishPanel === "function" ? el("div", {}, box, finishPanel(project)) : box;
 }
 
 /* ---------- Library ---------- */
@@ -911,6 +913,8 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
     if (!ACT.state) actLoad().then(() => { if (tab === "Library") render(); });
     put(box, el("div", { class: "note" }, tally, " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale and Remove a person. Under a picture: Turnaround."), actPanel(), typeof rcLibrary === "function" ? rcLibrary() : null,
       el("div", { class: "row", style: "margin-top:10px" }, all, many, el("span"),
+    put(box, el("div", { class: "note" }, tally, " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale and Remove a person. Under a picture: Turnaround."), actPanel(), finLibPanel(),
+      el("div", { class: "row", style: "margin-top:10px" }, all, many, finLibButton(), el("span"),
         bin ? el("span", { class: "note fit", id: "trashline" }, "Trash: " + (bin.files ? count(bin.files, "file") + " · " + sizeText(bin.bytes) : "empty")) : null,
         bin && bin.last ? el("button", { class: "fit", title: "Puts the files of the last deletion back where they were, and its job cards back in the queue", onclick: restoreLast }, "Restore last deletion (" + count(bin.last.files, "file") + ")") : null,
         bin && bin.files ? el("button", { class: "fit", title: "Erases the files in the trash folder for good", onclick: async () => { if (!confirm("Erase the " + count(bin.files, "file") + " (" + sizeText(bin.bytes) + ") in the trash folder for good?\n" + relHome(bin.folder) + "\nThis cannot be undone.")) return;
