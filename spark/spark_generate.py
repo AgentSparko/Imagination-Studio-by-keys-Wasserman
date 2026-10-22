@@ -258,6 +258,42 @@ async def run(workflow: dict, sampler: str, named: dict | None = None, stages: l
     return prompt_id
 
 
+def still_queued(prompt_id: str) -> bool:
+    """Whether Comfy itself still claims this prompt as running or waiting. False also when Comfy does not answer:
+    a server that died took the job with it."""
+
+    try:
+        queue = call("/queue")
+    except OSError:
+        return False
+    return any(str(item[0]) == prompt_id for group in queue.values() if isinstance(group, list)
+               for item in group if isinstance(item, list) and item)
+
+
+def history_of(prompt_id: str) -> dict:
+    """The record of a finished render. Comfy writes it the moment execution ends, so a record that never appears
+    while the queue no longer holds the prompt means the server was restarted under us -- its history is a fresh
+    server's memory and this job is gone from it. Waiting forever for that record would sit in ``running`` and
+    hold the whole Spark queue (observed when Comfy's memory floor restarted it mid-take)."""
+
+    lost_after = float(os.environ.get("SPARK_HISTORY_WAIT", 120))  # an early websocket goodbye and the queue-to-
+    finished_after = float(os.environ.get("SPARK_RENDER_WAIT", 4 * 3600))  # history handover both cost seconds
+    deadline = time.time() + lost_after
+    hard = time.time() + finished_after
+    while True:
+        history = call(f"/history/{prompt_id}")
+        if prompt_id in history and history[prompt_id].get("status", {}).get("completed") is not None:
+            return history[prompt_id]
+        if still_queued(prompt_id):
+            if time.time() > hard:
+                sys.exit(f"ComfyUI did not finish this job in {finished_after / 3600:.0f} h "
+                         f"(log: {side('log')})")
+        elif time.time() > deadline:
+            sys.exit(f"ComfyUI lost this job mid-render: its queue and its history both have no {prompt_id} "
+                     f"-- a restart explains it (log: {side('log')})")
+        time.sleep(1)
+
+
 def render(workflow: dict, sampler: str, named: dict | None = None, stages: list | None = None) -> tuple[dict, float]:
     """Run a workflow; returns (the saved file's record, seconds)."""
 
@@ -267,12 +303,7 @@ def render(workflow: dict, sampler: str, named: dict | None = None, stages: list
     except KeyboardInterrupt:
         call("/interrupt", {})
         raise
-    while True:
-        history = call(f"/history/{prompt_id}")
-        if prompt_id in history and history[prompt_id].get("status", {}).get("completed") is not None:
-            break
-        time.sleep(1)
-    record = history[prompt_id]
+    record = history_of(prompt_id)
     if record["status"].get("status_str") != "success":
         errors = [m[1] for m in record["status"].get("messages", []) if m[0] == "execution_error"]
         detail = errors[0].get("exception_message", "").strip() if errors else json.dumps(record["status"])[:600]

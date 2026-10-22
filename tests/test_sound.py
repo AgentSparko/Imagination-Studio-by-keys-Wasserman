@@ -298,3 +298,27 @@ def test_the_spark_install_pins_the_nodes_and_starts_the_sampler_beside_them():
     assert "studio_mmaudio" in comfy and "ComfyUI-MMAudio/nodes.py" in comfy
     import sparks
     assert "spark/studio_mmaudio/*.py" in sparks.CODE
+
+
+def test_a_render_the_restarted_comfy_lost_is_given_up_on_not_waited_for_forever(monkeypatch):
+    """The history poll used to spin forever when a Comfy restarted under a job: its memory is a fresh server's, so
+    the record never comes -- and the whole Spark queue sits behind that one 'running' job. Comfy's own queue is the
+    tie-breaker: not in it and not in the history means the job is gone, and the run says so and ends."""
+
+    import spark_generate
+
+    calls = {"queue": {"queue_running": [], "queue_pending": []}}  # the restarted server: nothing in it
+    monkeypatch.setattr(spark_generate, "call", lambda path, data=None: dict(calls) if path == "/queue" else {})
+    monkeypatch.setattr(spark_generate, "side", lambda ext: Path("comfy.log"))
+    monkeypatch.setattr(spark_generate.time, "sleep", lambda s: None)  # the loop's second-hand clock, sped up
+    monkeypatch.setenv("SPARK_HISTORY_WAIT", "0")  # the grace before calling a missing job lost, spent
+    with pytest.raises(SystemExit) as given:
+        spark_generate.history_of("prompt-1")
+    assert "lost this job" in str(given.value.code) and "restart" in str(given.value.code)
+
+    # and a render still in Comfy's queue is still waited for, however long it takes
+    answers = iter([{}, {"queue_running": [["prompt-1", {}, [], {}, {}]], "queue_pending": []},
+                    {"prompt-1": {"status": {"completed": 123, "status_str": "success"}, "outputs": {}}}])
+    monkeypatch.setattr(spark_generate, "call", lambda path, data=None: answers.__next__())
+    record = spark_generate.history_of("prompt-1")
+    assert record["status"]["status_str"] == "success"
