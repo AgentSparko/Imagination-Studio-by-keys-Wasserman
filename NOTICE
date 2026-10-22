@@ -66,3 +66,12 @@ The LoRA hub's first preset is the recipe for the Wasserman 80s Horror LoRA, Cop
 weights are not part of this pack: they are downloaded from his release when a user installs them, as a Model
 Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement. Credit: 80s Horror LoRA by Sam Wasserman
 (wassermanproductions.com). Powered by MiniMax H3.
+
+Graphics, Finish and LoRA training run other people's programs, each installed from its author's page and none shipped
+here: HyperFrames (Apache-2.0, HeyGen), GSAP (GreenSock's Standard "no charge" License, not open source), Playwright
+(Apache-2.0), Node.js (MIT), musubi-tuner (Apache-2.0, kohya-ss) and bitsandbytes (MIT). Tesseract (Mirage) is not open
+source: it is free under Mirage's TERMS.md, not for commercial use by a business with US$1 million or more of yearly
+revenue without Mirage's agreement, not to be redistributed, and it sends usage counts unless `tsrct telemetry disable`
+is run; Tesseract Converter is MIT. The training adapter by ostris and Comfy Org's MiniMax H3 fp16 VAE are derived from
+MiniMax H3 and fall under the MiniMax H3 Community License Agreement. Geist and Instrument Serif (SIL Open Font License
+1.1) ship in app/static/fonts with their licence texts. Licence links and details: THIRD_PARTY_NOTICES.md.
