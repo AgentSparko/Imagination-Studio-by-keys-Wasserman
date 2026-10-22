@@ -3,7 +3,8 @@
 # oneshot-setup-rtx-6000.sh (RTX Pro 6000) both run this file. Run one of those.
 # TensorFold Studio on NVIDIA CUDA (a DGX Spark, or an RTX Pro 6000): one-shot install.
 #   bash oneshot-setup-spark.sh --all         # every feature below in one go (about 400 GB of disk), then a test clip
-#   bash oneshot-setup-spark.sh               # the core (pictures and FastH3 video with sound), then a 5 second test clip
+#   bash oneshot-setup-spark.sh               # the core (pictures and FastH3 video with sound, motion graphics, Finish, phone
+#                                             # notifications), then a 5 second test clip
 #   bash oneshot-setup-spark.sh --image-only  # Qwen-Image-2.1 only (26 GB)
 #   bash oneshot-setup-spark.sh --no-render   # skip the test clip
 #   bash oneshot-setup-spark.sh --ref2va      # add MiniMax H3 Ref2VA (reference pictures hold a face), 39 GB more
@@ -51,10 +52,17 @@
 #   bash oneshot-setup-spark.sh --graphics    # add motion graphics (Edit -> Graphics), about 400 MB: HyperFrames and GSAP from npm
 #                                             # in $PREFIX/graphics, a private Node 22 when the system's is older (nodejs.org,
 #                                             # checksum checked), Playwright's arm64 Chromium (one in ~/.cache/ms-playwright is
-#                                             # used as it is); scripts/setup-graphics.sh
+#                                             # used as it is); scripts/setup-graphics.sh. Part of every install; --no-graphics
+#                                             # leaves it out
+#   bash oneshot-setup-spark.sh --finish      # add Finish (Edit -> Timeline -> Finish), about 150 MB (scripts/setup-finish.sh):
+#                                             # Tesseract and Tesseract Converter on Linux x86_64 (an RTX Pro 6000); on Linux
+#                                             # ARM (a DGX Spark) the two fonts only, and the cut is finished on a Mac over ssh.
+#                                             # Tesseract is free under Mirage's own terms (not open source); the converter is
+#                                             # MIT. Part of every install; --no-finish leaves it out
 #   bash oneshot-setup-spark.sh --verify      # check an existing install, download nothing
 #   bash oneshot-setup-spark.sh --upgrade     # after `git pull`: move an existing install to this version (environment, ComfyUI pin,
-#                                             # engine, Motion Previs environment), fetch no weights, then --verify. Safe to run twice.
+#                                             # engine, Motion Previs environment, and each part already installed), fetch no
+#                                             # weights, then --verify. Safe to run twice.
 # What it installs under $PREFIX (default ~/.local/opt/tensorfold-studio):
 #   venv/       Python 3.12, PyTorch for CUDA 13, ComfyUI's requirements, the web app's
 #   ComfyUI/    pinned; its own flash and block-sparse attention kernels are what the renders use
@@ -71,11 +79,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MODELS="${SPARK_MODELS:-$HOME/spark-studio-models}"
 COMFY_COMMIT=b9b290e43f1eb379946dfeb013faf9bbefa1a618  # v0.42.0 and later: ComfyUI's FLUX 3 and MOSS-Image nodes
-IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; VOICE=0; UPGRADE=0; LORAS=""; H3_BASE=0; WORKFLOWS=1; IMAGE_EDIT=0; FLUX3=0; MOSS=0; MUSIC=0; SOUND=0; BOLT=0; TRAIN=0; GRAPHICS=0
+IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; VOICE=0; UPGRADE=0; LORAS=""; H3_BASE=0; WORKFLOWS=1; IMAGE_EDIT=0; FLUX3=0; MOSS=0; MUSIC=0; SOUND=0; BOLT=0; TRAIN=0; GRAPHICS=""; FINISH=""
 for arg in "$@"; do
   case "$arg" in
-    --ref2va) REF2VA=1;; --h3-base) H3_BASE=1;; --image-edit) IMAGE_EDIT=1;; --flux3) FLUX3=1;; --moss) MOSS=1;; --music) MUSIC=1;; --bolt) BOLT=1;; --train) TRAIN=1;; --graphics) GRAPHICS=1;; --sound) SOUND=1;; --motion) MOTION=1;; --voice) VOICE=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;; --upgrade) UPGRADE=1; RENDER=0; MOTION=1;;
-    --all) REF2VA=1; H3_BASE=1; IMAGE_EDIT=1; FLUX3=1; MOSS=1; MUSIC=1; SOUND=1; BOLT=1; VOICE=1; MOTION=1; TRAIN=1; GRAPHICS=1;;  # every feature
+    --ref2va) REF2VA=1;; --h3-base) H3_BASE=1;; --image-edit) IMAGE_EDIT=1;; --flux3) FLUX3=1;; --moss) MOSS=1;; --music) MUSIC=1;; --bolt) BOLT=1;; --train) TRAIN=1;; --graphics) GRAPHICS=1;; --no-graphics) GRAPHICS=0;; --finish) FINISH=1;; --no-finish) FINISH=0;; --sound) SOUND=1;; --motion) MOTION=1;; --voice) VOICE=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;; --upgrade) UPGRADE=1; RENDER=0; MOTION=1;;
+    --all) REF2VA=1; H3_BASE=1; IMAGE_EDIT=1; FLUX3=1; MOSS=1; MUSIC=1; SOUND=1; BOLT=1; VOICE=1; MOTION=1; TRAIN=1; GRAPHICS=1; FINISH=1;;  # every feature
     --no-workflows) WORKFLOWS=0;;
     --loras) LORAS=all;; --loras=*) LORAS="${arg#--loras=}";; --no-loras) LORAS=none;; --lora-bundle=*) LORA_BUNDLE="${arg#--lora-bundle=}";;
     *) echo "unknown option $arg" >&2; exit 2;;
@@ -110,9 +118,13 @@ if [ "$UPGRADE" = 1 ]; then
   [ ! -s "${BOLT_MODELS:-$MODELS}/Nemotron-3.5-Bolt-24GB/model.safetensors.index.json" ] || BOLT=1
   [ ! -x "$PREFIX/drama3/bin/drama3-generate" ] || VOICE=1
   [ ! -x "$PREFIX/train/venv/bin/python" ] || TRAIN=1
-  [ ! -d "$PREFIX/graphics/node_modules/hyperframes" ] || GRAPHICS=1
+  [ -n "$GRAPHICS" ] || { [ -d "$PREFIX/graphics/node_modules/hyperframes" ] && GRAPHICS=1; } || GRAPHICS=0
+  [ -n "$FINISH" ] || { { [ -x "$PREFIX/finish/bin/tsrct" ] || [ -f "$PREFIX/finish/fonts/InstrumentSerif-Regular.ttf" ]; } && FINISH=1; } || FINISH=0
   ok "upgrade: installed $INSTALLED -> $(cat "$HERE/VERSION")$([ "$IMAGE_ONLY" = 0 ] || echo " (image-only install)")"
 else ok "version $(cat "$HERE/VERSION")$([ ! -f "$PREFIX/VERSION" ] || echo " (installed: $INSTALLED)")"; fi
+# motion graphics and Finish come with every install (small: --no-graphics, --no-finish leave them out); --upgrade keeps
+# them where they are and adds none
+GRAPHICS="${GRAPHICS:-1}"; FINISH="${FINISH:-1}"
 GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
 MEM_GB=$(awk '/MemTotal/{print int($2/1048576)}' /proc/meminfo)
 ok "$GPU, $(uname -m), ${MEM_GB} GB"
@@ -151,6 +163,9 @@ if [ "$IMAGE_ONLY" = 0 ]; then
   [ "$TRAIN" = 0 ] || ! missing "$MODELS/Train-H3/vae/minimax_h3_video_vae_fp16.safetensors" || NEED=$((NEED + 15))
   [ "$VOICE" = 0 ] || ! missing "${DRAMA3_CUDA_MODEL:-${DRAMA3_CHECKPOINT:-$HOME/models/drama-3}}/config.json" || NEED=$((NEED + 45))
 fi
+# motion graphics (about 400 MB) and Finish (about 150 MB) go under $PREFIX: a GB each, with room
+[ "$GRAPHICS" = 0 ] || [ -d "$PREFIX/graphics/node_modules/hyperframes" ] || NEED=$((NEED + 1))
+[ "$FINISH" = 0 ] || [ -f "$PREFIX/finish/fonts/InstrumentSerif-Regular.ttf" ] || NEED=$((NEED + 1))
 if [ "$VERIFY" = 0 ]; then
   mkdir -p "$PREFIX" "$MODELS"
   FREE=$(df -BG --output=avail "$MODELS" | tail -1 | tr -dc 0-9)
@@ -221,8 +236,19 @@ studio:
     Sound-Comfy/mmaudio
 YAML
 fi
-"$PY" -c "import comfy_kitchen, aiohttp, fastapi, uvicorn, PIL" || die "the environment is missing packages"
+"$PY" -c "import comfy_kitchen, aiohttp, fastapi, uvicorn, PIL, numpy" || die "the environment is missing packages"
 ok "ComfyUI and its requirements"
+# what the studio's own features import: numpy (captions, search, the rough cut, the Director), faster-whisper (captions,
+# the speech check), cryptography and pywebpush (phone notifications)
+"$PY" - <<'EOF'
+import importlib.util as u
+import numpy
+print(f"  ✓ numpy {numpy.__version__}")
+print("  ✓ faster-whisper: captions and the QA gate's speech check" if u.find_spec("faster_whisper")
+      else "  ! faster-whisper is not installed: captions and the QA gate's speech check wait for it")
+print("  ✓ cryptography and pywebpush: phone notifications" if u.find_spec("cryptography") and u.find_spec("pywebpush")
+      else "  ! cryptography or pywebpush is not installed: phone notifications are off")
+EOF
 
 # elsewhere PLACE...: before a download, what is already somewhere else on this machine is linked at PLACE instead
 # (app/discover.py: a symlink, nothing moved or copied; one scan, kept an hour)
@@ -340,6 +366,8 @@ if [ "$BOLT" = 1 ]; then  # NVIDIA Nemotron 3.5 Bolt, the brains' Studio-managed
          || echo "  ! the Bolt engine was not installed (on x86_64 there is no TensorFold Bolt engine: BOLT_BACKEND=llamacpp, docs/rtx-pro-6000.md); the rest goes on"; fi
 fi
 
+if [ "$TRAIN" = 0 ] && [ "$VERIFY" = 1 ] && [ -x "$PREFIX/train/venv/bin/python" ]; then TRAIN=1; fi  # --verify reports training where it is installed
+if [ "$TRAIN" = 0 ] && [ "$VERIFY" = 1 ]; then echo "  - training a LoRA is not installed (--train adds it)"; fi
 if [ "$TRAIN" = 1 ] && [ "$IMAGE_ONLY" = 0 ]; then  # Looks -> Train a LoRA: musubi-tuner, its environment and two files (spark/setup-train.sh)
   if [ "$UPGRADE" = 1 ]; then PREFIX="$PREFIX" SPARK_MODELS="$MODELS" bash "$HERE/spark/setup-train.sh" --verify || echo "  ! training is not fully set up: bash spark/setup-train.sh"
   else PREFIX="$PREFIX" SPARK_MODELS="$MODELS" bash "$HERE/spark/setup-train.sh" $([ "$VERIFY" = 1 ] && echo --verify) \
@@ -466,12 +494,21 @@ if [ "$GRAPHICS" = 1 ]; then
   say "Motion graphics: HyperFrames $(sed -nE 's/^HYPERFRAMES_VERSION="([^"]+)".*/\1/p' "$HERE/scripts/setup-graphics.sh") -> $PREFIX/graphics"
   PREFIX="$PREFIX" bash "$HERE/scripts/setup-graphics.sh" $([ "$VERIFY" = 1 ] && echo --verify) $([ "$RENDER" = 1 ] || echo --no-test) | sed 's/^/  /' \
     || echo "  ! motion graphics are not fully set up (above): bash oneshot-setup-spark.sh --graphics tries again"
-fi
+elif [ "$VERIFY" = 1 ]; then echo "  - motion graphics are not installed (--graphics adds them)"; fi
+
+if [ "$FINISH" = 1 ]; then
+  # Finish (scripts/setup-finish.sh): Tesseract and its converter where Tesseract runs (Linux x86_64), the two fonts everywhere;
+  # on Linux ARM (a DGX Spark) the cut is finished on a Mac set as the remote computer
+  say "Finish: Tesseract, Tesseract Converter and two fonts -> $PREFIX/finish (about 150 MB)"
+  [ "$VERIFY" = 1 ] || echo "  Tesseract is free to use under Mirage's own terms, not open source (TERMS.md beside it); the converter is MIT."
+  PREFIX="$PREFIX" bash "$HERE/scripts/setup-finish.sh" $([ "$VERIFY" = 1 ] && echo --verify) | sed 's/^/  /' \
+    || echo "  ! Finish is not fully set up (above): bash oneshot-setup-spark.sh --finish tries again"
+elif [ "$VERIFY" = 1 ]; then echo "  - Finish is not installed (--finish adds it)"; fi
 
 [ "$VERIFY" = 1 ] || cp "$HERE/VERSION" "$PREFIX/VERSION"
 if [ "$UPGRADE" = 1 ]; then
   say "Upgraded: $INSTALLED -> $(cat "$PREFIX/VERSION"). Checking the install (restart the app to serve the new pages: scripts/app.sh)"
-  exec bash "$HERE/oneshot-setup-cuda.sh" --verify $([ "$IMAGE_ONLY" = 0 ] || echo --image-only) $([ "$REF2VA" = 0 ] || echo --ref2va) $([ "$FLUX3" = 0 ] || echo --flux3) $([ "$MOSS" = 0 ] || echo --moss) $([ "$MUSIC" = 0 ] || echo --music) $([ "$SOUND" = 0 ] || echo --sound) $([ "$BOLT" = 0 ] || echo --bolt) $([ "$VOICE" = 0 ] || echo --voice) $([ "$TRAIN" = 0 ] || echo --train) $([ "$GRAPHICS" = 0 ] || echo --graphics)
+  exec bash "$HERE/oneshot-setup-cuda.sh" --verify $([ "$IMAGE_ONLY" = 0 ] || echo --image-only) $([ "$REF2VA" = 0 ] || echo --ref2va) $([ "$FLUX3" = 0 ] || echo --flux3) $([ "$MOSS" = 0 ] || echo --moss) $([ "$MUSIC" = 0 ] || echo --music) $([ "$SOUND" = 0 ] || echo --sound) $([ "$BOLT" = 0 ] || echo --bolt) $([ "$VOICE" = 0 ] || echo --voice) $([ "$TRAIN" = 0 ] || echo --train) $([ "$GRAPHICS" = 0 ] && echo --no-graphics || echo --graphics) $([ "$FINISH" = 0 ] && echo --no-finish || echo --finish)
 fi
 # The essential LoRA bundle: every preset of the LoRA hub, fetched once from its author's page into one folder laid out
 # by the hub's groups, then installed (oneshot-essential-bundle.sh). --loras=GROUPS takes some groups, --lora-bundle=PATH
