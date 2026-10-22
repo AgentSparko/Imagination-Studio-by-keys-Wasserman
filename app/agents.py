@@ -124,6 +124,7 @@ SYSTEM = ("You are working for a filmmaker inside Imagination Studio. Save every
 STUDIO_TOOLS = ("studio_state (call first), list_library, search_library, queue_still, queue_edit, queue_clip (references for Ref2VA), queue_long, "
                 "restyle_clip, extend_clip, fix_clip (work on a Library clip), queue_voice, queue_song, queue_sound (sfx, foley), queue_soundtrack, check_clip (the QA gate), motion_previs, "
                 "job_status, wait_for_jobs, cancel_job, list_jobs, list_projects, add_to_timeline, export_timeline, upload_file, "
+                "train_lora and training_status (a LoRA trained on a DGX Spark from Library clips, for hours), "
                 "and Slate's slate_films, slate_film, slate_new_film, slate_add_scene, slate_add_shot, slate_render_shot, suite_imports and suite_attach (what the filmmaker suite brought in, sent into a film)")
 ROOM = (" This is a conversation with the filmmaker in the Studio's Agent room, and it continues over several turns."
         "{tools} When anything is unclear or a choice matters (length, look, voice, which take), ask the filmmaker one "
@@ -2147,7 +2148,7 @@ def answer_of(base: str, body: dict, stopped) -> dict | None:
 
 MAKERS = ("search_library", "queue_still", "queue_clip", "queue_voice", "queue_song", "queue_edit", "queue_long", "queue_sound", "queue_soundtrack",
           "check_clip", "motion_previs", "slate_new_film", "slate_add_scene", "slate_add_shot", "slate_render_shot",
-          "suite_attach", "add_to_timeline", "export_timeline", "upload_file", "restyle_clip", "extend_clip", "fix_clip")
+          "suite_attach", "add_to_timeline", "export_timeline", "upload_file", "restyle_clip", "extend_clip", "fix_clip", "train_lora")
 LOCAL_RULES = (" Do only what the filmmaker asked, exactly: one call for each thing asked for, the number of pictures, takes or "
                "shots they asked for (one picture is count 1), the names and lengths they gave, word for word. Never add a picture, "
                "clip, song, voice line, sound or render they did not ask for, never render a Slate shot unless asked, and when they "

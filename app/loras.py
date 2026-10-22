@@ -152,6 +152,21 @@ def adaln_basis(folder: Path):
     return basis, offset
 
 
+def remember(folder: Path, recipe: dict) -> None:
+    """A recipe written into the hub's own list (folder/hub.json), in the place of one with the same id: what a LoRA
+    trained here (app/train.py) adds. The list is replaced whole, so a reader never sees half of it."""
+
+    book = Path(folder) / "hub.json"
+    try:
+        kept = json.loads(book.read_text())
+    except (OSError, ValueError):
+        kept = []
+    kept = [one for one in kept if isinstance(one, dict) and one.get("id") != recipe["id"]] + [recipe]
+    part = book.with_name("hub.json.part")
+    part.write_text(json.dumps(kept, indent=1))
+    part.replace(book)
+
+
 def bundle() -> str:
     """Where a LoRA bundle is, if there is one: LORA_BUNDLE (a folder, or the base address of a copy of one), else
     the folder lora-bundle in the studio's home. scripts/lora-bundle.py builds one."""

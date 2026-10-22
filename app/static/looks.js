@@ -101,6 +101,7 @@ function lookCard(r) { const st = r.installing, busy = lookBusy(r), dead = r.sta
         : busy ? null
         : !r.installed ? el("button", { type: "button", class: "small", title: r.page || "", onclick: () => lookInstall([r]) }, st && st.stage === "failed" ? "Try again" : "Install")
         : use,
+        r.trained && r.installed && !busy && typeof trainTryButton === "function" ? trainTryButton(r) : null,  // a LoRA trained here (train.js)
         r.installed && !busy ? el("button", { type: "button", class: "small ghost", title: "Moves this LoRA's file to the trash folder" + (r.builtin ? "; the preset stays here" : " and takes it out of the hub"), onclick: () => lookRemove(r) }, "Remove") : null))); }
 
 function lookForm() { const f = LK.form;
@@ -134,9 +135,11 @@ function viewLooks() {
     oninput: e => { HUB.q = e.target.value; const at = e.target.selectionStart; render(); const again = document.querySelector(".looks input[type=search]"); if (again) { again.focus(); again.setSelectionRange(at, at); } } });
   return el("div", { class: "looks" },
     vaultHead("looks", "Looks", "Styles for pictures and clips, one LoRA a card.",
-      el("button", { type: "button", class: "small" + (LK.open ? " on" : ""), onclick: () => { LK.open = !LK.open; render(); } }, "+ Add your own")),
+      el("span", { class: "chips" }, el("button", { type: "button", class: "small" + (LK.open ? " on" : ""), onclick: () => { LK.open = !LK.open; render(); } }, "+ Add your own"),
+        typeof trainPanel === "function" ? el("button", { type: "button", class: "small" + (LK.train ? " on" : ""), onclick: () => { LK.train = !LK.train; render(); } }, "Train your own") : null)),
     el("div", { class: "note looktally" }, LORAS.length ? lookTally() : "Loading the hub…"),
     LK.open ? lookForm() : null,
+    LK.train && typeof trainPanel === "function" ? trainPanel() : null,  // a LoRA trained here from Library clips and stills (train.js)
     el("div", { class: "looksbar" },
       el("div", { class: "seg-ctl" }, tabs.map(g => el("button", { type: "button", class: HUB.tab === g.id ? "on" : "", onclick: () => { HUB.tab = g.id; render(); } }, g.name))),
       search,
