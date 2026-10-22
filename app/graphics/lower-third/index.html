@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<title>Lower third</title>
+<!-- Imagination Studio motion graphics: a name and a role over a clip. data.js (window.STUDIO_DATA) is written by the
+     studio with the root's size and length and the clip below. -->
+<script src="gsap.min.js"></script>
+<script src="data.js"></script>
+<style>
+  @font-face { font-family: "Instrument Serif"; src: url("fonts/instrument-serif.woff2") format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Geist"; src: url("fonts/geist.woff2") format("woff2"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { margin: 0; overflow: hidden; background: #000; }
+  #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; --u: 1px; }
+  #clip { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .wrap { position: absolute; left: 0; right: 0; bottom: calc(var(--u) * 110); padding: 0 calc(var(--u) * 120); display: flex; }
+  .wrap.right { justify-content: flex-end; text-align: right; }
+  .plate { position: relative; display: block; padding: calc(var(--u) * 18) calc(var(--u) * 30) calc(var(--u) * 20) calc(var(--u) * 34);
+    max-width: calc(var(--u) * 1100); opacity: 0; background: linear-gradient(90deg, rgba(8, 8, 10, 0.78), rgba(8, 8, 10, 0.42)); }
+  .right .plate { padding: calc(var(--u) * 18) calc(var(--u) * 34) calc(var(--u) * 20) calc(var(--u) * 30);
+    background: linear-gradient(270deg, rgba(8, 8, 10, 0.78), rgba(8, 8, 10, 0.42)); }
+  #bar { position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--u) * 5); background: #c9a86a; display: block; }
+  .right #bar { left: auto; right: 0; }
+  #name { display: block; font-family: "Instrument Serif", Georgia, serif; font-size: calc(var(--u) * 64); line-height: 1.05; color: #f4efe6; }
+  #role { display: block; margin-top: calc(var(--u) * 8); font-family: "Geist", system-ui, sans-serif; font-size: calc(var(--u) * 24);
+    letter-spacing: 0.24em; text-transform: uppercase; color: #cfc6b8; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="6" data-width="1920" data-height="1080" data-fps="24">
+  <!-- studio:media -->
+  <div class="wrap" id="wrap">
+    <div class="plate" id="plate"><span id="bar"></span><span id="name"></span><span id="role"></span></div>
+  </div>
+</div>
+<script>
+  const D = window.STUDIO_DATA || {}, root = document.getElementById("root");
+  const u = Math.min(Number(D.width) || 1920, (Number(D.height) || 1080) * 16 / 9) / 1920;
+  root.style.setProperty("--u", u + "px");
+  if (D.side === "right") document.getElementById("wrap").classList.add("right");
+  document.getElementById("name").textContent = D.name || "";
+  document.getElementById("role").textContent = D.role || "";
+  if (!D.role) document.getElementById("role").style.display = "none";
+  const at = Number(D.at) || 0, hold = Number(D.hold) || 5, dir = D.side === "right" ? 1 : -1;
+  const tl = gsap.timeline({ paused: true });
+  tl.fromTo("#bar", { scaleY: 0 }, { scaleY: 1, duration: 0.45, ease: "power3.out" }, at);
+  tl.fromTo("#plate", { opacity: 0, x: 40 * u * dir }, { opacity: 1, x: 0, duration: 0.6, ease: "power3.out" }, at + 0.05);
+  tl.fromTo("#name", { opacity: 0, y: 14 * u }, { opacity: 1, y: 0, duration: 0.7, ease: "power2.out" }, at + 0.2);
+  tl.fromTo("#role", { opacity: 0, y: 10 * u }, { opacity: 1, y: 0, duration: 0.7, ease: "power2.out" }, at + 0.45);
+  tl.to("#plate", { opacity: 0, x: 24 * u * dir, duration: 0.5, ease: "power2.in" }, at + Math.max(1, hold) - 0.5);
+  window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

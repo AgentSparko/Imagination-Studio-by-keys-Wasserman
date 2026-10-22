@@ -112,6 +112,7 @@ core: pictures and FastH3 video with sound (125 GB).
 | `--sound` | Sound effects and foley (11 GB more, gated) |
 | `--motion` | Motion Previs analysis (0.5 GB) |
 | `--voice` | Fish Audio Drama 3 (about 41 GB more) |
+| `--graphics` | Motion graphics: HyperFrames, GSAP and a browser (about 400 MB) |
 | `--no-render` | Skip the test clip |
 | `--no-loras` | Skip the essential LoRA bundle (about 4 GB) |
 | `--no-workflows` | Skip the Library action packs |
@@ -2929,6 +2930,39 @@ beside it), which leave out commercial use by a business with a yearly revenue o
 separate agreement, and do not allow passing it on. It may send basic usage counts for some commands (no file names,
 paths or contents), on by default; the Studio never changes that setting, and `tsrct telemetry disable` turns it off.
 Tesseract Converter is MIT. Instrument Serif and Geist are under the SIL Open Font License.
+## Motion graphics: titles, captions, slideshows and music videos
+
+Edit → **Graphics** makes motion graphics from what is already in the Library and renders them to MP4 on this machine,
+with [HyperFrames](https://github.com/heygen-com/hyperframes) (open source, Apache-2.0) and GSAP. Pick what to make,
+fill in the words, pick the clips, pictures, voice line or song, choose a size and press **Make it**:
+
+- **Title**: a film title and a subtitle, dark and slow, over black or over a clip.
+- **Lower third**: a name and a role laid over a clip, at the time you say, for as long as you say.
+- **Kinetic type**: a sentence word by word, each word on a beat of a song.
+- **Captions**: a clip's speech burned in, word by word as it is said. The words are heard on this machine (with
+  faster-whisper, or the whisper command, as the QA gate does) the first time and kept beside the clip as
+  `<clip>.words.json`, so the next captions of that clip start at once.
+- **Slideshow**: pictures with a slow push-in, crossfaded, with a voice line (its length sets the slideshow's) or a song.
+- **Music video**: clips cut in turn on the beat of a song, with flash and whip cuts. The beats come from the song when
+  the studio can find them ("Find the beats"), otherwise from the tempo you give.
+- **Explainer**: sections of a heading, a few words and a picture, timed to a voice-over: each section gets its share of
+  the voice by its length.
+
+Under a clip in the Library, **Add a title** and **Caption this clip** open the tab on that clip. Sizes: 1080p, 720p,
+vertical, square, or the clip's own size; 24 frames a second. The voice is a Voice tab take and the music a Music tab
+song: nothing is sent anywhere, there is no account, and nothing is rendered in a cloud.
+
+Each graphic is one job of the queue: its page is copied to `~/ImaginationStudio/graphics/<job>/` with what it shows in
+`data.json`, and the MP4 lands in `renders/<job>.mp4` and the Library. For your own tools:
+`POST /api/jobs {kind: "graphics", params: {template, size?, …}}` (`template` is `title`, `lower-third`, `kinetic`,
+`captions`, `slideshow`, `music-video` or `explainer`), `GET /api/graphics`; agents have `make_graphics`.
+
+**Install** (about 400 MB, in `$PREFIX/graphics`): `bash scripts/setup-graphics.sh`, or `oneshot-setup.sh --graphics`
+(`oneshot-setup-spark.sh --graphics` on a DGX Spark). It needs ffmpeg and Node 22 or newer: when the machine's Node is
+older (a DGX Spark has Node 20), the official Node 22 is downloaded from nodejs.org for HyperFrames alone, its checksum
+checked. It renders in a headless Chromium: one already in Playwright's cache is used, otherwise HyperFrames' own, or
+on a DGX Spark (Linux on arm64) Playwright's Chromium for arm64. `--verify` checks an install and downloads nothing.
+Fonts are the studio's own Geist and Instrument Serif (SIL Open Font License).
 
 ## Motion Previs: a shot into control layers and a camera move
 

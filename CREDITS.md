@@ -208,6 +208,14 @@ safetensors copies of MMAudio's weights. The studio clones it at a pinned commit
 (`spark/studio_mmaudio`) calls kijai's loaders' models and generate. On a Spark a sound effect runs on **ComfyUI**'s
 own Stable Audio nodes.
 
+## Motion graphics: HeyGen's HyperFrames and GreenSock's GSAP
+
+**HeyGen** and the HyperFrames contributors made **HyperFrames** (Apache-2.0), which renders the Graphics tab's
+titles, captions, slideshows and music videos: a web page seeked frame by frame in a headless Chromium and encoded
+with FFmpeg. The motion in each template is written with **GSAP** by GreenSock (now part of Webflow), under its
+standard no-charge licence. Both are installed from npm at pinned versions by `scripts/setup-graphics.sh`; the pack
+ships neither. On a DGX Spark the browser is **Playwright**'s Chromium for arm64 (Microsoft, Apache-2.0).
+
 ## The first native Mac engine: Salvatore Sanfilippo (antirez)
 
 **antirez** wrote **h3.c**, MiniMax H3 in C and Metal. It is the reference for what is possible on Apple

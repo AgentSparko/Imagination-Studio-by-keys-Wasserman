@@ -14,11 +14,15 @@ const actOf = kind => (ACT.state || {})[kind] || { ready: false, why: "" };
 function actOpen(kind, path) { ACT.open = { kind, path }; if (kind === "remove") ACT.rm.mask = null; tab = "Library"; history.replaceState(null, "", "#Library"); render();
   setTimeout(() => { const n = document.querySelector("#actpanel"); if (n) n.scrollIntoView({ behavior: "smooth", block: "start" }); }, 60); }
 // the buttons a Library tile gets for its kind of file
-function actButtons(m) { if (!ACT.state) return [];
+function actButtons(m) { const gfx = typeof gfxButtons === "function" ? gfxButtons(m) : [];  // Add a title, Caption this clip (graphics.js)
+  if (!ACT.state) return gfx;
   const one = (kind, label, title) => el("button", { class: "small", title: actOf(kind).ready ? title : actOf(kind).why, onclick: () => actOpen(kind, m.path) }, label);
   return (m.kind === "video" ? [one("upscale", "Upscale", "Make this clip larger and sharper: a latent upscale, then one light re-draw guided by the clip itself"),
                                one("remove", "Remove a person", "Take one person out of this clip and rebuild the background")]
     : [one("turnaround", "Turnaround", "Five views of this picture's subject, from the front round to the side or back")]).concat(typeof revButtons === "function" ? revButtons(m) : []); }
+  return gfx.concat(m.kind === "video" ? [one("upscale", "Upscale", "Make this clip larger and sharper: a latent upscale, then one light re-draw guided by the clip itself"),
+                               one("remove", "Remove a person", "Take one person out of this clip and rebuild the background")]
+    : [one("turnaround", "Turnaround", "Five views of this picture's subject, from the front round to the side or back")]); }
 // a LoRA's card in the hub, when the LoRA belongs to an action: where it is used, in place of "Use on this clip"
 function actHubNote(r) { const kind = r.action, a = actOf(kind);
   return el("div", { class: "note" }, "Used by the Library’s “" + (a.title || kind) + "” action: " + (kind === "turnaround" ? "press Turnaround under a picture." : "press " + (a.title || kind) + " under a clip.")
