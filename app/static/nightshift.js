@@ -68,7 +68,7 @@ function nightPanel() { if (NS.list === null) nsLoad(); else if (nsLive()) nsWat
 // Slate → Deliver: every shot of this film without a good take, planned for tonight
 function nightFromFilm(film) {
   return el("button", { class: "fit", disabled: NS.busy, title: "Every shot with a prompt and no good take is rendered overnight, then a reel, the dailies and notes are made",
-    onclick: async () => { if (typeof slTimer !== "undefined" && typeof SL !== "undefined" && SL.p && SL.p.id === film.id) { clearTimeout(slTimer); try { await api("/api/slate/projects/" + film.id, SL.p, "PUT"); } catch (e) { return toast(e.message); } }
+    onclick: async () => { if (typeof slTimer !== "undefined" && typeof SL !== "undefined" && SL.p && SL.p.id === film.id) { clearTimeout(slTimer); try { await slPut(SL.p); } catch (e) { return toast(e.message); } }
       const p = await nsPlan({ film: film.id, start: NS.start === "now" ? "idle" : nsStart() }); if (p && typeof go === "function" && confirm("Planned " + nsCount(p.count, "shot") + " for tonight. Open the night shift on Home?")) go("Home"); } },
     "Render the rest tonight"); }
 

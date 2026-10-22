@@ -11,7 +11,15 @@ try { SL.mode = localStorage.getItem("production-mode") || "board"; } catch {}
 const slId = prefix => prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
 const slNow = () => new Date().toISOString();
 let slTimer = null;
-const slSave = () => { clearTimeout(slTimer); slTimer = setTimeout(() => SL.p && api("/api/slate/projects/" + SL.p.id, SL.p, "PUT").catch(e => toast("Not saved: " + e.message)), 500); };
+// A save carries the updatedAt the film was loaded with: one the server changed since (a render, the Director) is
+// refused (409), and the film is loaded again instead of overwriting what the server wrote
+const SL_STALE = "The film changed on the server (a render or the Director): reloaded.";
+async function slPut(p = SL.p) { let r;
+  try { r = await api("/api/slate/projects/" + p.id, p, "PUT"); }
+  catch (e) { if (!/changed on the server/.test(e.message)) throw e;  // the 409 (slate.py save_project)
+    const fresh = await api("/api/slate/projects/" + p.id); if (SL.p && SL.p.id === p.id) { SL.p = fresh; SL.plan = {}; render(); } throw new Error(SL_STALE); }
+  if (r && r.updatedAt) p.updatedAt = r.updatedAt; return r; }
+const slSave = () => { clearTimeout(slTimer); slTimer = setTimeout(() => SL.p && slPut().catch(e => toast(e.message === SL_STALE ? e.message : "Not saved: " + e.message)), 500); };
 const slDraw = () => { slSave(); render(); };
 const slScene = () => SL.p.scenes.find(s => s.id === SL.sceneId) || SL.p.scenes[0] || null;
 const slShot = () => { const sc = slScene(); return sc ? sc.shots.find(s => s.id === SL.shotId) || sc.shots[0] || null : null; };
@@ -252,7 +260,7 @@ async function slRender(scene, shot, chain) { const tf = slTf(shot), c = await s
   shot.takes.unshift({ id: slId("take"), loggedAt: slNow(), model: "minimax-h3", prompt, rating: "good", notes: "", mediaPath: output, jobId: j.id, seed: c.plan.seed, settings: Object.fromEntries(["preset", "quality", "frames", "seconds", "width", "height", "loras"].filter(k => j.params && j.params[k] != null).map(k => [k, j.params[k]])) }); return output; }
 // A take rendered somewhere else (another machine's app, or a file) logged into this shot with its seed and settings.
 async function slImportTake(shot, given) { const body = { projectId: SL.p.id, shot: shot.id, ...Object.fromEntries(Object.entries(given).filter(([, v]) => v !== "" && v != null)) };
-  clearTimeout(slTimer); await api("/api/slate/projects/" + SL.p.id, SL.p, "PUT");  // the film as it is now: the server reads the shot from the file
+  clearTimeout(slTimer); await slPut();  // the film as it is now: the server reads the shot from the file
   const r = await api("/api/slate/takes", body); shot.takes.unshift(r.take); SL.have[r.take.mediaPath] = true; return r.take; }
 const slTakeLine = take => [take.seed != null ? "seed " + take.seed : "seed ?", take.settings && (take.settings.preset || take.settings.width) ? (take.settings.width ? take.settings.width + "×" + take.settings.height : take.settings.preset) : null,
   take.settings && take.settings.frames ? take.settings.frames + " frames" : take.settings && take.settings.seconds ? take.settings.seconds + " s" : null, take.settings && take.settings.quality, take.settings && (take.settings.loras || []).length ? "LoRA " + take.settings.loras.map(l => l.id).join(" + ") : null, typeof spkTake === "function" ? spkTake(take.mediaPath) : null,
@@ -394,7 +402,7 @@ function slTakes(scene, shot) { return shot.takes.filter(t => t.mediaPath).map(t
     have ? slKeepVoices(shot, take) : null, slFeedback(scene, shot, take)); }); }
 // A take's sound kept as a speaking character's voice: their voice sheet's cast voice from then on (slate.py)
 const slSpeakers = shot => [...new Set(slTf(shot).lines.filter(l => (l.text || "").trim() && l.characterId).map(l => l.characterId))].map(id => SL.p.characters.find(c => c.id === id)).filter(Boolean);
-async function slKeepVoice(shot, take, who) { try { clearTimeout(slTimer); await api("/api/slate/projects/" + SL.p.id, SL.p, "PUT");  // the server reads the take from the file
+async function slKeepVoice(shot, take, who) { try { clearTimeout(slTimer); await slPut();  // the server reads the take from the file
     SL.p = await api("/api/slate/voice-from-take", { project: SL.p.id, shot: shot.id, take: take.id, character: who.id }); SL.plan = {};
     const v = (SL.p.voices || []).find(x => x.characterId === who.id); toast("Kept as the voice of " + who.name + (v && v.drama ? ", " + Number(v.drama.seconds).toFixed(1) + " s" : "") + ": shots with Drama 3 dialogue use it"); render(); } catch (e) { toast(e.message); } }
 const slKeepVoices = (shot, take) => { const who = slSpeakers(shot); return who.length ? el("div", { class: "row chips", style: "margin-top:6px" }, who.map(c => el("button", { class: "small fit", title: "The take's sound (its first 15 s, at least 2 s) becomes " + c.name + "'s voice: the reference for their lines when dialogue is voiced by Drama 3", onclick: () => slKeepVoice(shot, take, c) }, "Keep this voice for " + c.name)), el("span")) : null; };
@@ -549,7 +557,7 @@ function viewSlate(switcher) { const box = el("section", { class: "card" }, swit
   if (!SL.p) { put(box, slHome(), credit); return box; }
   const p = SL.p, d = p.defaults, used = slBrainUsed(d), ok = SL.brain[used], tabs = { ad: "✦ First AD", bible: "Bible", studios: "Studios", shots: "Shots", sound: "Sound", deliver: "Deliver" }; slHave();
   put(box, el("div", { class: "row", style: "align-items:center" }, el("h2", { style: "margin:0" }, p.name), el("span", { class: "fit pill " + (SL.busy ? "running" : ok ? "done" : "failed"), title: "The brain: set it in the Bible" }, SL.busy ? "✦ " + SL.busy + "…" : (d.brain === used ? "" : "Automatic · ") + slBrainName(used) + (ok ? " ready" : " not found")),
-      el("button", { class: "small fit", onclick: async () => { clearTimeout(slTimer); await api("/api/slate/projects/" + p.id, p, "PUT").catch(() => {}); SL.p = null; SL.metas = null; render(); } }, "← All films")),
+      el("button", { class: "small fit", onclick: async () => { clearTimeout(slTimer); await slPut(p).catch(() => {}); SL.p = null; SL.metas = null; render(); } }, "← All films")),
     el("div", { class: "steps", style: "margin-top:12px" }, Object.entries(tabs).map(([k, label]) => el("button", { class: SL.view === k ? "on" : "", onclick: () => { SL.view = k; render(); } }, label))),
     SL.view === "studios" ? el("div", {}, el("div", { class: "choice tight", style: "margin-bottom:14px" }, ["cast", "art", "locations", "lookbook"].map(k => el("button", { type: "button", class: SL.studio === k ? "on" : "", onclick: () => { SL.studio = k; render(); } }, el("b", {}, SL_SHEETS[k].title), el("span", {}, (p[SL_SHEETS[k].key] || []).length + " sheets")))), slSheets(SL.studio))
     : SL.view === "sound" ? el("div", {}, el("div", { class: "choice tight", style: "margin-bottom:14px" }, ["voices", "music"].map(k => el("button", { type: "button", class: SL.sound === k ? "on" : "", onclick: () => { SL.sound = k; render(); } }, el("b", {}, SL_SHEETS[k].title), el("span", {}, (p[SL_SHEETS[k].key] || []).length + " sheets")))),

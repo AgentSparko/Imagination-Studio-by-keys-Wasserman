@@ -263,6 +263,25 @@ def test_a_film_made_before_the_bible_setting_renders_as_it_did():
     with_ref2va(test)
 
 
+def test_a_save_older_than_the_film_on_disk_is_refused():
+    from fastapi.testclient import TestClient
+
+    client = TestClient(server.app)
+    made = client.post("/api/slate/projects", json={"name": "Two writers"}).json()
+    loaded = dict(made)
+    import time as clock
+    clock.sleep(0.01)
+    later = slate.write({**slate.get_project(made["id"]), "logline": "the Director's"})  # a writer on the server
+    assert later["updatedAt"] > loaded["updatedAt"]
+    stale = client.put(f"/api/slate/projects/{made['id']}", json={**loaded, "logline": "the page's"})
+    assert stale.status_code == 409 and "changed on the server" in stale.json()["error"]
+    assert slate.get_project(made["id"])["logline"] == "the Director's"
+    fresh = client.put(f"/api/slate/projects/{made['id']}", json={**later, "logline": "the page's"})
+    assert fresh.status_code == 200 and fresh.json()["updatedAt"] >= later["updatedAt"]
+    plain = client.put(f"/api/slate/projects/{made['id']}", json={k: v for k, v in later.items() if k != "updatedAt"})
+    assert plain.status_code == 200  # a body without a stamp is saved as before
+
+
 def test_a_shot_from_the_shot_before_or_an_image_takes_no_pictures_but_the_words():
     def test():
         made = bible_film()

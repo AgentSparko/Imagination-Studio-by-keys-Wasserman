@@ -76,7 +76,8 @@ def new_id() -> str:
 
 
 def now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+    stamp = time.time()  # to the millisecond: a save is refused when the film changed after it was loaded (save_project)
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(stamp)) + f".{int(stamp * 1000) % 1000:03d}Z"
 
 
 AUTO = "auto"  # a film's brain that follows the Studio's own (Brains & tools: NVIDIA Bolt when its server answers)
@@ -140,8 +141,19 @@ def get_project(project_id: str) -> dict:
 
 @router.put("/api/slate/projects/{project_id}")
 def save_project(project_id: str, body: dict) -> dict:
-    if not project_file(project_id).is_file():
+    """The film as the page has it. A body that carries the ``updatedAt`` it was loaded with, older than the file's
+    (a render, the Director, the night shift or the suite wrote it since), is refused: 409, and the page loads it again."""
+
+    file = project_file(project_id)
+    if not file.is_file():
         raise HTTPException(404, "no such film")
+    if body.get("updatedAt"):
+        try:
+            kept = json.loads(file.read_text()).get("updatedAt") or ""
+        except ValueError:
+            kept = ""
+        if str(body["updatedAt"]) < str(kept):
+            raise HTTPException(409, "the film changed on the server since it was loaded")
     body["id"] = project_id
     return {"updatedAt": write(body)["updatedAt"]}
 

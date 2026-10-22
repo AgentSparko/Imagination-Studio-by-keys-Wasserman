@@ -114,6 +114,24 @@ def test_an_imported_take_joins_the_shots_takes():
     assert got["line"] == "seed 43 · sharp · 124 frames · fh8 · LoRA camera-motion · imported from 10.0.10.5:7870 · 2026-10-13 17:00"
 
 
+def test_a_save_of_a_film_the_server_changed_reloads_it():
+    got = run("""
+      const mine = film(); mine.updatedAt = "2026-10-13T17:00:00.000Z"; SL.p = mine;
+      const theirs = { ...film(), name: "Written by the Director", updatedAt: "2026-10-13T17:05:00.000Z" };
+      globalThis.api = async (path, body, method) => { calls.push([path, method || (body ? "POST" : "GET")]);
+        if (method === "PUT") { if (body.updatedAt < theirs.updatedAt) throw new Error("the film changed on the server since it was loaded"); return { updatedAt: "2026-10-13T17:06:00.000Z" }; }
+        return theirs; };
+      slSave(); await new Promise(done => setTimeout(done, 600));
+      out.calls = calls.slice(); out.name = SL.p.name; out.toast = toasts.pop();
+      SL.p.name = "Renamed"; await slPut(); out.after = SL.p.updatedAt;  // a save of the reloaded film goes through, and keeps the new stamp
+    """)
+    if got is None:
+        return
+    assert got["calls"] == [["/api/slate/projects/p-test", "PUT"], ["/api/slate/projects/p-test", "GET"]]
+    assert got["name"] == "Written by the Director" and got["toast"] == "The film changed on the server (a render or the Director): reloaded."
+    assert got["after"] == "2026-10-13T17:06:00.000Z"
+
+
 def test_the_first_ad_sets_the_song_a_shots_bars_and_its_lora():
     got = run("""
       SL.p = film(); LORAS[0].styles = { Orbit: "orbit shot" }; LORAS[0].strength = 0.9; LORAS[0].needs = "text"; LORAS[0].status = "ready";
