@@ -240,6 +240,8 @@ def test_a_graphic_is_queued_with_its_title_and_made(installed, monkeypatch, spa
         time.sleep(0.1)
     assert job["status"] == "done", job
     assert job["outputs"] == [f"renders/{job['id']}.mp4"] and unloaded == []
+    installed["build"]({"template": "title", "title": "A"}, "check")  # the queue's check of the settings writes nothing
+    assert not (HOME / "graphics" / "check").exists() and not (HOME / "renders" / "check.mp4").exists()
     bad = client.post("/api/jobs", json={"kind": "graphics", "params": {"template": "title"}})
     assert bad.status_code == 400 and bad.json()["error"] == "the title is needed"
     named = client.post("/api/jobs", json={"kind": "graphics", "title": "Opening card", "params": {"template": "title", "title": "A"}}).json()

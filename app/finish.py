@@ -344,7 +344,6 @@ def build(params: dict, job_id: str) -> tuple[list[str], dict, list[str]]:
     plan = plan_of(params)
     exports = HOME / "exports"
     work = exports / ".finish" / job_id
-    work.mkdir(parents=True, exist_ok=True)
     host = state["where"][4:] if state["where"].startswith("ssh:") else ""
     outputs = {kind: str(exports / f"{job_id}.{kind}") for kind in ("mp4", "tsrct", "fcpxml", "edl")}
     plan.update(id=job_id, work=str(work), outputs=outputs, tsrct=state["path"], host=host, machine=state.get("machine"),
@@ -352,7 +351,9 @@ def build(params: dict, job_id: str) -> tuple[list[str], dict, list[str]]:
                 linux=bool(state.get("linux")), ffmpeg=state.get("ffmpeg"))
     if plan["title"] and not plan["fonts"]["title"]:
         raise bad(f"no font for the title on this computer: run `{SETUP}`")
-    (work / "plan.json").write_text(json.dumps(plan, indent=1))
+    if job_id != "check":  # the queue's check of the settings writes nothing; the job's turn writes its plan
+        work.mkdir(parents=True, exist_ok=True)
+        (work / "plan.json").write_text(json.dumps(plan, indent=1))
     return [sys.executable, str(Path(__file__).resolve()), "run", str(work / "plan.json")], {}, list(outputs.values())
 
 

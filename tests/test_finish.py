@@ -167,6 +167,8 @@ def test_the_job_command_and_what_is_refused(studio):
     assert (plan["mix"], plan["size"], plan["fps"], plan["host"]) == ("music", "720p", 30, "")
     assert [Path(p).name for p in outputs] == ["j1.mp4", "j1.tsrct", "j1.fcpxml", "j1.edl"]
     assert all(Path(p).parent == HOME / "exports" for p in outputs)
+    finish.build({"project": "film1"}, "check")  # the queue's check of the settings writes nothing
+    assert not (HOME / "exports" / ".finish" / "check").exists()
     assert "mix is" in refused(finish.build, {"project": "film1", "mix": "loud"}, "j2")
     assert "fps" in refused(finish.build, {"project": "film1", "fps": 23}, "j2")
     assert "give the clips" in refused(finish.build, {"clips": []}, "j2")

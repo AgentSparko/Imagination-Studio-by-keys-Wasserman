@@ -601,8 +601,9 @@ def attach(home: Path, pack: Path, spark: bool, inside, relative):
             raise HTTPException(400, str(error))
         folder = home / "graphics" / job_id
         target = home / "renders" / f"{job_id}.mp4"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        write(folder, made)
+        if job_id != "check":  # the queue's check of the settings writes nothing; the job's turn writes its folder
+            target.parent.mkdir(parents=True, exist_ok=True)
+            write(folder, made)
         # through this file's runner, which says the render's progress as the queue reads it and, for captions whose
         # clip has no words yet, transcribes them first (in the job: they take a while)
         runner = [sys.executable, str(Path(__file__).resolve()), "run", str(folder)]
