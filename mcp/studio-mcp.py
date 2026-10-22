@@ -178,6 +178,20 @@ TOOLS = [
      "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"},
                                  "shot": {"type": "string", "description": "the shot's id or name"},
                                  "first_frame": {"type": "string", "description": "Library path of the opening picture"}}, ("film", "shot"))},
+    {"name": "train_lora", "description": "Train a LoRA on a DGX Spark from Library clips or stills (at least 8; each clip 5 s or "
+                                          "longer): a look (a style) or a character. It runs for hours (about 110 s a step) and the "
+                                          "Spark renders nothing else meanwhile, so do it only when the filmmaker asks. Returns the "
+                                          "job; follow it with training_status. The finished LoRA is in Looks under its name.",
+     "inputSchema": text_schema({"name": {"type": "string", "description": "the LoRA's name"},
+                                 "trigger": {"type": "string", "description": "one word the prompts will use, e.g. wk_noir"},
+                                 "kind": {"type": "string", "enum": ["look", "character"]},
+                                 "items": {"type": "array", "items": {"type": "string"}, "description": "Library paths of the clips and stills"},
+                                 "steps": {"type": "integer", "description": "300 to 3000 (default 1000)"},
+                                 "captions": {"type": "string", "enum": ["auto", "prompts", "none"], "description": "default auto"}},
+                                ("name", "trigger", "items"))},
+    {"name": "training_status", "description": "A LoRA training run, by its job id or the LoRA's id: the job's status and step, the "
+                                               "last checkpoint saved, and whether the LoRA is installed.",
+     "inputSchema": text_schema({"id": {"type": "string"}}, ("id",))},
     {"name": "upload_file", "description": "Copy a file from this machine into the Studio's Library (png, jpg, webp, mp4, mov, wav, mp3...). "
                                            "Returns its Library path.",
      "inputSchema": text_schema({"path": {"type": "string", "description": "absolute path of the file on this machine"}}, ("path",))},
@@ -477,6 +491,14 @@ def run(name: str, args: dict):
         return {**job_summary(job), "take": output, "warnings": compiled.get("warnings") or []}
     if name == "list_jobs":
         return [job_summary(job) for job in call("GET", "/api/jobs")[:int(args.get("limit") or 20)]]
+    if name == "train_lora":
+        items = args["items"] if isinstance(args["items"], list) else [args["items"]]
+        made = call("POST", "/api/train/datasets", {"name": str(args["name"]), "trigger": str(args["trigger"]), "kind": str(args.get("kind") or "look"),
+                                                    "captions": str(args.get("captions") or "auto"), "items": [str(one) for one in items]})
+        job = call("POST", "/api/train/start", {"dataset": made["id"], "name": str(args["name"]), **({"steps": int(args["steps"])} if args.get("steps") else {})})
+        return {**job_summary(job), "dataset": made["id"], "lora": (job.get("params") or {}).get("lora"), "items": made.get("items")}
+    if name == "training_status":
+        return call("GET", "/api/train/status/" + urllib.request.quote(str(args["id"]), safe=""))
     if name == "upload_file":
         source = Path(str(args["path"])).expanduser()
         if not source.is_file():

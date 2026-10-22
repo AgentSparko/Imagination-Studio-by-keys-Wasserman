@@ -2704,6 +2704,38 @@ the same ffmpeg step as on a Mac.
 Hugging Face page is gated, so accept the licence there first (the studio's Install guide signs you in to Hugging
 Face). MMAudio's weights are **CC-BY-NC 4.0: non-commercial**; its code is MIT. Do not redistribute either's weights.
 
+## Train your own LoRA
+
+**Looks → Train a LoRA** turns your own clips or stills into a LoRA for the video model: a **look** (a colour, a grain,
+a kind of light) or a **character** (one person or creature, the same in every shot). It trains on a DGX Spark, and
+the result appears in Looks under **My LoRAs**, ready to use on a clip like any other look.
+
+1. Pick at least 8 clips or stills from the Library (each clip 5 seconds or longer; clips and stills can be mixed).
+2. Give it a name and a **trigger word**, one word your prompts will use (`wk_noir`). Choose a look or a character.
+3. Choose where the captions come from: **Automatic** uses the prompt each clip was made from, else the Library's
+   caption of it, else the trigger alone; **Prompts only**; or **Trigger only**. Every caption starts with the trigger;
+   a character's also says "a video of" or "a photo of" it.
+4. Set the length (300 to 3000 steps, 1000 by default) and press **Start training**. The page says how long it takes:
+   about 110 seconds a step at the standard size (928x512, 124 frames), so 1000 steps is about 30 hours.
+
+While it trains the Spark does nothing else: ComfyUI is stopped, the brain engine, Drama 3 and Music 3 are unloaded,
+and the run holds the GPU lock and about 55 GB of memory, with the memory guard beside it. The run is a job of the
+queue with its step count; a checkpoint is saved every 100 steps, so a run you cancel (or one the memory guard stops)
+**resumes** from its last checkpoint. When it ends, the LoRA is written to `~/ImaginationStudio/loras/` in the layout
+ComfyUI reads, and its card in Looks has **Try it**, which queues a short clip with it on.
+
+Agents can do the same: `train_lora {name, trigger, kind, items, steps}` and `training_status {id}` in the Studio's
+MCP tools. Over HTTP: `POST /api/train/datasets {name, trigger, kind, items, captions}`, then
+`POST /api/train/start {dataset, steps, rank, lr, size, save_every}` (or `{resume: <lora id>}`); `GET /api/train`.
+
+**What it needs** (`bash oneshot-setup-spark.sh --train`, or `bash spark/setup-train.sh`; `--verify` checks):
+kohya-ss's [musubi-tuner](https://github.com/kohya-ss/musubi-tuner) at `f8a1b03` (Apache License 2.0) in its own
+environment under `$PREFIX/train`; MiniMax H3's FL2VA transformer (what `--h3-base` installs, fetched if missing);
+MiniMax H3's video encoder in fp16 from Comfy-Org/MiniMax-H3 and ostris's de-distillation adapter v2
+(ostris/minimax_h3_training_adapter), about 5.5 GB in `$SPARK_MODELS/Train-H3`. The adapter is merged under the LoRA
+while it trains and is not used when it renders. MiniMax H3's files are under the MiniMax H3 Community License; the
+adapter is made from MiniMax H3. The LoRA you train is yours; what it may be used for follows that licence.
+
 ## Motion Previs: a shot into control layers and a camera move
 
 **New to it? Start with the walkthrough:** [TUTORIAL.md, section 9](TUTORIAL.md#9-motion-previs-make-a-clip-that-moves-like-another)
