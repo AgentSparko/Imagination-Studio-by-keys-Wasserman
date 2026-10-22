@@ -56,6 +56,14 @@ Rain hammers the dumpsters. Jonah waits.
 """
 
 
+def test_two_editor_projects_made_in_one_second_are_two(monkeypatch):
+    real = time.strftime
+    monkeypatch.setattr(server.time, "strftime", lambda fmt, *when: "p0101-000000" if fmt == "p%m%d-%H%M%S" else real(fmt, *when))
+    first, second = (client.post("/api/projects", json={"name": name}).json() for name in ("One", "Two"))
+    assert first["id"] == "p0101-000000" and second["id"] == "p0101-000000-2"
+    assert client.get(f"/api/projects/{first['id']}").json()["name"] == "One"
+
+
 def test_the_suite_lists_its_apps():
     apps = client.get("/api/suite").json()
     ids = {one["id"] for one in apps}

@@ -2599,11 +2599,18 @@ def projects() -> list[dict]:
 
 @app.post("/api/projects")
 def new_project(body: dict) -> dict:
-    project_id = time.strftime("p%m%d-%H%M%S")
+    stamp, n = time.strftime("p%m%d-%H%M%S"), 1
+    project_id = stamp
+    while True:  # an id no other project has: two made in one second differ (as roughcut.new_project)
+        try:
+            project_file(project_id).parent.mkdir(parents=True)
+            break
+        except FileExistsError:
+            n += 1
+            project_id = f"{stamp}-{n}"
     data = {"id": project_id, "name": body.get("name") or "Untitled", "preset": "small" if SPARK else "draft", "quality": "fh8" if SPARK else "standard",
             "segments": [], "timeline": []}
     file = project_file(project_id)
-    file.parent.mkdir(parents=True, exist_ok=True)
     fresh = file.with_suffix(".json.new")
     fresh.write_text(json.dumps(data, indent=1))
     fresh.replace(file)
