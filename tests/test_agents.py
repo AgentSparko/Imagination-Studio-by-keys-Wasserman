@@ -451,7 +451,7 @@ def test_the_studio_mcp_server_shakes_hands():
     assert check["ok"] and check["tools"] == ["studio_state", "list_library", "queue_still", "queue_clip", "queue_voice", "queue_song", "queue_edit",
                                              "queue_long", "queue_sound", "queue_soundtrack", "check_clip", "motion_previs", "cancel_job", "list_projects",
                                              "add_to_timeline", "export_timeline", "job_status", "wait_for_jobs", "list_jobs", "slate_films",
-                                             "slate_film", "slate_new_film", "slate_add_scene", "slate_add_shot", "slate_render_shot", "upload_file"]
+                                             "slate_film", "slate_new_film", "slate_add_scene", "slate_add_shot", "slate_render_shot", "suite_imports", "suite_attach", "upload_file"]
 
 
 def test_blender_is_started_when_its_socket_is_closed(fake):

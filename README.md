@@ -159,6 +159,25 @@ cores · a 2x video decoder for 2K finals on the Mac
 - **The repository is now `drowzeys/Imagination-Studio-by-keys-Wasserman`**, matching the name. The old address
   redirects, so installs that follow it keep updating.
 
+### Bring previs and prompts into a film
+
+What the filmmaker suite made goes straight into your work, not only into a new film.
+
+- **Into a film you already have.** On the **Suite** page, open anything you brought in (a Blockout export, a Motion
+  Previs pack, a board, a screenplay) and use **Send into a film**. Pick the film, say which of its shots each imported
+  shot goes to (or *A new shot*, in a scene you choose), and press **Attach**. The still becomes the shot's first
+  frame, a previs clip becomes its motion reference when the shot is rendered, and the shot's words fill its prompt
+  when that is empty (a prompt you wrote is never replaced). A previs reference clip is sent to the Ref2VA model, so it
+  needs `oneshot-setup.sh --ref2va`; it does not combine with a first frame, and the shot's check says so.
+- **Into the Home composer.** **From the suite**, beside *Ask your agent instead*, lists what you brought in and its
+  shots. Pick one and the box fills with its words, the length is set to the nearest the model makes, and its still is
+  the clip's first frame (remove it with the small button if you only want the words).
+- **Recent imports on the Suite page** show their app's icon with *Send into a film* and *Use in the composer*.
+- **Your agent can do it too.** `suite_imports` lists what was brought in and its shots; `suite_attach` sends shots into
+  a film.
+
+It runs on this computer and needs no account.
+
 ## New in 3.1.0 (2026-10-20)
 
 - **One-shot installs with everything, on both machines.** `bash oneshot-setup.sh --all` installs every feature the

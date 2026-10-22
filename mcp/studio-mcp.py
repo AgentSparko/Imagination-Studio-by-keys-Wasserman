@@ -182,6 +182,18 @@ TOOLS = [
      "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"},
                                  "shot": {"type": "string", "description": "the shot's id or name"},
                                  "first_frame": {"type": "string", "description": "Library path of the opening picture"}}, ("film", "shot"))},
+    {"name": "suite_imports", "description": "What was brought in from the filmmaker suite (Blockout previs, a screenplay, a board, a Motion Previs pack), "
+                                             "newest first: id, title, app and shot count. With import, that one's shots with their ids and prompts.",
+     "inputSchema": text_schema({"import": {"type": "string", "description": "an import's id or title, to list its shots"}})},
+    {"name": "suite_attach", "description": "Send shots of a suite import into a Slate film: the still becomes the shot's first frame, a previs "
+                                            "clip its motion reference, and the words fill an empty prompt. mapping is a list of {shot, to}: shot is "
+                                            "the import's shot id, to a film shot's id or name, or \"new\" for a new shot (then scene names the scene). "
+                                            "Returns what was changed.",
+     "inputSchema": text_schema({"import": {"type": "string", "description": "the import's id or title"},
+                                 "film": {"type": "string", "description": "the film's id or name"},
+                                 "mapping": {"type": "array", "description": "which import shot goes to which film shot",
+                                             "items": {"type": "object", "properties": {"shot": {"type": "string"}, "to": {"type": "string"}, "scene": {"type": "string"}}}}},
+                                ("import", "film", "mapping"))},
     {"name": "upload_file", "description": "Copy a file from this machine into the Studio's Library (png, jpg, webp, mp4, mov, wav, mp3...). "
                                            "Returns its Library path.",
      "inputSchema": text_schema({"path": {"type": "string", "description": "absolute path of the file on this machine"}}, ("path",))},
@@ -484,6 +496,32 @@ def run(name: str, args: dict):
         return {**job_summary(job), "take": output, "warnings": compiled.get("warnings") or []}
     if name == "list_jobs":
         return [job_summary(job) for job in call("GET", "/api/jobs")[:int(args.get("limit") or 20)]]
+    if name == "suite_imports":
+        listed = [{**one, "name": one.get("title")} for one in call("GET", "/api/suite/imports")]
+        if not args.get("import"):
+            return [{key: one.get(key) for key in ("id", "title", "app", "shots")} for one in listed]
+        found = call("GET", "/api/suite/imports/" + urllib.request.quote(named(listed, args["import"], "import")["id"], safe=""))
+        return {"id": found["id"], "title": found.get("title"), "app": found.get("app"),
+                "shots": [{key: one.get(key) for key in ("id", "title", "scene", "action", "camera", "seconds")} | {"still": bool(one.get("image")), "previs_clip": bool(one.get("reference_video"))}
+                          for one in found.get("shots") or []]}
+    if name == "suite_attach":
+        listed = [{**one, "name": one.get("title")} for one in call("GET", "/api/suite/imports")]
+        found = named(listed, args["import"], "import")
+        film = film_of(args["film"])
+        if not isinstance(args.get("mapping"), list) or not args["mapping"]:
+            raise StudioError("mapping is a list of {shot, to}")
+        flat = [shot for scene in film.get("scenes") or [] for shot in scene.get("shots") or []]
+        rows = []
+        for row in args["mapping"]:
+            to = str(row.get("to") or "")
+            if to != "new":
+                to = named(flat, to, "shot")["id"]
+            scene = named(film.get("scenes") or [], row["scene"], "scene")["id"] if to == "new" and row.get("scene") else None
+            rows.append({"shot": str(row.get("shot") or ""), "to": to, **({"scene": scene} if scene else {})})
+        made = call("POST", "/api/suite/imports/" + urllib.request.quote(found["id"], safe="") + "/attach", {"film": film["id"], "mapping": rows})
+        return {"film": made["id"], "name": made.get("name"), "sent": len(rows),
+                "shots": [{"id": s["id"], "name": s.get("name"), "first_frame": (s.get("tf") or {}).get("image"), "previs_clip": (s.get("tf") or {}).get("reference_video")}
+                          for scene in made.get("scenes") or [] for s in scene.get("shots") or []]}
     if name == "upload_file":
         source = Path(str(args["path"])).expanduser()
         if not source.is_file():
