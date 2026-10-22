@@ -8,7 +8,7 @@
    What is added: the camera move in words, and "Use as motion reference", which stores the hand-off and opens the create
    wizard on it (useMotionReference in index.html): the layer as <Video 1> of a MiniMax H3 Ref2VA clip. */
 const MO = { state: null, sources: null, packs: null, source: null, meta: null, start: 0, end: 5, mode: "full-scene", layers: null, fps: 12,
-  poseModel: "", resolution: "auto", job: null, timer: null, packId: null, picking: false, busy: "", ref: undefined,
+  poseModel: "", resolution: "auto", job: null, timer: null, packId: null, picking: false, busy: "", running: false, root: null, ref: undefined,
   hand: { layer: "", mode: "", seconds: 5, size: "864x480", w: 864, h: 480, timing: "stretch", fit: "cover" } };
 const MO_STAGES = { prepare: "Prepare", pose: "Pose", camera: "Camera", depth: "Depth", encode: "Encode", pack: "Pack" };
 const MO_SIZES = { "864x480": "864 × 480", "1280x736": "1280 × 736", "1344x768": "1344 × 768", "1376x768": "1376 × 768", "480x864": "480 × 864 (upright)", custom: "Custom" };
@@ -16,6 +16,8 @@ const moLength = () => Math.round((Number(MO.end) - Number(MO.start)) * 100) / 1
 const moValid = () => MO.state && MO.source && moLength() >= MO.state.limits[0] && moLength() <= MO.state.limits[1] + 1e-6;
 const moActive = () => MO.job && ["queued", "running"].includes(MO.job.status);
 const moPack = () => (MO.packs || []).find(p => p.id === MO.packId) || null;
+// render() tears down whichever room is up (index.html): only redraw while this room still is — a slow link read must not wreck someone's typing elsewhere
+const moHere = () => tab === "Motion Previs" && MO.root && MO.root.isConnected !== false;
 
 async function moLoad() {
   try { [MO.state, MO.packs, MO.ref] = await Promise.all([api("/api/motion/state"), api("/api/motion/packs"), api("/api/motion/handoff").then(r => r.reference)]); }
@@ -31,7 +33,7 @@ async function moPick(path) {
   try { MO.meta = await api("/api/probe?path=" + encodeURIComponent(path)); } catch (e) { toast(e.message); return; }
   // the whole clip when it is short enough to be one shot, else its first 5 seconds
   MO.start = 0; MO.end = Math.floor(Math.min(MO.meta.duration, MO.meta.duration <= MO.state.limits[1] ? MO.meta.duration : 5) * 100) / 100;
-  render();
+  if (moHere()) render();
 }
 async function moUpload(input, pack) {
   const one = input.files[0]; if (!one) return;
@@ -47,15 +49,17 @@ async function moLink() { const url = (MO.link || "").trim(); if (!url) return t
   MO.busy = "Reading the link…"; render();
   try { let item = await api("/api/motion/links", { url });
     while (item.state === "running") { await new Promise(r => setTimeout(r, 1000)); item = await api("/api/motion/links/" + item.id);
-      const now = "Reading the link… " + Math.round(item.progress || 0) + "%"; if (now !== MO.busy) { MO.busy = now; render(); } }
+      const now = "Reading the link… " + Math.round(item.progress || 0) + "%"; if (now !== MO.busy) { MO.busy = now; if (moHere()) render(); } }
     if (item.state !== "done") throw new Error(item.error || "the link could not be read");
     MO.link = ""; MO.linking = false; await moPick(item.path); toast("Read from the link: choose the part to analyse, with its depth layers"); }
   catch (e) { toast(e.message, 8000); }
-  MO.busy = ""; render(); }
+  MO.busy = ""; if (moHere()) render(); }
 async function moRun() {
+  // the queue takes a moment to answer: a second click before it does must not make a second analysis
+  if (MO.running || moActive()) return; MO.running = true; render();
   try { MO.job = await api("/api/motion/jobs", { source: MO.source, start: Number(MO.start), end: Number(MO.end), mode: MO.mode, layers: [...MO.layers], fps: Number(MO.fps),
-      resolution: MO.resolution, pose: { poseModel: MO.poseModel } }); } catch (e) { toast(e.message); return; }
-  render(); moWatch();
+      resolution: MO.resolution, pose: { poseModel: MO.poseModel } }); } catch (e) { toast(e.message); }
+  MO.running = false; render(); moWatch();
 }
 function moWatch() {
   clearInterval(MO.timer);
@@ -102,7 +106,7 @@ function moSource() {
   if (!MO.source) return put(box, el("div", { class: "note" }, "A clip you upload, or an earlier render or upload. Then choose the part of it to analyse: 2 to 15 seconds.")), box;
   const video = el("video", { class: "main", src: file(MO.source), controls: true, preload: "metadata", style: "margin-top:12px;max-height:40vh" });
   const say = el("span", { class: "chip" }), paint = () => { const n = moLength(), ok = moValid(); say.textContent = n.toFixed(2) + " s" + (ok ? "" : n < MO.state.limits[0] ? " · too short: 2 s at least" : " · too long: 15 s at most");
-    say.style.borderColor = ok ? "" : "var(--bad)"; say.style.color = ok ? "" : "var(--bad)"; const go = document.getElementById("mo-run"); if (go) go.disabled = !moValid() || moActive(); };
+    say.style.borderColor = ok ? "" : "var(--bad)"; say.style.color = ok ? "" : "var(--bad)"; const go = document.getElementById("mo-run"); if (go) go.disabled = !moValid() || moActive() || MO.running; };
   const num = key => bind(MO, key, el("input", { type: "number", min: 0, max: MO.meta ? MO.meta.duration : 9999, step: 0.1 }), paint);
   const a = num("start"), b = num("end"), mark = (key, node) => el("button", { class: "fit small", title: "Take the time the player is at", onclick: () => { MO[key] = Math.round(video.currentTime * 100) / 100; node.value = MO[key]; paint(); } }, "◉ playhead");
   // play only the chosen range, the way the pack will be cut
@@ -184,13 +188,14 @@ function moHandoff(pack) {
 }
 function viewMotion() {
   const box = el("section", { class: "card" }, el("h2", {}, "Motion Previs"));
+  MO.root = box;   // what moHere checks: this room's node, so a late redraw can tell whether it still owns the page
   if (!MO.state) { moLoad(); return put(box, el("div", { class: "note" }, "Loading…")), box; }
   if (MO.state.error) return put(box, el("div", { class: "tip" }, el("b", {}, "Not available"), MO.state.error)), box;
   const c = MO.state.credit;
   put(box, el("div", { class: "note", style: "margin-top:-4px" }, "Turn a shot into control layers and a camera move: pose, depth, edges, a motion mask, and the move in words. The analysis is a Python port of ",
     el("a", { href: c.url, target: "_blank", rel: "noopener" }, c.name), " by ", el("b", { style: "color:var(--text)" }, c.author), " (" + c.license + "), modified; packs made here use its production pack's file names."));
   put(box, moSource(), moSettings());
-  const run = el("button", { id: "mo-run", class: "hot", disabled: !moValid() || moActive(), onclick: moRun }, "Run analysis");
+  const run = el("button", { id: "mo-run", class: "hot", disabled: !moValid() || moActive() || MO.running, onclick: moRun }, MO.running ? "Analysing…" : "Run analysis");
   put(box, el("div", { class: "row", style: "margin-top:16px" }, el("div", { class: "fit" }, run), el("div", { class: "note", style: "margin:0" }, MO.source ? "Runs on the processor, beside the render queue: a 5 second shot takes well under a minute." : "Pick a clip first.")), moRail());
   if (MO.packs && MO.packs.length) put(box, el("div", { class: "row", style: "margin-top:18px" }, field("Pack", select(MO, "packId", Object.fromEntries(MO.packs.map(p => [p.id, (p.source || p.id) + " · " + (MO.state.modes[p.mode] || [p.mode])[0] + " · " + p.id.slice(0, 11) + (p.imported ? " · uploaded" : "")])), () => { MO.hand.layer = MO.hand.mode = ""; render(); })),
     el("button", { class: "fit", title: "Move this pack to the trash folder", onclick: async () => { const p = moPack(); if (!p || !confirm("Delete the pack " + p.id + "?\nIt is moved to the trash folder inside " + S.home + ", not erased.")) return;

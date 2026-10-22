@@ -35,6 +35,7 @@ const dscWhen = t => { if (!t) return "never"; const d = new Date(t * 1000); ret
 
 async function dscLoad(node) {
   try { DSC.data = await api("/api/discover"); } catch (e) { DSC.data = DSC.data || { error: e.message }; }
+  if (node && node.isConnected === false) return;   // the room was torn down under us: the chain ends here, like nodes.js bailing on !ND.root.isConnected
   if (node) dscDraw(node);
   clearTimeout(DSC.timer);
   if (DSC.data && DSC.data.scanning) DSC.timer = setTimeout(() => dscLoad(node), 2000);
@@ -45,6 +46,7 @@ async function dscDo(node, path, body, busy) {
   if (node) dscDraw(node);
   try { DSC.data = await api(path, body); } catch (e) { toast(e.message, 6000); }
   DSC.busy = "";
+  if (node && node.isConnected === false) return;
   if (node) dscDraw(node);
   if (DSC.data && DSC.data.scanning) { clearTimeout(DSC.timer); DSC.timer = setTimeout(() => dscLoad(node), 2000); }
 }
@@ -94,7 +96,7 @@ function dscInstall(node, n) { const p = n.install || {}, job = DSC.data.install
       el("span", { class: "note" }, p.shown + size)));
 }
 // while an installer runs, the page follows it
-function dscFollow(node) { clearTimeout(DSC.follow); if (!dscRunning()) return; DSC.follow = setTimeout(async () => { await dscLoad(node); dscFollow(node); }, 2500); }
+function dscFollow(node) { clearTimeout(DSC.follow); if (!dscRunning()) return; DSC.follow = setTimeout(async () => { if (node && node.isConnected === false) return; await dscLoad(node); dscFollow(node); }, 2500); }
 
 function dscDraw(node) {
   const d = DSC.data, rows = [];

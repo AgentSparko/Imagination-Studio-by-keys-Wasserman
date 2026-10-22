@@ -4,7 +4,7 @@
    minutes with sung vocals, 44.1 kHz stereo, one song per job in the render queue. A song can be laid under a long
    video or the Editor's export as its soundtrack (ducked under the dialogue). On a Mac a song plays while it is made
    (GET /api/music/takes/{id}/live, a stereo WAV whose sound the app holds back until playing it will not stop). */
-const MU = { takes: null, caption: "", lyrics: "", seconds: 60, seed: 1, job: null, asr: true, open: false, stream: true, player: null,
+const MU = { takes: null, caption: "", lyrics: "", seconds: 60, seed: 1, job: null, busy: false, asr: true, open: false, stream: true, player: null,
   style: { genre: "", bpm: "", key: "", mood: "", vocals: "", instruments: "" }, under: null, level: -10, lay: null, videos: null };
 const MU_TAGS = ["Intro", "Verse", "Pre-Chorus", "Chorus", "Bridge", "Instrumental", "Outro"];
 const MU_EXAMPLE = { caption: "Upbeat modern pop, 118 BPM, bright synths, punchy four-on-the-floor kick, clean electric guitar plucks, catchy sing-along chorus. Warm female lead vocal with layered harmonies.",
@@ -46,10 +46,12 @@ const muLine = t => [t.duration != null ? Number(t.duration).toFixed(1) + " s" +
   "seed " + t.seed].filter(Boolean).join(" · ");
 async function muRender() {
   if (!MU.caption.trim()) return toast("Describe the style first (the helper below writes one)");
+  // the queue takes a moment to answer: a second click before it does must not make a second song
+  if (MU.busy) return; MU.busy = true; render();
   try { MU.job = await api("/api/music/takes", { caption: MU.caption, lyrics: MU.lyrics, seconds: Number(MU.seconds), seed: Number(MU.seed), asr: MU.asr,
     ...(muStreams(S.music) ? { live: !!MU.stream } : {}) }); }
-  catch (e) { return toast(e.message); }
-  await poll(); render(); }
+  catch (e) { MU.busy = false; return toast(e.message); }
+  MU.busy = false; await poll(); render(); }
 async function muLay(t) {
   if (!MU.under) return toast("Pick the video first");
   try { MU.lay = await api("/api/music/soundtrack", { take: t.id, video: MU.under, music_db: Number(MU.level) }); toast("Queued: the song under " + MU.under.split("/").pop()); }
@@ -109,7 +111,7 @@ function viewMusic() {
       el("div", { class: "fit", style: "width:120px" }, el("label", {}, "Seed"), bind(MU, "seed", el("input", { type: "number", min: 0, step: 1, disabled: !st.available }))), ...clearButton("music")),
     muHelper()));
   const secs = Math.min(Math.max(Number(MU.seconds) || 60, st.seconds[0]), st.seconds[1]);
-  put(box, el("div", { class: "row", style: "margin-top:16px;align-items:center" }, el("div", { class: "fit" }, el("button", { class: "hot", disabled: !st.available || muActive(), onclick: muRender }, muActive() ? "Making the song…" : "Generate")),
+  put(box, el("div", { class: "row", style: "margin-top:16px;align-items:center" }, el("div", { class: "fit" }, el("button", { class: "hot", disabled: !st.available || muActive() || MU.busy, onclick: muRender }, MU.busy || muActive() ? "Making the song…" : "Generate")),
     el("div", { class: "note", style: "margin:0" }, st.available ? "One song at a time in the queue, never beside a video render or a voice take. About " + mmss(secs * (st.rtf || 1)) + " for " + secs + " s once the models are loaded (" + (st.route === "comfy" ? "they stay loaded in ComfyUI" : "the engine stays loaded") + " for " + Math.round(((st.server || {}).idle_unload_s || 300) / 60) + " minutes after a song, and is unloaded at once when another job starts). "
       + (muStreams(st) ? (MU.stream ? "Played while it is made: the engine's first sound comes after about 8 s, and it plays from about " + Math.round(muStart(secs, st)) + " s, once enough of the song is made that it never stops." : "Played when it is done.") : "Not played while it is made" + (st.route === "comfy" ? " (ComfyUI's route on a DGX Spark does not stream)." : st.route === "metal" ? " (TensorFold's Metal engine does not stream yet; MUSIC3_BACKEND=mlx runs the MLX engine, which does)." : ".")) : "")),
     muStreams(st) ? el("label", { class: "check", title: "The song plays from the app as the engine makes it; the kept song is the engine's finished WAV either way" },

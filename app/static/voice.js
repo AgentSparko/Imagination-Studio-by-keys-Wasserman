@@ -3,7 +3,7 @@
    Text to speech on this machine with TensorFold's port of Fish Audio Drama 3: speaker tags and [directions] in the
    text, an optional voice to clone (with the speaker's consent), one take per job in the render queue. A take can go to
    the create wizard as reference audio (<Audio N>) for MiniMax H3 Ref2VA. Nothing is sent to Fish Audio. */
-const VO = { takes: null, text: "", ref: null, refText: "", consent: false, seed: 1, temperature: 1.0, top_p: 0.9, top_k: 30, job: null, cutting: "", player: null, stream: true };
+const VO = { takes: null, text: "", ref: null, refText: "", consent: false, seed: 1, temperature: 1.0, top_p: 0.9, top_k: 30, job: null, busy: false, cutting: "", player: null, stream: true };
 // one turn a line: on one line Drama 3 drops later turns far more often (the app also breaks the lines itself, voice.py dialogue)
 const VO_EXAMPLE = "<|speaker:0|> [whispering] Did you hear that noise downstairs?\n<|speaker:1|> [sighs] It's probably just the cat. Go back to sleep.\n<|speaker:0|> Cats don't knock on doors.";
 const voOn = () => !!(S && S.voice && S.voice.available);
@@ -47,9 +47,11 @@ async function voUseAsRef(path, seconds) {
 async function voRender() {
   if (!VO.text.trim()) return toast("Write what is said first");
   if (VO.ref && !VO.consent) return toast("Tick the consent box to clone this voice, or take the clip out");
+  // the queue takes a moment to answer: a second click before it does must not make a second take
+  if (VO.busy) return; VO.busy = true; render();
   try { VO.job = await api("/api/voice/takes", { text: VO.text, seed: VO.seed, temperature: VO.temperature, top_p: VO.top_p, top_k: VO.top_k, live: VO.stream,
-    ...(VO.ref ? { ref_audio: VO.ref, ref_text: VO.refText, consent: VO.consent } : {}) }); } catch (e) { return toast(e.message); }
-  await poll(); render(); }
+    ...(VO.ref ? { ref_audio: VO.ref, ref_text: VO.refText, consent: VO.consent } : {}) }); } catch (e) { VO.busy = false; return toast(e.message); }
+  VO.busy = false; await poll(); render(); }
 function voReference() {
   const up = el("input", { type: "file", accept: "audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg", disabled: !voOn(), onchange: async () => { if (!up.files[0]) return; const data = new FormData(); data.append("file", up.files[0]);
     try { const j = await (await fetch("/api/upload", { method: "POST", body: data })).json(); if (!j.path) throw new Error(j.error || "upload failed");
@@ -93,7 +95,7 @@ function viewVoice() {
       el("div", { class: "fit", style: "width:120px" }, el("label", { title: "Fish's default 30" }, "Top-k"), num("top_k", { min: 1, max: 200, step: 1 })),
       el("button", { class: "small fit", disabled: !st.available, title: "Fish's sampling: temperature 1.0, top-p 0.9, top-k 30", onclick: () => { Object.assign(VO, { temperature: 1.0, top_p: 0.9, top_k: 30 }); render(); } }, "Fish defaults"), ...clearButton("voice"))),
     voReference());
-  put(box, el("div", { class: "row", style: "margin-top:16px;align-items:center" }, el("div", { class: "fit" }, el("button", { class: "hot", disabled: !st.available || voActive() || (VO.ref && !VO.consent), onclick: voRender }, voActive() ? "Rendering…" : "Render the take")),
+  put(box, el("div", { class: "row", style: "margin-top:16px;align-items:center" }, el("div", { class: "fit" }, el("button", { class: "hot", disabled: !st.available || voActive() || VO.busy || (VO.ref && !VO.consent), onclick: voRender }, VO.busy || voActive() ? "Rendering…" : "Render the take")),
     el("div", { class: "note", style: "margin:0" }, st.available ? voSpeed(st) : "")));
   if (st.available && st.checks) put(box, el("label", { class: "check", title: "Sent audio cannot be taken back: played as it is made, a part with missing words is reported, not drawn again" },
     el("input", { type: "checkbox", checked: VO.stream, onchange: e => { VO.stream = e.target.checked; } }), el("span", {}, "Play while it is made (off: a part with missing words is drawn again before you hear it)")));
