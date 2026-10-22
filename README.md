@@ -27,8 +27,8 @@ GB10, 128 GB unified memory, DGX OS with CUDA 13 and Docker. Every feature runs.
 
 | Install | Disk free | Command |
 |---|---|---|
-| Core: pictures and FastH3 video with sound | 125 GB | `bash oneshot-setup.sh` |
-| **Everything** | **about 400 GB** | `bash oneshot-setup.sh --all` |
+| Core: pictures and FastH3 video with sound, motion graphics, Finish, phone notifications | 125 GB | `bash oneshot-setup.sh` |
+| **Everything**, with training a LoRA and every big model | **about 400 GB** | `bash oneshot-setup.sh --all` |
 
 ### NVIDIA RTX Pro 6000 Blackwell
 
@@ -91,16 +91,29 @@ with 256 GB; smaller Macs and M1 to M4 follow from those measurements and are un
 | 192 GB or more | **Everything**, including Upscale and Remove a person (peaks of 125 and 135 GB) | The same, slowly | about 535 GB |
 
 `bash oneshot-setup.sh --all --app` installs everything your Mac's memory runs and the double-clickable app. It says
-which features it left out and why. Before that, `brew install python@3.11 uv ffmpeg`.
+which features it left out and why (training a LoRA always: it runs on a DGX Spark). Before that,
+`brew install python@3.11 uv ffmpeg`.
+
+### Install
+
+The one-click install, `bash oneshot-setup.sh` with no flag (on a Mac, a DGX Spark or an RTX Pro 6000; `--app` adds the
+double-clickable Mac app), contains: pictures (Qwen-Image-2.1-Turbo) and FastH3 video with sound, the essential LoRA
+bundle, motion graphics (HyperFrames, about 400 MB), Finish (Tesseract and its converter, about 150 MB; the fonts
+only on a DGX Spark, which finishes the cut on a Mac), phone notifications (`cryptography`, `pywebpush`) and the
+speech-to-text for captions and the speech check (`faster-whisper`). `--all` adds every big model the machine runs
+(Ref2VA, FLUX3-K, MOSS-Image, MiniMax Music 3, Fish Audio Drama 3, sound effects, Nemotron 3.5 Bolt, Motion Previs)
+and, on a DGX Spark, training a LoRA. `--verify` reports each of these parts, and `--upgrade` moves the parts already
+installed to this version.
 
 ### Install flags
 
-For `oneshot-setup-rtx-6000.sh` and `oneshot-setup-spark.sh`. A DGX Spark does not set `STUDIO_GPU`. No flag is the
-core: pictures and FastH3 video with sound (125 GB).
+For `oneshot-setup-rtx-6000.sh` and `oneshot-setup-spark.sh`; `oneshot-setup.sh` takes the same names on a Mac
+(`--train` is said and left out there). A DGX Spark does not set `STUDIO_GPU`. No flag is the core: pictures and
+FastH3 video with sound (125 GB), motion graphics, Finish and phone notifications.
 
 | Flag | What it installs |
 |---|---|
-| `--all` | Every feature below, about 400 GB |
+| `--all` | Every feature below, about 400 GB (on a Mac, every feature its memory runs, without `--train`) |
 | `--image-only` | Qwen-Image-2.1 only (26 GB) |
 | `--ref2va` | Reference pictures to video (39 GB more) |
 | `--h3-base` | MiniMax H3's own transformer, for keyframe LoRAs and the Library actions (40 GB more) |
@@ -112,16 +125,17 @@ core: pictures and FastH3 video with sound (125 GB).
 | `--sound` | Sound effects and foley (11 GB more, gated) |
 | `--motion` | Motion Previs analysis (0.5 GB) |
 | `--voice` | Fish Audio Drama 3 (about 41 GB more) |
-| `--train` | Train your own LoRA: musubi-tuner, MiniMax H3's video encoder and a training adapter (about 6 GB more and an 8 GB environment; DGX Spark only) |
-| `--graphics` | Motion graphics: HyperFrames, GSAP and a browser (about 400 MB; also `oneshot-setup.sh --graphics` on a Mac) |
+| `--train` | Train your own LoRA: musubi-tuner, MiniMax H3's video encoder and a training adapter (about 6 GB of weights and an 8 GB environment; also needs `--h3-base`'s 40 GB transformer, fetched when missing; DGX Spark only, not on a Mac) |
+| `--graphics` | Motion graphics: HyperFrames, GSAP, Node 22 when the machine's is older, and a browser (about 400 MB). In the default install; `--no-graphics` leaves it out |
+| `--finish` | Finish: Tesseract 0.4.0 and Tesseract Converter 0.3.0, two fonts (about 150 MB; the fonts only on Linux ARM such as a DGX Spark). In the default install; `--no-finish` leaves it out. Tesseract is free under Mirage's own terms, not open source; the converter is MIT |
 | `--no-render` | Skip the test clip |
 | `--no-loras` | Skip the essential LoRA bundle (about 4 GB) |
 | `--no-workflows` | Skip the Library action packs |
 | `--verify` | Check an existing install and download nothing |
 | `--upgrade` | Move an existing install to this version and fetch no weights |
 
-Finish (the final cut and mix, to Resolve, Premiere or After Effects) has no flag in these scripts: it is its own
-installer, `bash scripts/setup-finish.sh` (about 150 MB, `--verify` only reports), and it installs on the Mac. Details:
+Finish (the final cut and mix, to Resolve, Premiere or After Effects) is also its own installer,
+`bash scripts/setup-finish.sh` (`--verify` only reports). Details:
 [Finish](#finish-the-final-cut-and-mix-to-resolve-premiere-or-after-effects).
 
 ### Accounts
@@ -1558,7 +1572,7 @@ conversion, with *Use it* and *Unlink*.
 brew install python@3.11 uv ffmpeg
 git clone https://github.com/drowzeys/Imagination-Studio-by-keys-Wasserman.git
 cd Imagination-Studio-by-keys-Wasserman
-bash oneshot-setup.sh --app             # engine, image model, FastH3, 2x decoder, the app; ends with a test clip
+bash oneshot-setup.sh --app             # engine, image model, FastH3, 2x decoder, motion graphics, Finish, the app; ends with a test clip
 bash oneshot-setup.sh --turbo --app     # the same plus MiniMax H3 Turbo (64 GB more on disk, 128 GB of memory)
 bash oneshot-setup.sh --ref2va --app    # the same plus reference pictures to video (64 GB more on disk, 128 GB of memory)
 ```
@@ -2962,7 +2976,8 @@ in, out}], song?, voice?, title?: {text, subtitle}, captions?, mix: dialogue|bal
 fps: 24|25|30|60}}`, `GET /api/finish` (is Tesseract ready, and where), `POST /api/finish/<job>/convert {to:
 premiere|aftereffects}`. The Agent room's tools are `finish_cut` and `export_cut`.
 
-**What it needs.** `bash scripts/setup-finish.sh` (`--verify` only reports) installs Tesseract 0.4.0 and Tesseract
+**What it needs.** Every install includes it (`oneshot-setup.sh`, or `--finish`; `--no-finish` leaves it out).
+`bash scripts/setup-finish.sh` on its own (`--verify` only reports) installs Tesseract 0.4.0 and Tesseract
 Converter 0.3.0 from their GitHub releases into `$PREFIX/finish`, each checked against its published SHA-256, with
 Instrument Serif and Geist for the title. A Tesseract already installed by itself is found too. About 150 MB; no
 account, key or sudo. Tesseract runs on macOS, Windows and Linux x86_64 (with ffmpeg and a Vulkan driver), **not on
@@ -3004,8 +3019,8 @@ Each graphic is one job of the queue: its page is copied to `~/ImaginationStudio
 `POST /api/jobs {kind: "graphics", params: {template, size?, …}}` (`template` is `title`, `lower-third`, `kinetic`,
 `captions`, `slideshow`, `music-video` or `explainer`), `GET /api/graphics`; agents have `make_graphics`.
 
-**Install** (about 400 MB, in `$PREFIX/graphics`): `bash scripts/setup-graphics.sh`, or `oneshot-setup.sh --graphics`
-(`oneshot-setup-spark.sh --graphics` on a DGX Spark). It needs ffmpeg and Node 22 or newer: when the machine's Node is
+**Install** (about 400 MB, in `$PREFIX/graphics`): every install includes it (`oneshot-setup.sh`, on a Mac or a DGX
+Spark; `--no-graphics` leaves it out), or `bash scripts/setup-graphics.sh` on its own. It needs ffmpeg and Node 22 or newer: when the machine's Node is
 older (a DGX Spark has Node 20), the official Node 22 is downloaded from nodejs.org for HyperFrames alone, its checksum
 checked. It renders in a headless Chromium: one already in Playwright's cache is used, otherwise HyperFrames' own, or
 on a DGX Spark (Linux on arm64) Playwright's Chromium for arm64. `--verify` checks an install and downloads nothing.
