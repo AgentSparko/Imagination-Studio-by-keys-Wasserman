@@ -380,6 +380,10 @@ def test_a_cast_voice_goes_into_a_shot_on_cast_stills_as_reference_audio():
         assert slate.compile_shot(project, "sh")["plan"]["reference_audios"] == ["voice/tom.wav"]
         project["tf"]["dialogue"] = "h3"  # dialogue spoken by the video model: no voice reference
         assert "reference_audios" not in slate.compile_shot(project, "sh")["plan"]
+        # a film made before the settings: shots on cast stills take the cast voices, as they did
+        del project["tf"]["dialogue"], project["tf"]["bible"]
+        project["scenes"][0]["shots"][0]["tf"]["start"] = "cast"
+        assert slate.compile_shot(project, "sh")["plan"]["reference_audios"] == ["voice/tom.wav"]
     finally:
         slate.ready = had
 

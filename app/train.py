@@ -481,7 +481,10 @@ def attach(home: Path, pack: Path, is_spark: bool, inside, media_seconds, enqueu
 
     @router.delete("/api/train/datasets/{dataset_id}")
     def drop_dataset(dataset_id: str) -> dict:
-        folder, _ = dataset(dataset_id)
+        folder, record = dataset(dataset_id)
+        with lock:
+            if any(one["kind"] == "train" and one["status"] in ("queued", "running") and one["params"].get("dataset") == record["id"] for one in jobs.values()):
+                raise HTTPException(409, "a training run of this dataset is in the queue: cancel it first")
         trash = home / "trash"
         trash.mkdir(exist_ok=True)
         shutil.move(str(folder), trash / (time.strftime("%Y%m%d-%H%M%S-") + "train-" + dataset_id))
@@ -528,7 +531,7 @@ def attach(home: Path, pack: Path, is_spark: bool, inside, media_seconds, enqueu
         with lock:
             job = jobs.get(key) or next((one for one in sorted(jobs.values(), key=lambda j: -j["created"])
                                          if one["kind"] == "train" and one["params"].get("lora") == key), None)
-            job = dict(job) if job else None
+            job = dict(job) if job and job["kind"] in KINDS else None  # another kind's job id is no training run
         lora_id = job["params"].get("lora") if job else key
         run = next((one for one in runs(home) if one.get("lora") == lora_id), None)
         if job is None and run is None:

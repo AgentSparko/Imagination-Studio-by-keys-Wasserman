@@ -125,7 +125,7 @@ FastH3 video with sound (125 GB), motion graphics, Finish and phone notification
 | `--sound` | Sound effects and foley (11 GB more, gated) |
 | `--motion` | Motion Previs analysis (0.5 GB) |
 | `--voice` | Fish Audio Drama 3 (about 41 GB more) |
-| `--train` | Train your own LoRA: musubi-tuner, MiniMax H3's video encoder and a training adapter (about 6 GB of weights and an 8 GB environment; also needs `--h3-base`'s 40 GB transformer, fetched when missing; DGX Spark only, not on a Mac) |
+| `--train` | Train your own LoRA: musubi-tuner, MiniMax H3's video encoder and a training adapter (an 8 GB environment, its two files, about 6 GB, and, when `--h3-base` has not installed it, that 40 GB transformer; DGX Spark only, not on a Mac) |
 | `--graphics` | Motion graphics: HyperFrames, GSAP, Node 22 when the machine's is older, and a browser (about 400 MB). In the default install; `--no-graphics` leaves it out |
 | `--finish` | Finish: Tesseract 0.4.0 and Tesseract Converter 0.3.0, two fonts (about 150 MB; the fonts only on Linux ARM such as a DGX Spark). In the default install; `--no-finish` leaves it out. Tesseract is free under Mirage's own terms, not open source; the converter is MIT |
 | `--no-render` | Skip the test clip |
@@ -2878,11 +2878,11 @@ MCP tools. Over HTTP: `POST /api/train/datasets {name, trigger, kind, items, cap
 `POST /api/train/start {dataset, steps, rank, lr, size, save_every}` (or `{resume: <lora id>}`); `GET /api/train`.
 
 **What it needs, and the disk** (`bash oneshot-setup-spark.sh --train`, or `bash spark/setup-train.sh`; `--verify`
-checks; about 6 GB more and an 8 GB environment, besides the H3 transformer when `--h3-base` has not installed it):
+checks; an 8 GB environment, two files of about 6 GB and, when `--h3-base` has not installed it, its 40 GB transformer):
 kohya-ss's [musubi-tuner](https://github.com/kohya-ss/musubi-tuner) at `f8a1b03` (Apache License 2.0) in its own
 environment under `$PREFIX/train`; MiniMax H3's FL2VA transformer (what `--h3-base` installs, fetched if missing);
 MiniMax H3's video encoder in fp16 from Comfy-Org/MiniMax-H3 and ostris's de-distillation adapter v2
-(ostris/minimax_h3_training_adapter), about 5.5 GB in `$SPARK_MODELS/Train-H3`. The adapter is merged under the LoRA
+(ostris/minimax_h3_training_adapter), the two files, in `$SPARK_MODELS/Train-H3`. The adapter is merged under the LoRA
 while it trains and is not used when it renders. MiniMax H3's files are under the MiniMax H3 Community License; the
 adapter is made from MiniMax H3. The LoRA you train is yours; what it may be used for follows that licence.
 
@@ -2945,7 +2945,8 @@ The studio makes its own keys (kept in `~/ImaginationStudio/push/`) and sends th
 there is no account. It needs the `cryptography` Python package (installed by the setup, with `pywebpush`).
 
 **What it needs.** It runs on a Mac and on a DGX Spark with no install flag. The reel needs ffmpeg; without a font on the machine the title cards are plain black. Routes:
-`GET/POST /api/nightshift` (`{film, shots?, start, name?}` or `{items: [{kind: "shot", film, shot} | {kind: "job", body}], start}`),
+`GET/POST /api/nightshift` (`{film, shots?, start, name?}` or `{items: [{kind: "shot", film, shot} | {kind: "job", body}], start}`;
+a job item is one job, not a Restyle, Extend or Fix),
 `GET/DELETE /api/nightshift/{id}`, `POST /api/nightshift/{id}/start|cancel`; `GET /api/push/key`,
 `POST/DELETE /api/push/subscribe`, `POST /api/push/test`.
 
@@ -2980,7 +2981,7 @@ premiere|aftereffects}`. The Agent room's tools are `finish_cut` and `export_cut
 `bash scripts/setup-finish.sh` on its own (`--verify` only reports) installs Tesseract 0.4.0 and Tesseract
 Converter 0.3.0 from their GitHub releases into `$PREFIX/finish`, each checked against its published SHA-256, with
 Instrument Serif and Geist for the title. A Tesseract already installed by itself is found too. About 150 MB; no
-account, key or sudo. Tesseract runs on macOS, Windows and Linux x86_64 (with ffmpeg and a Vulkan driver), **not on
+account, key or sudo. For the Studio, Tesseract runs on macOS and Linux x86_64 (with ffmpeg and a Vulkan driver), **not on
 Linux ARM such as a DGX Spark**: there, run the script on your Mac as well and set the Mac as the remote computer in
 Settings > Connections (Brains & tools). The Spark's Studio then copies the clips to the Mac over ssh, finishes the
 cut there and brings the results back; the panel says "Runs on <your Mac> over ssh".

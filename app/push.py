@@ -32,6 +32,7 @@ except ImportError:  # noqa: SIM105
 HOME: Path = Path(".")
 SUBJECT = os.environ.get("STUDIO_PUSH_SUBJECT", "mailto:imagination-studio@example.com")  # the contact a push service may use
 TTL = 24 * 3600  # a phone that is off for the night still gets the morning's message
+SEND_TIMEOUT = 10  # seconds a push service has to answer: the night shift and the test button never wait longer
 RECORD = 4096  # the record size given in the aes128gcm header
 # the push services browsers use: a subscription to any other address is refused, so the studio never posts elsewhere
 SERVICES = ("push.apple.com", "fcm.googleapis.com", "android.googleapis.com", "push.services.mozilla.com", "notify.windows.com")
@@ -74,6 +75,18 @@ def folder() -> Path:
     return HOME / "push"
 
 
+def private_write(file: Path, text: str) -> None:
+    """A file only this user can read (0600), in a folder only this user can open (0700), replaced whole."""
+
+    file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(file.parent, 0o700)
+    scratch = file.with_suffix(".tmp")
+    scratch.unlink(missing_ok=True)
+    with os.fdopen(os.open(scratch, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as sink:  # 0600 from the start
+        sink.write(text)
+    scratch.replace(file)
+
+
 def raw_public(public_key) -> bytes:
     _, serialization, *_ = crypto()
     return public_key.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
@@ -91,11 +104,7 @@ def keys() -> dict:
         else:
             private = ec.generate_private_key(ec.SECP256R1())
             pem = private.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
-            file.parent.mkdir(parents=True, exist_ok=True)
-            scratch = file.with_suffix(".tmp")
-            scratch.write_text(json.dumps({"private_pem": pem, "public": b64(raw_public(private.public_key())), "made": time.time()}, indent=1))
-            os.chmod(scratch, 0o600)
-            scratch.replace(file)
+            private_write(file, json.dumps({"private_pem": pem, "public": b64(raw_public(private.public_key())), "made": time.time()}, indent=1))
     return {"private": private, "public": b64(raw_public(private.public_key()))}
 
 
@@ -108,12 +117,7 @@ def subscriptions() -> list[dict]:
 
 
 def keep(subs: list[dict]) -> None:
-    file = folder() / "subscriptions.json"
-    file.parent.mkdir(parents=True, exist_ok=True)
-    scratch = file.with_suffix(".tmp")
-    scratch.write_text(json.dumps(subs, indent=1))
-    os.chmod(scratch, 0o600)
-    scratch.replace(file)
+    private_write(folder() / "subscriptions.json", json.dumps(subs, indent=1))
 
 
 def check_subscription(body: dict) -> dict:
@@ -188,7 +192,7 @@ def post(url: str, body: bytes, headers: dict) -> int:
     """One message to a push service; its HTTP status. Replaced in the tests."""
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=20) as answer:
+        with urllib.request.urlopen(request, timeout=SEND_TIMEOUT) as answer:
             return answer.status
     except urllib.error.HTTPError as error:
         return error.code
@@ -199,7 +203,8 @@ def deliver(sub: dict, payload: bytes, signing: dict) -> int:
         try:
             from py_vapid import Vapid01
             answer = pywebpush.webpush(sub, payload.decode(), vapid_private_key=Vapid01(private_key=signing["private"]),
-                                       vapid_claims={"sub": SUBJECT}, ttl=TTL, content_encoding="aes128gcm")
+                                       vapid_claims={"sub": SUBJECT}, ttl=TTL, content_encoding="aes128gcm",
+                                       timeout=SEND_TIMEOUT)
             return answer.status_code
         except pywebpush.WebPushException as error:
             return error.response.status_code if error.response is not None else 0

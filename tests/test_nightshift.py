@@ -180,6 +180,8 @@ def test_a_plan_is_refused_without_items_or_with_a_bad_start(queue):
     assert client.post("/api/nightshift", json={"items": []}).status_code == 400
     assert client.post("/api/nightshift", json={"items": jobs_body(1), "start": "tonight"}).status_code == 400
     assert client.post("/api/nightshift", json={"items": [{"kind": "shot", "film": "x"}]}).status_code == 400
+    chain = client.post("/api/nightshift", json={"items": [{"kind": "job", "body": {"kind": "extend", "params": {"video": "renders/a.mp4"}}}]})
+    assert chain.status_code == 400 and "single jobs" in chain.json()["error"]  # a chain of jobs is queued from the Library
     assert client.get("/api/nightshift/..%2Fsecret").status_code in (400, 404)
 
 
@@ -205,15 +207,64 @@ def test_a_film_plans_its_shots_without_a_good_take_and_each_take_is_logged(queu
     saved = client.get(f"/api/slate/projects/{film['id']}").json()
     take = saved["scenes"][0]["shots"][0]["takes"][0]
     assert take["jobId"] == "j1" and take["mediaPath"] == sent["params"]["output"] and take["origin"] == "Night shift"
+    assert take["rating"] == ""  # rated when it finishes, from its checks
 
     # its checks are written beside the take when it finishes
     finish(queue, "j1", qa={"passed": False, "takes": [{"audio": {"result": "fail", "note": "no speech heard"}, "identity": {"result": "pass", "note": ""}}]})
     nightshift.tick()
     saved = client.get(f"/api/slate/projects/{film['id']}").json()
     assert saved["scenes"][0]["shots"][0]["takes"][0]["qa"]["passed"] is False
+    assert saved["scenes"][0]["shots"][0]["takes"][0]["rating"] == "no-good"
+    wrote = HOME / queue["made"][1]["params"]["output"]
+    wrote.parent.mkdir(parents=True, exist_ok=True)
+    wrote.write_bytes(b"clip")
+    finish(queue, "j2", str(wrote.relative_to(HOME)))  # its clip written, no checks ran: good
+    nightshift.tick()
+    assert client.get(f"/api/slate/projects/{film['id']}").json()["scenes"][0]["shots"][2]["takes"][0]["rating"] == "good"
     named = client.post("/api/nightshift", json={"film": film["id"], "shots": ["Shot 02"]}).json()
     assert [i["shot"] for i in named["items"]] == ["shot-2"]
     assert client.post("/api/nightshift", json={"film": film["id"], "shots": ["Shot 99"]}).status_code == 404
+
+
+def test_a_slow_morning_never_holds_up_the_routes(queue, monkeypatch):
+    """The morning is made outside the plans' lock: while a reel takes its time, the shift reads as "morning" and a
+    new plan is made at once."""
+
+    going, release = threading.Event(), threading.Event()
+
+    def slow(plan):
+        going.set()
+        assert release.wait(10)
+        plan.update(state="done", finished=time.time(), problems=[])
+
+    monkeypatch.setattr(nightshift, "morning", slow)
+    made = client.post("/api/nightshift", json={"items": jobs_body(1), "start": "now"}).json()
+    finish(queue, "j1")
+    scheduler = threading.Thread(target=nightshift.tick)
+    scheduler.start()
+    try:
+        assert going.wait(10)
+        assert client.get(f"/api/nightshift/{made['id']}").json()["state"] == "morning"
+        answer = []
+        later = threading.Thread(target=lambda: answer.append(client.post("/api/nightshift", json={"items": jobs_body(1), "start": "23:00"})))
+        later.start()
+        later.join(5)
+        assert answer and answer[0].status_code == 200  # not waiting for the reel
+        nightshift.tick()  # a tick meanwhile does not make the same morning twice
+    finally:
+        release.set()
+        scheduler.join(10)
+    assert client.get(f"/api/nightshift/{made['id']}").json()["state"] == "done"
+    assert not nightshift.MAKING
+
+
+def test_only_a_good_or_circled_take_on_disk_is_a_good_take():
+    (HOME / "renders").mkdir(exist_ok=True)
+    (HOME / "renders" / "good.mp4").write_bytes(b"clip")
+    take = lambda rating, path="renders/good.mp4": {"takes": [{"mediaPath": path, "rating": rating}]}
+    assert nightshift.good_take(take("good")) and nightshift.good_take(take("circled"))
+    assert not nightshift.good_take(take("")) and not nightshift.good_take(take("no-good"))  # rendering, or failed
+    assert not nightshift.good_take(take("good", "renders/missing.mp4"))
 
 
 # ---------- the morning ----------
@@ -292,6 +343,36 @@ def test_the_key_pair_is_made_once_and_kept_private(pushed, tmp_path):
     first = push.keys()["public"]
     assert push.keys()["public"] == first and len(push.unb64(first)) == 65 and push.unb64(first)[0] == 4
     assert oct((tmp_path / "push" / "vapid.json").stat().st_mode & 0o777) == "0o600"
+    assert oct((tmp_path / "push").stat().st_mode & 0o777) == "0o700"
+
+
+def test_a_push_service_is_given_ten_seconds(monkeypatch, tmp_path):
+    asked = {}
+
+    class Answer:
+        status = 201
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(push.urllib.request, "urlopen", lambda request, timeout=None: asked.update(timeout=timeout) or Answer())
+    assert push.post("https://fcm.googleapis.com/fcm/send/x", b"", {}) == 201 and asked["timeout"] == 10
+
+    class Library:
+        WebPushException = Exception
+
+        @staticmethod
+        def webpush(sub, data, **given):
+            asked.update(given)
+            return type("Answer", (), {"status_code": 201})()
+
+    monkeypatch.setattr(push, "pywebpush", Library)
+    monkeypatch.setitem(sys.modules, "py_vapid", type(sys)("py_vapid"))
+    sys.modules["py_vapid"].Vapid01 = lambda private_key: private_key
+    assert push.deliver({"endpoint": "https://fcm.googleapis.com/fcm/send/x"}, b"{}", {"private": "key"}) == 201 and asked["timeout"] == 10
 
 
 @need_crypto

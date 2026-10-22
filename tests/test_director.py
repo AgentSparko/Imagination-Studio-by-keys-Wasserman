@@ -283,6 +283,34 @@ def test_the_director_asks_for_a_logline_and_keeps_rendered_shots(studio):
     assert film["scenes"][0]["shots"][0]["takes"] == [{"id": "take-old", "mediaPath": "takes-made.mp4", "rating": "circled"}]
 
 
+def test_two_fast_starts_start_one_run(studio, monkeypatch):
+    import threading
+
+    project, release = new_film(), threading.Event()
+    reading = director.film_of
+    monkeypatch.setattr(director, "film_of", lambda pid: time.sleep(0.2) or reading(pid))  # a slow read between the look and the start
+    monkeypatch.setattr(director, "work", lambda run, stop: release.wait(10))
+    answers = []
+    posts = [threading.Thread(target=lambda: answers.append(client.post("/api/slate/direct", json={"project": project}).status_code)) for _ in range(2)]
+    for one in posts:
+        one.start()
+    for one in posts:
+        one.join(10)
+    release.set()
+    assert sorted(answers) == [200, 409]
+
+
+def test_nothing_starts_on_import():
+    """The Director's pick-up after a restart and the captioner start with the studio (server.py's __main__), never
+    when a script or a test imports it."""
+
+    source = (ROOT / "app" / "server.py").read_text()
+    main = source[source.index('if __name__ == "__main__":'):]
+    assert "director.resume_later()" in main and 'caption_router.captioner["start"]()' in main
+    assert source.count('caption_router.captioner["start"]()') == 1 and "STUDIO_PIDFILE" in main.split('captioner["start"]')[0]
+    assert "Timer" not in (ROOT / "app" / "director.py").read_text().split("def resume_later")[0]
+
+
 def test_apply_mirrors_the_first_ads_actions():
     film = {"id": "p-x", "defaults": {"durationSec": 8}, "scenes": [], "characters": [], "locations": []}
     assert "✓ Added character" in director.apply(film, {"type": "add_character", "name": "Ada", "hair": "short"})

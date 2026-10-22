@@ -18,7 +18,8 @@ function finReadyNote() { const s = FIN.state;
     el("button", { class: "small", onclick: async () => { await finLoad(true); render(); } }, "Look again"));
   const where = s.where && s.where.startsWith("ssh:") ? "Runs on " + (s.machine || s.where.slice(4)) + " over ssh: the clips are copied there and the finished cut comes back." : "Runs on this computer.";
   return el("div", { class: "note" }, "Tesseract " + (s.version || "") + ". " + where + (s.note ? " " + s.note : "")
-    + (s.converter && s.converter.ok ? "" : " Premiere and After Effects need Tesseract Converter: " + (s.setup || "bash scripts/setup-finish.sh") + "."));
+    + (s.converter && s.converter.ok ? "" : " Premiere and After Effects need Tesseract Converter: " + (s.setup || "bash scripts/setup-finish.sh") + ".")
+    + " Tesseract keeps usage counts by default (no file names, paths or contents); `tsrct telemetry disable` turns them off. The Studio never changes that setting.");
 }
 const finSegCtl = (key, options, label) => el("div", { class: "seg-ctl", role: "radiogroup", "aria-label": label },
   options.map(([v, t]) => el("button", { type: "button", role: "radio", "aria-checked": FIN.o[key] === v ? "true" : "false", class: FIN.o[key] === v ? "on" : "", onclick: () => { FIN.o[key] = v; render(); } }, t)));

@@ -80,4 +80,5 @@ def test_not_ready_says_the_setup_command_and_the_library_finishes_ticked_clips(
     assert "Tick the clips" in out["empty"]
     assert out["open"] == {"clips": ["renders/b.mp4", "renders/a.mp4"]}     # clips only, in the order they were ticked
     assert "Runs on this computer" in out["lib"] and "need Tesseract Converter" in out["lib"] and "2 picked clips" in out["lib"]
+    assert "keeps usage counts by default" in out["lib"] and "tsrct telemetry disable" in out["lib"] and "never changes" in out["lib"]
     assert out["sent"]["params"]["clips"] == [{"path": "renders/b.mp4"}, {"path": "renders/a.mp4"}] and out["sent"]["params"]["song"] is None

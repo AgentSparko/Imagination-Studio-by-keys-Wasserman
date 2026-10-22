@@ -195,6 +195,7 @@ def bible_film() -> dict:
         for name in names:
             (folder / f"{name}.png").write_bytes(b"png")
             sheet["images"].append(f"casting/{name}.png")
+    made["tf"].update(bible="auto", dialogue="h3")  # as the page makes a new film
     return made
 
 
@@ -240,6 +241,45 @@ def test_the_bible_puts_the_casts_and_the_places_pictures_in_a_shot():
     # without the Ref2VA model a shot from text stays one, and says nothing of pictures
     told = slate.compile_shot(bible_film(), "shot-1")
     assert told["mode"] == "text" and not any("Ref2VA" in w for w in told["warnings"])
+
+
+def test_a_film_made_before_the_bible_setting_renders_as_it_did():
+    def test():
+        made = bible_film()
+        del made["tf"]["bible"], made["tf"]["dialogue"]
+        assert slate.compile_shot(made, "shot-1")["mode"] == "text"  # no automatic pictures on a shot from text
+        tf = made["scenes"][0]["shots"][0]["tf"]
+        tf["start"] = "cast"  # cast stills: each person's reference still, as before
+        assert slate.compile_shot(made, "shot-1")["plan"]["references"] == ["casting/leo1.png", "casting/mia1.png"]
+        tf["lines"] = [{"characterId": "char-leo", "text": "Here, take these."}]
+        assert slate.compile_shot(made, "shot-1")["dialogue"] == "h3"  # no cast voice: the video model speaks
+        (Path(slate.HOME) / "voice").mkdir(exist_ok=True)
+        (Path(slate.HOME) / "voice" / "leo.wav").write_bytes(b"wav")
+        made["voices"] = [{"id": "v-leo", "name": "Leo", "characterId": "char-leo", "drama": {"path": "voice/leo.wav", "seconds": 5.0, "use": True}}]
+        told = slate.compile_shot(made, "shot-1")  # a cast voice in use: the lines take it, as they did
+        assert told["dialogue"] == "drama3" and told["plan"]["reference_audios"] == ["voice/leo.wav"]
+        tf["dialogue"] = "h3"  # the shot's own choice still wins
+        assert "reference_audios" not in slate.compile_shot(made, "shot-1")["plan"]
+    with_ref2va(test)
+
+
+def test_a_save_older_than_the_film_on_disk_is_refused():
+    from fastapi.testclient import TestClient
+
+    client = TestClient(server.app)
+    made = client.post("/api/slate/projects", json={"name": "Two writers"}).json()
+    loaded = dict(made)
+    import time as clock
+    clock.sleep(0.01)
+    later = slate.write({**slate.get_project(made["id"]), "logline": "the Director's"})  # a writer on the server
+    assert later["updatedAt"] > loaded["updatedAt"]
+    stale = client.put(f"/api/slate/projects/{made['id']}", json={**loaded, "logline": "the page's"})
+    assert stale.status_code == 409 and "changed on the server" in stale.json()["error"]
+    assert slate.get_project(made["id"])["logline"] == "the Director's"
+    fresh = client.put(f"/api/slate/projects/{made['id']}", json={**later, "logline": "the page's"})
+    assert fresh.status_code == 200 and fresh.json()["updatedAt"] >= later["updatedAt"]
+    plain = client.put(f"/api/slate/projects/{made['id']}", json={k: v for k, v in later.items() if k != "updatedAt"})
+    assert plain.status_code == 200  # a body without a stamp is saved as before
 
 
 def test_a_shot_from_the_shot_before_or_an_image_takes_no_pictures_but_the_words():

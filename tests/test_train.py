@@ -237,6 +237,12 @@ def test_start_queues_a_run_with_its_estimate_and_a_free_id_and_resume_goes_on(m
     assert again["params"]["resume"] is True and again["estimate"] == 700 * 110 and again["params"]["dataset"] == record["id"]
     assert routes[("GET", "/api/train/status/{key}")]("night-rain-2")["job"]["id"] == again["id"]
     assert "no run" in refused(routes[("POST", "/api/train/start")], {"resume": "nothing"})
+    # a dataset a queued run trains on stays until the run is cancelled; another kind's job is no training run
+    assert "cancel it first" in refused(routes[("DELETE", "/api/train/datasets/{dataset_id}")], record["id"])
+    s.jobs["v1"] = {"id": "v1", "kind": "video", "status": "queued", "params": {"lora": "x"}, "created": 0}
+    assert "no training job" in refused(routes[("GET", "/api/train/status/{key}")], "v1")
+    again["status"] = "cancelled"
+    assert routes[("DELETE", "/api/train/datasets/{dataset_id}")](record["id"]) == {"removed": record["id"]}
 
 
 def test_resume_finds_the_last_checkpoint_across_parts(tmp_path):

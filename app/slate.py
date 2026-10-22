@@ -55,10 +55,12 @@ MOVES = {"locked": "Static shot on a locked, still camera.", "handheld": "Handhe
 SECTIONS = ("subject", "composition", "lighting", "camera", "style", "mood")
 
 
-def attach(home: Path, durations: dict, plain, referenced, limit: int, parts, fits=None) -> APIRouter:
-    global HOME, DURATIONS, compose, compose_references, LIMIT, ready, room
+def attach(home: Path, durations: dict, plain, referenced, limit: int, parts, fits=None, within=None) -> APIRouter:
+    """``within(path)``: the server's ``inside``, a path under the studio folder or 400."""
+
+    global HOME, DURATIONS, compose, compose_references, LIMIT, ready, room, inside
     HOME, DURATIONS, compose, compose_references, LIMIT, ready = home, durations, plain, referenced, limit, parts
-    room = fits or room
+    room, inside = fits or room, within or inside
     (HOME / "slate").mkdir(parents=True, exist_ok=True)
     return router
 
@@ -76,7 +78,8 @@ def new_id() -> str:
 
 
 def now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+    stamp = time.time()  # to the millisecond: a save is refused when the film changed after it was loaded (save_project)
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(stamp)) + f".{int(stamp * 1000) % 1000:03d}Z"
 
 
 AUTO = "auto"  # a film's brain that follows the Studio's own (Brains & tools: NVIDIA Bolt when its server answers)
@@ -140,8 +143,19 @@ def get_project(project_id: str) -> dict:
 
 @router.put("/api/slate/projects/{project_id}")
 def save_project(project_id: str, body: dict) -> dict:
-    if not project_file(project_id).is_file():
+    """The film as the page has it. A body that carries the ``updatedAt`` it was loaded with, older than the file's
+    (a render, the Director, the night shift or the suite wrote it since), is refused: 409, and the page loads it again."""
+
+    file = project_file(project_id)
+    if not file.is_file():
         raise HTTPException(404, "no such film")
+    if body.get("updatedAt"):
+        try:
+            kept = json.loads(file.read_text()).get("updatedAt") or ""
+        except ValueError:
+            kept = ""
+        if str(body["updatedAt"]) < str(kept):
+            raise HTTPException(409, "the film changed on the server since it was loaded")
     body["id"] = project_id
     return {"updatedAt": write(body)["updatedAt"]}
 
@@ -535,6 +549,16 @@ def cast_voices(lines: list[dict], sheets: list[dict | None], warnings: list[str
 DIALOGUE = ("h3", "drama3")  # who speaks a shot's lines: the video model from the words, or Drama 3's cast voices
 
 
+def film_dialogue(project: dict) -> str:
+    """The film's dialogue setting. A film made before it (no "dialogue" key) keeps what it had: its cast voices
+    (a voice sheet's Drama 3 take in use) voice the lines of shots on reference pictures, so it reads as drama3."""
+
+    film = project.get("tf") or {}
+    if "dialogue" not in film:
+        return "drama3" if any(((v or {}).get("drama") or {}).get("use") for v in project.get("voices") or []) else "h3"
+    return film["dialogue"] if film["dialogue"] in DIALOGUE else "h3"
+
+
 def stills_of(sheet: dict) -> list[str]:
     """A sheet's pinned pictures that are on disk, the reference first."""
 
@@ -572,6 +596,24 @@ def lora_list(given) -> list[dict]:
 
     return [{"id": str(one["id"]), **({"strength": one["strength"]} if one.get("strength") not in (None, "") else {}),
              **({"style": one["style"]} if one.get("style") else {})} for one in given or [] if isinstance(one, dict) and one.get("id")]
+
+
+def inside(path: str | Path) -> Path:
+    """A path under the studio folder, or 400 (replaced by the server's own in attach)."""
+
+    resolved = (HOME / path).resolve()
+    if HOME.resolve() not in (resolved, *resolved.parents):
+        raise HTTPException(400, "path is outside the studio folder")
+    return resolved
+
+
+def on_disk(path: str) -> bool:
+    """Whether a path the film names is a file in the studio folder (never one outside it, nor a hidden one)."""
+
+    try:
+        return inside(path).is_file()
+    except HTTPException:
+        return False
 
 
 def find_shot(project: dict, shot_id: str) -> tuple[dict, dict, int]:
@@ -680,7 +722,9 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
 
     references, subjects, pictured = [], [], []  # pictured: the cast ids of the references, <Subject 1> first
     definitions = []  # the bible's further pictures: a second look of someone pictured, the place
-    bible = film.get("bible") != "off" and start in ("text", "cast")  # the bible, used automatically (bible_pictures)
+    # the bible, used automatically (bible_pictures); a film made before the setting (no "bible" key) has it off, so
+    # it renders as it did: only a shot that opens on cast stills takes their reference stills
+    bible = film.get("bible", "off") != "off" and start in ("text", "cast")
     if start == "cast" or (bible and parts.get("ref2va")):
         references, subjects, pictured, definitions = bible_pictures(cast, place if bible else None, 2 if bible else 1)
         if not parts.get("ref2va"):
@@ -703,7 +747,7 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
         elif not previous:
             warnings.append(f"“{before.get('name')}” has no take yet: render it first, or use “Render the scene” to queue them in order.")
 
-    clip = extra.get("reference_video") if extra.get("reference_video") and (HOME / extra["reference_video"]).is_file() else None  # a previs clip brought in from the suite
+    clip = extra.get("reference_video") if extra.get("reference_video") and on_disk(extra["reference_video"]) else None  # a previs clip brought in from the suite
     if clip and not parts.get("ref2va"):
         warnings.append("A previs reference clip needs the Ref2VA model (oneshot-setup.sh --ref2va); rendering without it.")
         clip = None
@@ -745,7 +789,7 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
         sheets.append(sheet)
     # the dialogue: spoken by the video model from the words alone (h3), or with each speaker's Drama 3 voice as the
     # timbre reference (drama3), which only a shot on reference pictures can take
-    dialogue = extra.get("dialogue") if extra.get("dialogue") in DIALOGUE else film.get("dialogue") if film.get("dialogue") in DIALOGUE else "h3"
+    dialogue = extra.get("dialogue") if extra.get("dialogue") in DIALOGUE else film_dialogue(project)
     audios, notes = cast_voices(lines, sheets, warnings) if references and dialogue == "drama3" else ([], [])
     if lines and dialogue == "drama3" and not references:
         warnings.append("Dialogue voiced by Drama 3 needs a shot on reference pictures: here the video model speaks the lines from the words.")

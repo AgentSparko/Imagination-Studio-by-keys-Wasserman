@@ -30,6 +30,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 from xml.sax.saxutils import quoteattr
 
+import anyio.from_thread
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 
@@ -1087,12 +1088,11 @@ def attach(home: Path, jobs: dict, lock: threading.Lock, presets: dict, app=None
         return prompts_of(json.loads((import_folder(import_id) / "import.json").read_text()), home)
 
     @router.post("/api/suite/imports/{import_id}/attach")
-    async def attach_to_film(import_id: str, request: Request) -> dict:
+    def attach_to_film(import_id: str, request: Request, body: dict) -> dict:  # sync: its file work runs in the thread pool
         local(request, json_body=True)
         import slate
         folder = import_folder(import_id)
         found = json.loads((folder / "import.json").read_text())
-        body = await request.json()
         mapping = [row for row in body.get("mapping") or [] if isinstance(row, dict) and row.get("shot")]
         if not mapping:
             raise HTTPException(400, "pick at least one shot to send")
@@ -1102,7 +1102,7 @@ def attach(home: Path, jobs: dict, lock: threading.Lock, presets: dict, app=None
         film = json.loads(file.read_text())
         pack = found.get("motion_pack")
         if found.get("app") == "motion-previs-studio" and not pack and (folder / "motion-pack.zip").is_file():
-            pack = (await to_motion(import_id, request)).get("pack")
+            pack = anyio.from_thread.run(to_motion, import_id, request).get("pack")
         attach_shots(film, found, mapping, home, pack if found.get("app") == "motion-previs-studio" else None)
         slate.write(film)
         return film

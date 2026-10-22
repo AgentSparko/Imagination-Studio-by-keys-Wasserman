@@ -344,7 +344,6 @@ def build(params: dict, job_id: str) -> tuple[list[str], dict, list[str]]:
     plan = plan_of(params)
     exports = HOME / "exports"
     work = exports / ".finish" / job_id
-    work.mkdir(parents=True, exist_ok=True)
     host = state["where"][4:] if state["where"].startswith("ssh:") else ""
     outputs = {kind: str(exports / f"{job_id}.{kind}") for kind in ("mp4", "tsrct", "fcpxml", "edl")}
     plan.update(id=job_id, work=str(work), outputs=outputs, tsrct=state["path"], host=host, machine=state.get("machine"),
@@ -352,7 +351,9 @@ def build(params: dict, job_id: str) -> tuple[list[str], dict, list[str]]:
                 linux=bool(state.get("linux")), ffmpeg=state.get("ffmpeg"))
     if plan["title"] and not plan["fonts"]["title"]:
         raise bad(f"no font for the title on this computer: run `{SETUP}`")
-    (work / "plan.json").write_text(json.dumps(plan, indent=1))
+    if job_id != "check":  # the queue's check of the settings writes nothing; the job's turn writes its plan
+        work.mkdir(parents=True, exist_ok=True)
+        (work / "plan.json").write_text(json.dumps(plan, indent=1))
     return [sys.executable, str(Path(__file__).resolve()), "run", str(work / "plan.json")], {}, list(outputs.values())
 
 
@@ -969,20 +970,25 @@ def readme(label: str, notes: list[str]) -> str:
 def attach(home: Path, pack: Path, within, short):
     """The routes, with the server's path helpers. ``build`` is called by server.build for kind "finish"."""
 
-    global HOME, PACK, inside, relative
-    from fastapi import APIRouter
+    global HOME, PACK, inside, relative, Request  # Request: the routes' annotations are read from this module's names
+    from fastapi import APIRouter, Request
+
+    import agents
 
     HOME, PACK, inside, relative = home, pack, within, short
     router = APIRouter()
 
     @router.get("/api/finish")
-    def state(fresh: bool = False) -> dict:
+    def state(request: Request, fresh: bool = False) -> dict:
+        if remote_host():  # the probe runs ssh with the user's keys: this computer or its Tailscale address, as the brains
+            agents.local(request)
         out = ready(fresh)
         return {**out, "fonts": {role: bool(path) for role, path in font_files().items()}, "mixes": list(MIXES),
                 "sizes": list(SIZES), "rates": list(RATES)}
 
     @router.post("/api/finish/{job_id}/convert")
-    def to_editor(job_id: str, body: dict) -> dict:
+    def to_editor(job_id: str, body: dict, request: Request) -> dict:
+        agents.local(request, True)  # the converter may run over ssh with the user's keys, as the brains routes
         return convert(job_id, str((body or {}).get("to") or ""))
 
     return router

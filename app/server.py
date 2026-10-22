@@ -1918,15 +1918,15 @@ def perform(job: dict, worker: dict | None = None) -> None:
     try:
         # a Drama 3 server kept loaded after a voice take (voice.py) never stands beside a render here, nor MiniMax Music 3
         # kept loaded after a song (music.py): each is unloaded before any other job of this machine's queue
-        if job["kind"] not in ("voice", "export", "soundtrack", "finish") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("voice", "export", "soundtrack", "finish", "graphics") and worker is None and not job.get("remote"):
             if voice.release(f"a {job['kind']} job needs the GPU"):
                 job["log"] += "[tensorfold] Drama 3 was unloaded to give this job its memory\n"
-        if job["kind"] not in ("music", "export", "soundtrack", "finish") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("music", "export", "soundtrack", "finish", "graphics") and worker is None and not job.get("remote"):
             if music.release(f"a {job['kind']} job needs the GPU"):
                 job["log"] += "[tensorfold] MiniMax Music 3 was unloaded to give this job its memory\n"
         # NVIDIA Nemotron 3.5 Bolt (bolt.py), the Studio's brain engine: unloaded before this job when the job's measured
         # peak does not fit beside it (bolt_need), after the answers in flight; held until the queue is empty
-        if job["kind"] not in ("export", "soundtrack", "finish") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("export", "soundtrack", "finish", "graphics") and worker is None and not job.get("remote"):
             job["log"] += bolt.admit(job, lambda resident: bolt_need(job, resident))
         if job["kind"] in train.KINDS and worker is None:  # a LoRA run holds about 55 GB for hours: ComfyUI's models go first
             job["log"] += train_free(job)
@@ -2239,7 +2239,8 @@ def queue_job(body: dict) -> dict:
     if kind not in ("export", "long"):
         # reject bad settings now, not when the job's turn comes; a clip other Sparks may take is held to their memory
         # guards (asked before it is handed over), not to this one's
-        build(kind, params, job_id, room=not (kind in ("video", "studio") and said["used"] > 1))
+        build(kind, params, "check" if kind in finish.KINDS + graphics.KINDS else job_id,  # these write their folder when built
+              room=not (kind in ("video", "studio") and said["used"] > 1))
     if kind in graphics.KINDS and not body.get("title"):
         body = {**body, "title": graphics_title(params)}
     job = {"id": job_id, "kind": kind, "status": "queued", "title": body.get("title") or (action_title(kind, params) if kind in actions.KINDS else sound_title(kind, params) if kind in sound.KINDS else kind), "params": params,
@@ -2598,11 +2599,18 @@ def projects() -> list[dict]:
 
 @app.post("/api/projects")
 def new_project(body: dict) -> dict:
-    project_id = time.strftime("p%m%d-%H%M%S")
+    stamp, n = time.strftime("p%m%d-%H%M%S"), 1
+    project_id = stamp
+    while True:  # an id no other project has: two made in one second differ (as roughcut.new_project)
+        try:
+            project_file(project_id).parent.mkdir(parents=True)
+            break
+        except FileExistsError:
+            n += 1
+            project_id = f"{stamp}-{n}"
     data = {"id": project_id, "name": body.get("name") or "Untitled", "preset": "small" if SPARK else "draft", "quality": "fh8" if SPARK else "standard",
             "segments": [], "timeline": []}
     file = project_file(project_id)
-    file.parent.mkdir(parents=True, exist_ok=True)
     fresh = file.with_suffix(".json.new")
     fresh.write_text(json.dumps(data, indent=1))
     fresh.replace(file)
@@ -2754,7 +2762,7 @@ def slate_room(plan: dict, lora: bool) -> dict:
 
 
 app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, REFERENCE_LIMIT,
-                                lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}, slate_room))
+                                lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}, slate_room, within=inside))
 import director  # noqa: E402  (the Director: a logline to a checked, cut film, beside this file)
 app.include_router(director.attach(HOME, queue=queue_job, lookup=jobs.get, stop_job=cancel, check=qa_gate, new_project=new_project,
                                    save_project=save_project, presets={k: v[1] for k, v in PRESETS.items()}, app=app, references=ref2va_ready))
@@ -2805,7 +2813,6 @@ caption_router = captions.attach(HOME, library, inside, relative, lambda request
                                  lambda: running["process"] is None and not any(j["status"] in ("queued", "running") for j in list(jobs.values())),
                                  lambda: hub.takes(), lambda: settings.load()["presets"].get("captions_auto", True))
 app.include_router(caption_router)
-caption_router.captioner["start"]()
 import train  # noqa: E402  (a LoRA trained from the Library's clips and stills on this Spark, beside this file)
 train_router, train_build, train_free = train.attach(HOME, PACK, SPARK, inside, media_seconds, enqueue, jobs, lock)
 app.include_router(train_router)
@@ -2984,6 +2991,9 @@ if __name__ == "__main__":
         Path(os.environ["STUDIO_PIDFILE"]).write_text(str(os.getpid()))
     hub.start()
     nightshift.start()  # the night shift's scheduler: planned shifts start at their time or when the queue is idle
+    if not os.environ.get("STUDIO_PIDFILE"):  # the captioner describes this studio's Library, not a worker Spark's
+        caption_router.captioner["start"]()
+    director.resume_later()  # the Director's runs a restart cut off
     app.router.on_shutdown.append(stop_session_comfy)  # the detached ComfyUI belongs to this process, not to one render
 
     # Update authorization needs the actual socket peer. Tailscale Serve forwards the browser's IP,

@@ -43,7 +43,7 @@ function revPanel(o) { const f = REV[o.kind], redraw = () => render();
   const box = el("div", { class: "seg", id: "actpanel", style: "margin-top:12px" },
     el("div", { class: "seghead" }, el("b", {}, REV_TITLES[o.kind]), el("span", { class: "note", style: "margin:0" }, o.path.split("/").pop()), el("span", { style: "flex:1" }),
       el("button", { class: "small", onclick: () => { ACT.open = null; render(); } }, "Close")));
-  const preview = el("div", { style: "flex:0 0 220px" }, media(o.path, { style: "width:220px;border-radius:8px" }));
+  const preview = el("div", { style: "flex:0 0 220px" }, media(o.path, { style: "width:220px;border-radius:var(--r2)" }));
   if (o.kind === "restyle") {
     put(box, el("div", { class: "row", style: "align-items:flex-start" }, preview,
       el("div", {}, el("div", { class: "note", style: "margin-top:0" }, "Makes this clip again in a new look. The clip goes in as a reference video, so its action, camera and timing stay; the picture is drawn again from your words. At most 15 seconds: a longer clip is cut to its first 15. Needs MiniMax H3 Ref2VA."),

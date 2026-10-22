@@ -1,7 +1,8 @@
 """The night shift: a batch of clips rendered overnight, and dailies to wake up to.
 
 A shift is a plan kept in <studio folder>/nightshift/<id>.json: Slate shots ({"kind": "shot", "film", "shot"}) and
-plain jobs ({"kind": "job", "body": <a POST /api/jobs body>}). It starts at a time ("23:00", or a date and time), when
+plain jobs ({"kind": "job", "body": <a POST /api/jobs body>}; one job each, so not Restyle, Extend or Fix, whose
+later steps follow the first). It starts at a time ("23:00", or a date and time), when
 the queue has been idle for two minutes ("idle"), or at once ("now"). The scheduler thread queues its items one after
 another, never more than two waiting ahead of the queue, and records each job's clip and checks as it finishes. A
 plan is read again from its file on every tick, so a restart loses nothing: a running shift carries on from the next
@@ -45,6 +46,7 @@ HOME: Path = Path(".")
 Q: dict = {}  # the queue's own: jobs, order, lock, queue_job, cancel, presets, probe, package, path, notify
 IDLE = {"since": None}  # when the queue last became empty, by this process's clock
 guard = threading.RLock()  # one writer of the plan files at a time: the scheduler and the routes
+MAKING: set = set()  # the shifts whose morning this process is making (outside the guard: it takes minutes)
 _thread: threading.Thread | None = None
 
 
@@ -112,6 +114,9 @@ def check_items(items) -> list[dict]:
         elif item.get("kind") == "job":
             if not isinstance(item.get("body"), dict) or not item["body"].get("kind"):
                 raise HTTPException(400, "a job item carries the body of a job: {kind, title, params}")
+            import revise
+            if item["body"]["kind"] in revise.KINDS:  # a chain of jobs: the shift would follow its first step only
+                raise HTTPException(400, f"a night shift takes single jobs: {item['body']['kind']} (Restyle, Extend, Fix) is queued from the Library")
             out.append({"kind": "job", "body": item["body"]})
         else:
             raise HTTPException(400, 'an item is {"kind": "shot", "film", "shot"} or {"kind": "job", "body"}')
@@ -167,8 +172,9 @@ def has_prompt(shot: dict) -> bool:
 
 
 def good_take(shot: dict) -> bool:
-    """A take whose clip is in the studio folder and that is not marked no-good."""
-    return any(t.get("mediaPath") and t.get("rating") != "no-good" and (HOME / t["mediaPath"]).is_file() for t in shot.get("takes") or [])
+    """A take whose clip is in the studio folder and that is marked good or circled (a take still rendering has no
+    rating yet)."""
+    return any(t.get("mediaPath") and t.get("rating") in ("good", "circled") and (HOME / t["mediaPath"]).is_file() for t in shot.get("takes") or [])
 
 
 def film_shots(project: dict, wanted: set | None = None) -> list[tuple[dict, dict]]:
@@ -204,15 +210,18 @@ def render_shot(film: str, shot_id: str, chain: str | None) -> tuple[str, str]:
     asked = job.get("params") or params
     shot.setdefault("takes", []).insert(0, {
         "id": f"take-{int(time.time() * 1000):x}-{uuid.uuid4().hex[:5]}", "loggedAt": slate.now(), "model": "minimax-h3",
-        "prompt": prompt, "rating": "good", "notes": "", "origin": "Night shift", "mediaPath": output, "jobId": job["id"],
+        "prompt": prompt, "rating": "", "notes": "", "origin": "Night shift", "mediaPath": output, "jobId": job["id"],
         "seed": plan.get("seed"), "settings": {k: asked[k] for k in ("preset", "quality", "frames", "seconds", "width", "height", "loras") if asked.get(k) is not None}})
     slate.write(project)
     return job["id"], output
 
 
-def note_take(result: dict) -> None:
-    """A finished shot's checks written beside its take in the film, as an imported take keeps them."""
-    slated = (result.get("params") or {}).get("slate") or {}
+def note_take(result: dict, item: dict | None = None) -> None:
+    """A finished shot's checks written beside its take in the film, as an imported take keeps them, and its rating
+    from them: no-good when it failed or its checks did, else good. ``item``: the plan's item, for a result that
+    has no job record left (the studio restarted)."""
+    slated = (result.get("params") or {}).get("slate") or \
+        ({"project": item["film"], "shot": item["shot"]} if item and item.get("kind") == "shot" else {})
     if not slated.get("project"):
         return
     import slate
@@ -228,6 +237,8 @@ def note_take(result: dict) -> None:
                     take[key] = result[key]
             if result.get("status") != "done":
                 take["notes"] = (take.get("notes") or "") + ("" if not take.get("notes") else " · ") + "Night shift: " + (result.get("error") or result.get("status") or "")
+            if not take.get("rating"):  # a rating the user gave meanwhile stays
+                take["rating"] = "no-good" if verdict(result)[0] is False else "good"
             slate.write(project)
             return
 
@@ -307,6 +318,7 @@ def follow(plan: dict) -> bool:
             output = result.get("output")
             if output and (HOME / output).is_file():
                 result.update(status="done", outputs=[output], finished=time.time())
+                note_take(result, plan["items"][result["item"]])
                 kept.append(result)
             changed = True
             continue
@@ -346,7 +358,7 @@ def follow(plan: dict) -> bool:
     if progress != plan.get("progress"):
         plan["progress"], changed = progress, True
     if len(done) == len(plan["items"]):
-        morning(plan)
+        plan["state"] = "morning"  # the scheduler makes the morning outside the guard (make_morning)
         changed = True
     return changed
 
@@ -370,13 +382,29 @@ def tick(now: float | None = None) -> None:
         for plan in running:
             if follow(plan):
                 write(plan)
-        if any(p.get("state") == "running" for p in running):
-            return
-        for plan in sorted((p for p in everything if p.get("state") == "planned"), key=lambda p: p.get("created") or 0):
-            if due(plan, now):
-                start_plan(plan)
+        # a shift whose items are all finished (now, or before a restart): its morning, made below
+        mornings = [p for p in everything if p.get("state") == "morning" and p["id"] not in MAKING]
+        MAKING.update(p["id"] for p in mornings)
+        if not any(p.get("state") == "running" for p in running):
+            for plan in sorted((p for p in everything if p.get("state") == "planned"), key=lambda p: p.get("created") or 0):
+                if due(plan, now):
+                    start_plan(plan)
+                    write(plan)
+                    break
+    for plan in mornings:
+        make_morning(plan)
+
+
+def make_morning(plan: dict) -> None:
+    """The morning made outside the guard (a reel takes minutes, and the routes wait on the guard), then written."""
+
+    try:
+        morning(plan)
+        with guard:
+            if plan_file(plan["id"]).is_file():  # not forgotten meanwhile
                 write(plan)
-                return
+    finally:
+        MAKING.discard(plan["id"])
 
 
 def loop() -> None:

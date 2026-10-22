@@ -21,6 +21,8 @@ PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 DEST="$PREFIX/finish"
 TSRCT_VERSION="0.4.0"          # the release Tesseract's own skills pin (fxSchemaVersion 77)
 CONV_VERSION="0.3.0"           # the converter release built on the same FX schema (77)
+# TODO: pin the two releases' SHA-256 here, as the fonts' are. For now each download is checked against the .sha256
+# file published in the same release, which proves the download is whole but not that the release is the one read.
 FONTS_COMMIT="45e3d5269e4a17d823f6d84470bc084dc5ae46f6"   # google/fonts
 INSTRUMENT_SHA="498efd461f6ddfcb7a111bf9a565709d2085d48201d501ead960d93e84ffbb88"
 GEIST_SHA="73894e0448cae90a92b6c2f8732b7bb9acb7b94c418bff559dad4a18e1de9659"

@@ -11,12 +11,22 @@ try { SL.mode = localStorage.getItem("production-mode") || "board"; } catch {}
 const slId = prefix => prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
 const slNow = () => new Date().toISOString();
 let slTimer = null;
-const slSave = () => { clearTimeout(slTimer); slTimer = setTimeout(() => SL.p && api("/api/slate/projects/" + SL.p.id, SL.p, "PUT").catch(e => toast("Not saved: " + e.message)), 500); };
+// A save carries the updatedAt the film was loaded with: one the server changed since (a render, the Director) is
+// refused (409), and the film is loaded again instead of overwriting what the server wrote
+const SL_STALE = "The film changed on the server (a render or the Director): reloaded.";
+async function slPut(p = SL.p) { let r;
+  try { r = await api("/api/slate/projects/" + p.id, p, "PUT"); }
+  catch (e) { if (!/changed on the server/.test(e.message)) throw e;  // the 409 (slate.py save_project)
+    const fresh = await api("/api/slate/projects/" + p.id); if (SL.p && SL.p.id === p.id) { SL.p = fresh; SL.plan = {}; render(); } throw new Error(SL_STALE); }
+  if (r && r.updatedAt) p.updatedAt = r.updatedAt; return r; }
+const slSave = () => { clearTimeout(slTimer); slTimer = setTimeout(() => SL.p && slPut().catch(e => toast(e.message === SL_STALE ? e.message : "Not saved: " + e.message)), 500); };
 const slDraw = () => { slSave(); render(); };
 const slScene = () => SL.p.scenes.find(s => s.id === SL.sceneId) || SL.p.scenes[0] || null;
 const slShot = () => { const sc = slScene(); return sc ? sc.shots.find(s => s.id === SL.shotId) || sc.shots[0] || null : null; };
 const slTf = shot => shot.tf || (shot.tf = { start: "text", cast: [], location: "", lines: [], soundscape: "", music: "N/A", cue: "", seed: 1, image: null, h3: "", h3Auto: true });
 const slFilm = () => SL.p.tf || (SL.p.tf = { res: "480p", quality: S.qualities.fh8 ? "fh8" : Object.keys(S.qualities)[0], refPasses: "20" });
+// A film made before the bible and dialogue settings renders as it did (slate.py): the bible off, and its cast voices in use voice the lines
+const slDialogue = () => slFilm().dialogue || ((SL.p.voices || []).some(v => v.drama && v.drama.use) ? "drama3" : "h3");
 // A song under the film (a music video): tempo and bar grid, kept under the project's "tf". A shot's slot is in bars.
 const slSong = () => { const g = (SL.p.tf || {}).song || {}, bpm = Number(g.bpm), beats = Number(g.beatsPerBar) || 4; return bpm >= 20 && bpm <= 400 ? { name: g.name || "", bpm, beats, first: Number(g.firstBeat) || 0, bar: beats * 60 / bpm } : null; };
 const slClock = t => Math.floor(t / 60) + ":" + (t % 60).toFixed(1).padStart(4, "0");
@@ -250,7 +260,7 @@ async function slRender(scene, shot, chain) { const tf = slTf(shot), c = await s
   shot.takes.unshift({ id: slId("take"), loggedAt: slNow(), model: "minimax-h3", prompt, rating: "good", notes: "", mediaPath: output, jobId: j.id, seed: c.plan.seed, settings: Object.fromEntries(["preset", "quality", "frames", "seconds", "width", "height", "loras"].filter(k => j.params && j.params[k] != null).map(k => [k, j.params[k]])) }); return output; }
 // A take rendered somewhere else (another machine's app, or a file) logged into this shot with its seed and settings.
 async function slImportTake(shot, given) { const body = { projectId: SL.p.id, shot: shot.id, ...Object.fromEntries(Object.entries(given).filter(([, v]) => v !== "" && v != null)) };
-  clearTimeout(slTimer); await api("/api/slate/projects/" + SL.p.id, SL.p, "PUT");  // the film as it is now: the server reads the shot from the file
+  clearTimeout(slTimer); await slPut();  // the film as it is now: the server reads the shot from the file
   const r = await api("/api/slate/takes", body); shot.takes.unshift(r.take); SL.have[r.take.mediaPath] = true; return r.take; }
 const slTakeLine = take => [take.seed != null ? "seed " + take.seed : "seed ?", take.settings && (take.settings.preset || take.settings.width) ? (take.settings.width ? take.settings.width + "×" + take.settings.height : take.settings.preset) : null,
   take.settings && take.settings.frames ? take.settings.frames + " frames" : take.settings && take.settings.seconds ? take.settings.seconds + " s" : null, take.settings && take.settings.quality, take.settings && (take.settings.loras || []).length ? "LoRA " + take.settings.loras.map(l => l.id).join(" + ") : null, typeof spkTake === "function" ? spkTake(take.mediaPath) : null,
@@ -392,7 +402,7 @@ function slTakes(scene, shot) { return shot.takes.filter(t => t.mediaPath).map(t
     have ? slKeepVoices(shot, take) : null, slFeedback(scene, shot, take)); }); }
 // A take's sound kept as a speaking character's voice: their voice sheet's cast voice from then on (slate.py)
 const slSpeakers = shot => [...new Set(slTf(shot).lines.filter(l => (l.text || "").trim() && l.characterId).map(l => l.characterId))].map(id => SL.p.characters.find(c => c.id === id)).filter(Boolean);
-async function slKeepVoice(shot, take, who) { try { clearTimeout(slTimer); await api("/api/slate/projects/" + SL.p.id, SL.p, "PUT");  // the server reads the take from the file
+async function slKeepVoice(shot, take, who) { try { clearTimeout(slTimer); await slPut();  // the server reads the take from the file
     SL.p = await api("/api/slate/voice-from-take", { project: SL.p.id, shot: shot.id, take: take.id, character: who.id }); SL.plan = {};
     const v = (SL.p.voices || []).find(x => x.characterId === who.id); toast("Kept as the voice of " + who.name + (v && v.drama ? ", " + Number(v.drama.seconds).toFixed(1) + " s" : "") + ": shots with Drama 3 dialogue use it"); render(); } catch (e) { toast(e.message); } }
 const slKeepVoices = (shot, take) => { const who = slSpeakers(shot); return who.length ? el("div", { class: "row chips", style: "margin-top:6px" }, who.map(c => el("button", { class: "small fit", title: "The take's sound (its first 15 s, at least 2 s) becomes " + c.name + "'s voice: the reference for their lines when dialogue is voiced by Drama 3", onclick: () => slKeepVoice(shot, take, c) }, "Keep this voice for " + c.name)), el("span")) : null; };
@@ -415,7 +425,7 @@ function slRoll(scene, shot) { const tf = slTf(shot), p = SL.p, plan = SL.plan[s
       el("div", { class: "fit", style: "width:170px" }, slPick(line, "voiceId", { "": "voice: from the cast", ...Object.fromEntries((p.voices || []).map(v => [v.id, v.name])) }, soft)), slIn(line, "text", { placeholder: "the exact words, about three a second" }, soft),
       el("label", { class: "fit" }, bind(line, "sung", el("input", { type: "checkbox" }), () => { soft(); slSave(); }), " sung"), el("button", { class: "small fit", onclick: () => { tf.lines.splice(i, 1); redo(); } }, "✕"))),
     el("div", { class: "row" }, el("button", { class: "small fit", onclick: () => { tf.lines.push({ characterId: tf.cast[0] || null, voiceId: null, text: "", language: "English", sung: false }); slDraw(); } }, "+ Add a line"),
-      tf.lines.length ? el("div", { class: "fit", style: "width:330px" }, slPick(tf, "dialogue", { "": "Dialogue: the film's (" + (slFilm().dialogue === "drama3" ? "voiced by Drama 3" : "spoken by the video model") + ")", h3: "Dialogue spoken by the video model", drama3: "Dialogue voiced by Drama 3 and matched" }, redo)) : null, el("span")),
+      tf.lines.length ? el("div", { class: "fit", style: "width:330px" }, slPick(tf, "dialogue", { "": "Dialogue: the film's (" + (slDialogue() === "drama3" ? "voiced by Drama 3" : "spoken by the video model") + ")", h3: "Dialogue spoken by the video model", drama3: "Dialogue voiced by Drama 3 and matched" }, redo)) : null, el("span")),
     el("div", { class: "row" }, field("Soundscape", slIn(tf, "soundscape", { placeholder: "Rain on a tin roof, distant traffic, a kettle starting to boil." }, soft)), el("div", { class: "fit", style: "width:210px" }, el("label", {}, "Score"), slPick(tf, "cue", { "": "no cue (N/A)", ...Object.fromEntries((p.music || []).map(m => [m.id, m.name])) }, redo)),
       el("div", { class: "fit", style: "width:100px" }, el("label", {}, "Seed"), slIn(tf, "seed", { type: "number", min: 0 }, soft))),
     (() => { const all = slShotLoras(), own = (tf.loras || [])[0], rec = own && all.find(r => r.id === own.id), pick = { id: own ? own.id : "" };
@@ -494,7 +504,7 @@ function slBible() { const p = SL.p, d = p.defaults, film = slFilm(), b = SL.bra
         for (const sc of SL.p.scenes) for (const sh of sc.shots) { slTf(sh).seed = S.sharp.seed; sh.spec.aspectRatio = "16:9"; if (!S.sharp.seconds.includes(Number(sh.spec.durationSec))) sh.spec.durationSec = S.sharp.seconds[0]; } slSave(); slDraw(); }) : null,
       S.ref2va ? field("Cast stills (reference) passes", slPick(film, "refPasses", S.ref2va_turbo ? { 20: "20 passes · the model as released", 4: "Turbo 4 passes · about 2.5x faster" } : { 20: "20 passes" })) : null),
     loraHub(film, slSave, slDraw),
-    el("h3", {}, "Faces, places and voices"), (() => { if (!film.bible) film.bible = "auto"; if (!film.dialogue) film.dialogue = "h3"; const again = () => { SL.plan = {}; slDraw(); };
+    el("h3", {}, "Faces, places and voices"), (() => { if (!film.bible) film.bible = "off"; if (!film.dialogue) film.dialogue = slDialogue(); const again = () => { SL.plan = {}; slDraw(); };
       return [el("div", { class: "row" }, field("The bible in shots", slPick(film, "bible", { auto: "Used automatically: the cast's and the place's pictures and LoRAs", off: "Off: only what each shot sets" }, again))),
         el("div", { class: "note" }, film.bible === "off" ? "Shots use only their own settings: a face is kept only in a shot that opens on cast stills." : "Every shot from text or cast stills takes up to two pinned pictures of each person in it and two of its place as reference pictures (nine in all, the cast first). Shots from the shot before or an image keep the descriptions in words. A LoRA on a sheet goes on every shot with that person or place."),
         el("label", {}, "Dialogue"), choice(film, "dialogue", { h3: ["Dialogue spoken by the video model", "MiniMax H3 speaks the lines with the picture, from the words"], drama3: ["Dialogue voiced by Drama 3 and matched", "each speaker's cast voice is the timbre the lines are matched to"] }, again, true),
@@ -532,7 +542,9 @@ function slADView() { const log = SL.p.copilot || [], say = el("textarea", { sty
     el("div", { class: "chat" }, log.length ? log.map(m => el("div", { class: m.role }, el("b", {}, m.role === "user" ? "Director" : "First AD"), el("div", { style: "white-space:pre-wrap" }, m.text), (m.receipts || []).length ? el("div", { class: "receipt" }, m.receipts.map(r => el("div", {}, r))) : null)) : el("div", { class: "note" }, "Nothing said yet.")),
     say, el("div", { class: "row", style: "margin-top:8px" }, el("button", { class: "primary fit", disabled: !!SL.busy, onclick: go }, "✦ Send to the First AD"), log.length ? el("button", { class: "small fit", onclick: () => { SL.p.copilot = []; slDraw(); } }, "Clear the conversation") : null, el("span"),
       SL.p.scenes.some(sc => sc.shots.length) ? el("button", { class: "fit", onclick: () => { SL.view = "deliver"; render(); } }, "Go to Deliver →") : null), typeof directorPanel === "function" ? directorPanel(SL.p) : null); }
-function slHome() { const name = el("input", { placeholder: "Name of the film" }), make = async () => { try { SL.p = await api("/api/slate/projects", { name: name.value.trim() || "Untitled film" }); } catch (e) { return toast("The film was not created: " + e.message); } SL.metas = null; SL.view = "ad"; render(); };
+function slHome() { const name = el("input", { placeholder: "Name of the film" }), make = async () => { try { SL.p = await api("/api/slate/projects", { name: name.value.trim() || "Untitled film" }); } catch (e) { return toast("The film was not created: " + e.message); }
+  Object.assign(slFilm(), { bible: "auto", dialogue: "h3" }); slSave();  // a new film: the bible in shots, the lines spoken by the video model
+  SL.metas = null; SL.view = "ad"; render(); };
   const load = el("input", { type: "file", accept: ".json,application/json", onchange: async () => { try { SL.p = await api("/api/slate/projects", { project: JSON.parse(await load.files[0].text()) }); SL.metas = null; SL.view = "shots"; render(); } catch (e) { toast("Not a Slate project: " + e.message); } } });
   if (!SL.metas) api("/api/slate/projects").then(list => { SL.metas = list; render(); }).catch(e => toast(e.message));
   return el("div", {}, el("div", { class: "row" }, field("Start a new film", name), el("button", { class: "hot fit", onclick: make }, "Create"), field("Or open a project.json made in Slate", load)),
@@ -545,7 +557,7 @@ function viewSlate(switcher) { const box = el("section", { class: "card" }, swit
   if (!SL.p) { put(box, slHome(), credit); return box; }
   const p = SL.p, d = p.defaults, used = slBrainUsed(d), ok = SL.brain[used], tabs = { ad: "✦ First AD", bible: "Bible", studios: "Studios", shots: "Shots", sound: "Sound", deliver: "Deliver" }; slHave();
   put(box, el("div", { class: "row", style: "align-items:center" }, el("h2", { style: "margin:0" }, p.name), el("span", { class: "fit pill " + (SL.busy ? "running" : ok ? "done" : "failed"), title: "The brain: set it in the Bible" }, SL.busy ? "✦ " + SL.busy + "…" : (d.brain === used ? "" : "Automatic · ") + slBrainName(used) + (ok ? " ready" : " not found")),
-      el("button", { class: "small fit", onclick: async () => { clearTimeout(slTimer); await api("/api/slate/projects/" + p.id, p, "PUT").catch(() => {}); SL.p = null; SL.metas = null; render(); } }, "← All films")),
+      el("button", { class: "small fit", onclick: async () => { clearTimeout(slTimer); await slPut(p).catch(() => {}); SL.p = null; SL.metas = null; render(); } }, "← All films")),
     el("div", { class: "steps", style: "margin-top:12px" }, Object.entries(tabs).map(([k, label]) => el("button", { class: SL.view === k ? "on" : "", onclick: () => { SL.view = k; render(); } }, label))),
     SL.view === "studios" ? el("div", {}, el("div", { class: "choice tight", style: "margin-bottom:14px" }, ["cast", "art", "locations", "lookbook"].map(k => el("button", { type: "button", class: SL.studio === k ? "on" : "", onclick: () => { SL.studio = k; render(); } }, el("b", {}, SL_SHEETS[k].title), el("span", {}, (p[SL_SHEETS[k].key] || []).length + " sheets")))), slSheets(SL.studio))
     : SL.view === "sound" ? el("div", {}, el("div", { class: "choice tight", style: "margin-bottom:14px" }, ["voices", "music"].map(k => el("button", { type: "button", class: SL.sound === k ? "on" : "", onclick: () => { SL.sound = k; render(); } }, el("b", {}, SL_SHEETS[k].title), el("span", {}, (p[SL_SHEETS[k].key] || []).length + " sheets")))),

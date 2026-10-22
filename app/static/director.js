@@ -16,7 +16,7 @@ async function drLoad(id) { let s = null; try { s = await api("/api/slate/direct
 function drWatch(id) { clearTimeout(DR.poll); const s = DR.st[id]; if (s && s.running) DR.poll = setTimeout(() => drLoad(id), 2000); }
 async function drStart(film) { const a = drAsk(film); if (!a.logline.trim() && !film.scenes.length) return toast("Give the film a logline first");
   DR.busy = true; render();
-  try { clearTimeout(slTimer); await api("/api/slate/projects/" + film.id, film, "PUT");  // the film as it is now: the run reads it from the file
+  try { clearTimeout(slTimer); await slPut(film);  // the film as it is now: the run reads it from the file
     DR.st[film.id] = await api("/api/slate/direct", { project: film.id, ...a, logline: a.logline.trim() }); toast("The Director is at work on " + film.name); }
   catch (e) { toast(e.message); }
   DR.busy = false; drLoad(film.id); }
