@@ -2809,6 +2809,35 @@ MiniMax H3's video encoder in fp16 from Comfy-Org/MiniMax-H3 and ostris's de-dis
 (ostris/minimax_h3_training_adapter), about 5.5 GB in `$SPARK_MODELS/Train-H3`. The adapter is merged under the LoRA
 while it trains and is not used when it renders. MiniMax H3's files are under the MiniMax H3 Community License; the
 adapter is made from MiniMax H3. The LoRA you train is yours; what it may be used for follows that licence.
+## A rough cut on the beat, straight to Resolve
+
+Slate's **Deliver** tab cuts a film to a song: pick the song (any song, voice line or sound in the Library), choose
+where the cuts fall, and press **Make a rough cut**. The studio takes the best take of every shot (circled, else
+good, else the newest that is not marked no-good) in scene and shot order, finds the song's beats, and lays the clips
+end to end so each cut lands on the music:
+
+- **Every beat** is a fast montage, **Every bar** gives each clip one bar, **Every two bars** longer, calmer shots.
+  A clip is trimmed around its middle to fill its slot; a clip shorter than its slot keeps its whole length and the
+  next cut lands back on the grid.
+- **Natural** lets each clip run about its own length and cuts it on the last beat it reaches.
+- **As filmed**, **Shuffled** or **Calm to busy** (the stillest clips first) sets the order.
+- **Foley for each clip** first makes each clip's sound for its picture (MMAudio, clips of 15 s or less; see Sound
+  effects and foley), and the cut uses those clips. Slower: one foley job a clip.
+
+The cut becomes an Editor project of its own and its export is queued with the song under it, lowered while someone
+speaks. When it is done the panel plays it and offers **Open in Resolve**: a zip with the FCPXML and every clip and
+the song in `media/` beside it (unzip it, then in DaVinci Resolve File > Import > Timeline), and the FCPXML and an EDL
+on their own. All three are kept in `~/ImaginationStudio/exports/`.
+
+In the **Library**, tick some clips and press **Trailer from these** for the same cut from a selection: shuffle it, or
+cut it calm to busy, for a different trailer from the same clips.
+
+The beats are found on this machine with numpy (no extra install): the tempo between 60 and 200 BPM, every beat, and
+the first beat of each bar (4/4). A song is measured once; the result is kept beside it as `<name>.beats.json`.
+Very fast songs may read at half tempo, which still cuts on the beat. Needs ffmpeg.
+`POST /api/music/beats {path}` gives {bpm, beats, downbeats, bars, duration, confidence};
+`POST /api/roughcut {film | clips, song, cut, order, foley, title, width, height}` makes the cut and
+`GET /api/roughcut/{project}` follows it. Agents have the same as `music_beats`, `rough_cut` and `rough_cut_status`.
 
 ## Motion Previs: a shot into control layers and a camera move
 

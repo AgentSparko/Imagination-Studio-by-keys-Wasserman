@@ -2875,6 +2875,10 @@ app.include_router(telemetry.attach(HOME, jobs, order, lock, memory_guard, engin
 import suite  # noqa: E402  (the filmmaker suite's files in and out: imports, timeline, dailies, beside this file)
 app.include_router(suite.attach(HOME, jobs, lock, PRESETS, app))
 app.include_router(settings.attach(HOME))
+import beats  # noqa: E402  (a song's tempo, beats and bars, measured with numpy, beside this file)
+app.include_router(beats.attach(HOME, inside))
+import roughcut  # noqa: E402  (a rough cut on the song's beats, exported with its FCPXML, EDL and Resolve zip, beside this file)
+app.include_router(roughcut.attach(HOME, lambda body: queue_job(body), jobs, lock, inside, relative, media_seconds, public))
 try:
     import nodes  # noqa: E402  (Nodes: a canvas of the studio's own jobs, run in order, beside this file)
 except ImportError:  # an install without it keeps the rest of the app

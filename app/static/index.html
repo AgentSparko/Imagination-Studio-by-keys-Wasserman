@@ -68,6 +68,7 @@ try { const a = JSON.parse(localStorage.getItem("studio-look") || "null"), c = d
 <script src="sparks.js"></script>
 <script src="voice.js"></script>
 <script src="music.js"></script>
+<script src="roughcut.js"></script>
 <script src="sound.js"></script>
 <script src="updates.js"></script>
 <script src="settings.js"></script>
@@ -905,7 +906,7 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
       // out of the library: the server moves the file to the studio's trash folder
       el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: () => clearOut({ paths: [m.path], films: true }, "Delete " + m.path.split("/").pop() + "?") }, "🗑")))));
     if (!ACT.state) actLoad().then(() => { if (tab === "Library") render(); });
-    put(box, el("div", { class: "note" }, tally, " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale and Remove a person. Under a picture: Turnaround."), actPanel(),
+    put(box, el("div", { class: "note" }, tally, " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale and Remove a person. Under a picture: Turnaround."), actPanel(), typeof rcLibrary === "function" ? rcLibrary() : null,
       el("div", { class: "row", style: "margin-top:10px" }, all, many, el("span"),
         bin ? el("span", { class: "note fit", id: "trashline" }, "Trash: " + (bin.files ? count(bin.files, "file") + " · " + sizeText(bin.bytes) : "empty")) : null,
         bin && bin.last ? el("button", { class: "fit", title: "Puts the files of the last deletion back where they were, and its job cards back in the queue", onclick: restoreLast }, "Restore last deletion (" + count(bin.last.files, "file") + ")") : null,

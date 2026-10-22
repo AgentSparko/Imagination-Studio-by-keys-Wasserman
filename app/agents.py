@@ -122,7 +122,8 @@ SYSTEM = ("You are working for a filmmaker inside Imagination Studio. Save every
 
 # what the Agent room adds: a conversation that may need the user, and the Studio's own tools by name
 STUDIO_TOOLS = ("studio_state (call first), list_library, search_library, queue_still, queue_edit, queue_clip (references for Ref2VA), queue_long, "
-                "restyle_clip, extend_clip, fix_clip (work on a Library clip), queue_voice, queue_song, queue_sound (sfx, foley), queue_soundtrack, check_clip (the QA gate), motion_previs, "
+                "restyle_clip, extend_clip, fix_clip (work on a Library clip), queue_voice, queue_song, queue_sound (sfx, foley), queue_soundtrack, "
+                "music_beats, rough_cut (a film or clips cut to a song on the beat, for Resolve), rough_cut_status, check_clip (the QA gate), motion_previs, "
                 "job_status, wait_for_jobs, cancel_job, list_jobs, list_projects, add_to_timeline, export_timeline, upload_file, "
                 "train_lora and training_status (a LoRA trained on a DGX Spark from Library clips, for hours), "
                 "and Slate's slate_films, slate_film, slate_new_film, slate_add_scene, slate_add_shot, slate_render_shot, suite_imports and suite_attach (what the filmmaker suite brought in, sent into a film)")
@@ -2146,7 +2147,7 @@ def answer_of(base: str, body: dict, stopped) -> dict | None:
 # before it may finish (it enforced the checklist's own mistakes: 87% against 95% without it), two worked examples in
 # the system prompt (no gain), and Bolt's reasoning, `think` (as exact, three times slower; kept as a part to turn on).
 
-MAKERS = ("search_library", "queue_still", "queue_clip", "queue_voice", "queue_song", "queue_edit", "queue_long", "queue_sound", "queue_soundtrack",
+MAKERS = ("search_library", "queue_still", "queue_clip", "queue_voice", "queue_song", "queue_edit", "queue_long", "queue_sound", "queue_soundtrack", "rough_cut",
           "check_clip", "motion_previs", "slate_new_film", "slate_add_scene", "slate_add_shot", "slate_render_shot",
           "suite_attach", "add_to_timeline", "export_timeline", "upload_file", "restyle_clip", "extend_clip", "fix_clip", "train_lora")
 LOCAL_RULES = (" Do only what the filmmaker asked, exactly: one call for each thing asked for, the number of pictures, takes or "
