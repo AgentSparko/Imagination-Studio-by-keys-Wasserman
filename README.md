@@ -112,12 +112,17 @@ core: pictures and FastH3 video with sound (125 GB).
 | `--sound` | Sound effects and foley (11 GB more, gated) |
 | `--motion` | Motion Previs analysis (0.5 GB) |
 | `--voice` | Fish Audio Drama 3 (about 41 GB more) |
-| `--graphics` | Motion graphics: HyperFrames, GSAP and a browser (about 400 MB) |
+| `--train` | Train your own LoRA: musubi-tuner, MiniMax H3's video encoder and a training adapter (about 6 GB more and an 8 GB environment; DGX Spark only) |
+| `--graphics` | Motion graphics: HyperFrames, GSAP and a browser (about 400 MB; also `oneshot-setup.sh --graphics` on a Mac) |
 | `--no-render` | Skip the test clip |
 | `--no-loras` | Skip the essential LoRA bundle (about 4 GB) |
 | `--no-workflows` | Skip the Library action packs |
 | `--verify` | Check an existing install and download nothing |
 | `--upgrade` | Move an existing install to this version and fetch no weights |
+
+Finish (the final cut and mix, to Resolve, Premiere or After Effects) has no flag in these scripts: it is its own
+installer, `bash scripts/setup-finish.sh` (about 150 MB, `--verify` only reports), and it installs on the Mac. Details:
+[Finish](#finish-the-final-cut-and-mix-to-resolve-premiere-or-after-effects).
 
 ### Accounts
 
@@ -145,9 +150,33 @@ cores · a 2x video decoder for 2K finals on the Mac
 
 ## New since 3.1.0 (on main; every install follows it by itself)
 
-- **Work on a clip you already have.** Under every clip in the Library: *Restyle* makes it again in a new look with
-  the same action and camera, *Extend* carries it on from its last frame and joins the two, *Fix* changes one thing
-  from a sentence. [Work on a clip you already have](#work-on-a-clip-you-already-have-restyle-extend-fix).
+Making the film, in the order you would use it:
+
+- **The bible and dialogue.** Slate's bible keeps faces, places and voices the same in every shot, and a film's lines can
+  be spoken by the video model or by Drama 3 and matched.
+  [Faces, places and voices](#the-bible-keeps-faces-places-and-voices-consistent),
+  [Dialogue](#dialogue-by-the-video-model-or-by-drama-3).
+- **The Director.** Give it a logline and it writes, casts, renders, checks and cuts a whole film while you watch.
+  [The Director](#the-director-from-a-logline-to-a-checked-cut).
+- **The night shift.** Plan a batch before bed and wake up to a reel, a dailies package and a notification on your phone.
+  [The night shift](#the-night-shift).
+- **A rough cut on the beat.** Cut a film's best takes to a song and open the result in DaVinci Resolve.
+  [A rough cut on the beat](#a-rough-cut-on-the-beat-straight-to-resolve).
+- **Motion graphics.** Titles, lower thirds, kinetic type, captions, slideshows and music videos, rendered on this
+  machine with HyperFrames. [Motion graphics](#motion-graphics-titles-captions-slideshows-and-music-videos).
+- **Finish.** The final cut and mix through Tesseract, to Resolve, Premiere or After Effects.
+  [Finish](#finish-the-final-cut-and-mix-to-resolve-premiere-or-after-effects).
+- **Work on a clip you already have.** *Restyle*, *Extend* and *Fix*, under every clip in the Library.
+  [Restyle, Extend, Fix](#work-on-a-clip-you-already-have-restyle-extend-fix).
+- **Train your own LoRA.** A look or a character from your own clips, on a DGX Spark.
+  [Train your own LoRA](#train-your-own-lora).
+- **Captions and search in the Library.** The studio describes every clip and picture, so you can search by what is in
+  them. [Search your library](#search-your-library-by-what-is-in-it).
+- **Previs and prompts into a film.** What the filmmaker suite made goes straight into a film's shots.
+  [Bring previs and prompts into a film](#bring-previs-and-prompts-into-a-film).
+
+Also new:
+
 - **Your phone and other devices, with an access key.** On the computer running the studio nothing is asked. A phone,
   a tablet or another computer signs in once: **Settings → Access key** shows a QR code that signs a phone in with one
   scan, the key itself to copy, and *Make a new key* for a lost phone. Step by step: TUTORIAL.md section 15, and
@@ -1970,6 +1999,8 @@ so. There is no mask in Fix: the whole first frame is redrawn from the instructi
 change too, and the new clip follows the redrawn frame's look wherever it differs from the clip. A clip without sound
 of its own gets sound made for it.
 
+Restyle and Fix need the Ref2VA model (`--ref2va` on a DGX Spark, a Mac with 128 GB or more); Extend needs only ffmpeg.
+
 Agents have the same three as `restyle_clip`, `extend_clip` and `fix_clip`; over the API they are
 `POST /api/revise {kind: "restyle" | "extend" | "fix", params}` (or `POST /api/jobs` with the same kind), which
 returns the first job and `revise`, the steps so far; `GET /api/revise/<id>` follows them.
@@ -2325,7 +2356,9 @@ what its checks said are read from the job), or a path in its folder, or an uplo
 shot. `POST /api/slate/takes {"projectId", "shot", "from", "job"}` does the same for a script (`"log": true` writes
 it into the project file). An app forgets its jobs when it restarts; the clip's path still works.
 
-**The bible keeps faces, places and voices consistent.** With *The bible in shots* on (the Bible tab, on by default),
+##### The bible keeps faces, places and voices consistent
+
+With *The bible in shots* on (the Bible tab, on by default),
 every shot that opens on text or on cast stills takes the bible's pictures as references: up to two pinned pictures of
 each person in it (the first is their reference, the second another look) and, beside them, two of its place, nine in
 all with the cast first. A shot that opens on the shot before or on an image cannot take references; it keeps the
@@ -2337,13 +2370,17 @@ voice for* a speaker keeps the take's sound (its first 15 s; at least 2 s) as th
 the Voice folder and set as their voice sheet's cast voice (a sheet named after them is made when they have none).
 Reference pictures need the Ref2VA model; without it shots render from text as before.
 
-**Dialogue: by the video model or by Drama 3.** In the Bible tab, *Dialogue spoken by the video model* (the default)
+##### Dialogue: by the video model or by Drama 3
+
+In the Bible tab, *Dialogue spoken by the video model* (the default)
 writes the lines into the prompt and MiniMax H3 speaks them with the picture, in the voice the voice sheet describes.
 *Dialogue voiced by Drama 3 and matched* also gives each speaker's cast voice (made on the Sound tab, or kept from a
 take) to the model as the timbre reference of their lines; this needs a shot on reference pictures, and the preflight
 says so otherwise. A shot can choose otherwise next to its spoken lines.
 
-**The Director: from a logline to a checked cut.** At the bottom of the First AD tab, *Direct the whole film* takes
+##### The Director: from a logline to a checked cut
+
+At the bottom of the First AD tab, *Direct the whole film* takes
 the film's logline and a few numbers (scenes, shots a scene, seconds a shot, quality, how many retakes a failed take
 gets, whether to cut it and a song from the Music tab under the cut) and runs the whole production while you watch.
 The film's brain writes what the film lacks: characters with their voices and places when it has none, then the
@@ -2360,7 +2397,7 @@ is written, cast and rendered is kept, and so are shots that had a take before t
 of the app picks a run up where it was. For scripts and agents: `POST /api/slate/direct {"project", "logline",
 "scenes", "shotsPerScene", "seconds", "quality", "retakes", "cut", "song"}`, `GET /api/slate/direct/{project}`,
 `POST /api/slate/direct/{project}/stop`, and the agents' `direct_film` and `director_status` tools. It needs the
-film's brain (Bible tab); the turnarounds need Turnaround in the LoRA hub and the check needs ffmpeg, and without them
+film's brain (Bible tab); cast stills need the Ref2VA model (`--ref2va`); the turnarounds need Turnaround in the LoRA hub and the check needs ffmpeg, and without them
 the run carries on without the turnaround, or with the take counted as not checked.
 
 Not ported from Slate: sequence chunks, alt takes, punch-ups, the tone dial, pickups on a selected span, reference
@@ -2819,17 +2856,22 @@ queue with its step count; a checkpoint is saved every 100 steps, so a run you c
 **resumes** from its last checkpoint. When it ends, the LoRA is written to `~/ImaginationStudio/loras/` in the layout
 ComfyUI reads, and its card in Looks has **Try it**, which queues a short clip with it on.
 
+**Needs a DGX Spark.** Training is not offered on a Mac. Install it with `bash oneshot-setup-spark.sh --train`; it also
+runs with `--all`.
+
 Agents can do the same: `train_lora {name, trigger, kind, items, steps}` and `training_status {id}` in the Studio's
 MCP tools. Over HTTP: `POST /api/train/datasets {name, trigger, kind, items, captions}`, then
 `POST /api/train/start {dataset, steps, rank, lr, size, save_every}` (or `{resume: <lora id>}`); `GET /api/train`.
 
-**What it needs** (`bash oneshot-setup-spark.sh --train`, or `bash spark/setup-train.sh`; `--verify` checks):
+**What it needs, and the disk** (`bash oneshot-setup-spark.sh --train`, or `bash spark/setup-train.sh`; `--verify`
+checks; about 6 GB more and an 8 GB environment, besides the H3 transformer when `--h3-base` has not installed it):
 kohya-ss's [musubi-tuner](https://github.com/kohya-ss/musubi-tuner) at `f8a1b03` (Apache License 2.0) in its own
 environment under `$PREFIX/train`; MiniMax H3's FL2VA transformer (what `--h3-base` installs, fetched if missing);
 MiniMax H3's video encoder in fp16 from Comfy-Org/MiniMax-H3 and ostris's de-distillation adapter v2
 (ostris/minimax_h3_training_adapter), about 5.5 GB in `$SPARK_MODELS/Train-H3`. The adapter is merged under the LoRA
 while it trains and is not used when it renders. MiniMax H3's files are under the MiniMax H3 Community License; the
 adapter is made from MiniMax H3. The LoRA you train is yours; what it may be used for follows that licence.
+
 ## A rough cut on the beat, straight to Resolve
 
 Slate's **Deliver** tab cuts a film to a song: pick the song (any song, voice line or sound in the Library), choose
@@ -2855,10 +2897,12 @@ cut it calm to busy, for a different trailer from the same clips.
 
 The beats are found on this machine with numpy (no extra install): the tempo between 60 and 200 BPM, every beat, and
 the first beat of each bar (4/4). A song is measured once; the result is kept beside it as `<name>.beats.json`.
-Very fast songs may read at half tempo, which still cuts on the beat. Needs ffmpeg.
+Very fast songs may read at half tempo, which still cuts on the beat. It runs on a Mac and on a DGX Spark with no install
+flag; it needs ffmpeg.
 `POST /api/music/beats {path}` gives {bpm, beats, downbeats, bars, duration, confidence};
 `POST /api/roughcut {film | clips, song, cut, order, foley, title, width, height}` makes the cut and
 `GET /api/roughcut/{project}` follows it. Agents have the same as `music_beats`, `rough_cut` and `rough_cut_status`.
+
 ## The night shift
 
 Plan a batch before bed, and wake up to dailies on your phone.
@@ -2886,10 +2930,11 @@ there: iOS shows them only for a studio added to the Home Screen (iOS 16.4 or la
 The studio makes its own keys (kept in `~/ImaginationStudio/push/`) and sends through the phone's own push service;
 there is no account. It needs the `cryptography` Python package (installed by the setup, with `pywebpush`).
 
-The reel needs ffmpeg; without a font on the machine the title cards are plain black. Routes:
+**What it needs.** It runs on a Mac and on a DGX Spark with no install flag. The reel needs ffmpeg; without a font on the machine the title cards are plain black. Routes:
 `GET/POST /api/nightshift` (`{film, shots?, start, name?}` or `{items: [{kind: "shot", film, shot} | {kind: "job", body}], start}`),
 `GET/DELETE /api/nightshift/{id}`, `POST /api/nightshift/{id}/start|cancel`; `GET /api/push/key`,
 `POST/DELETE /api/push/subscribe`, `POST /api/push/test`.
+
 ## Finish: the final cut and mix, to Resolve, Premiere or After Effects
 
 **Finish** turns a timeline into the finished film, rendered by [Tesseract](https://github.com/mirage-hq/tesseract)
@@ -2929,7 +2974,9 @@ cut there and brings the results back; the panel says "Runs on <your Mac> over s
 beside it), which leave out commercial use by a business with a yearly revenue of US$1 million or more without a
 separate agreement, and do not allow passing it on. It may send basic usage counts for some commands (no file names,
 paths or contents), on by default; the Studio never changes that setting, and `tsrct telemetry disable` turns it off.
-Tesseract Converter is MIT. Instrument Serif and Geist are under the SIL Open Font License.
+Tesseract Converter is MIT. Instrument Serif and Geist are under the SIL Open Font License. Everything else in Finish
+(the studio's own code, the cut, the mix, the Resolve files) runs on your computer, free, with no account or key.
+
 ## Motion graphics: titles, captions, slideshows and music videos
 
 Edit → **Graphics** makes motion graphics from what is already in the Library and renders them to MP4 on this machine,

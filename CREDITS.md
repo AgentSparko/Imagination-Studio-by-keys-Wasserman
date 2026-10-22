@@ -214,7 +214,24 @@ own Stable Audio nodes.
 titles, captions, slideshows and music videos: a web page seeked frame by frame in a headless Chromium and encoded
 with FFmpeg. The motion in each template is written with **GSAP** by GreenSock (now part of Webflow), under its
 standard no-charge licence. Both are installed from npm at pinned versions by `scripts/setup-graphics.sh`; the pack
-ships neither. On a DGX Spark the browser is **Playwright**'s Chromium for arm64 (Microsoft, Apache-2.0).
+ships neither. The browser is a Chromium already on the machine, else HyperFrames' own, and on a DGX Spark **Playwright**'s Chromium for arm64 (Microsoft, Apache-2.0).
+
+## Training your own LoRA: kohya-ss's musubi-tuner and ostris
+
+**kohya-ss** wrote **musubi-tuner** (Apache-2.0), the trainer behind Looks → Train a LoRA; the studio installs it at a
+pinned commit into its own environment (`spark/setup-train.sh`) and ships none of its code. **ostris** made the
+de-distillation training adapter for MiniMax H3 (`ostris/minimax_h3_training_adapter`), merged under a LoRA while it
+trains and not used when it renders. MiniMax H3's own files stay under the MiniMax H3 Community License, and the adapter
+is made from MiniMax H3.
+
+## The final cut and mix: Mirage's Tesseract and Tesseract Converter
+
+**Mirage** made **Tesseract**, which renders Finish's cut and mix on your own computer, and **Tesseract Converter**,
+which turns that cut into a Premiere Pro or After Effects project. Tesseract is free to download and use but is not open
+source: it comes under Mirage's own terms (`TERMS.md` beside it), and may send basic usage counts, which
+`tsrct telemetry disable` turns off; the studio never changes that setting. Tesseract Converter is MIT. The studio
+downloads both from their GitHub releases at pinned versions, checked against their published SHA-256
+(`scripts/setup-finish.sh`); the pack ships neither. The title uses Instrument Serif and Geist (SIL Open Font License).
 
 ## The first native Mac engine: Salvatore Sanfilippo (antirez)
 
@@ -361,6 +378,8 @@ Regenerate no longer sends the app's own "Regenerated at seed N" label to the br
 What the studio's installers fetch, its engines bundle and its code imports, beyond the models above. Each is its
 authors' work under its own licence; none of it is this pack's.
 
+- The **web-push-libs** contributors — **pywebpush** (MPL-2.0), and the **Python Cryptographic Authority**
+  — **cryptography**: the Night shift's notifications to a phone (Web Push), installed by the setup when they can be.
 - **Mobius Labs** — **faster-whisper-large-v3-turbo**, the CTranslate2 conversion the QA gate hears speech with (MIT).
 - **Lihe Yang et al.** (HKU, TikTok) — **Depth Anything** (Apache-2.0), and **Xenova** (Joshua Lochner) — its ONNX
   conversion the Motion Previs tab's depth pass runs; **Google** — **MediaPipe** and its Pose Landmarker models
