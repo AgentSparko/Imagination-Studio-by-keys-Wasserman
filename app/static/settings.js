@@ -5,7 +5,7 @@
 const SET_DEFAULTS = {
   appearance: { type_size: "comfortable", glow: true, poster: true, accent: "amber", motion: "system", start_cards: ["clip", "scout", "still", "sharp", "long", "voice"], start_off: [] },
   layout: { hidden: [], order: [] },
-  presets: { recipe: "quick", image_model: "qwen", seconds: 5, qa_gate: true, audio_rate: "keep", seed: "fixed", mode: "clip" },
+  presets: { recipe: "quick", image_model: "qwen", seconds: 5, qa_gate: true, audio_rate: "keep", seed: "fixed", mode: "clip", captions_auto: true },
   hermes_profile: "", hermes_command: "" };
 const SET = { data: null, loaded: false, section: "appearance", saving: false, local: { endpoint: null, found: null, finding: false, said: null, testing: false },
   agents: { name: "", endpoint: "", model: "", nearby: null, finding: false, adding: false, said: {}, testing: {} }, about: null };
@@ -105,6 +105,7 @@ function setPresets() { const p = prefs().presets, put1 = patch => settingsSave(
     setRow("Clip length", "A clip's seconds; the exact frames are shown before it is queued", secs),
     setRow("Home starts on", "The composer's first chip", setSeg(p.mode, { clip: "Clip", picture: "Picture", voice: "Voice", song: "Song" }, v => put1({ mode: v }), "Home starts on")),
     setRow("QA gate on each clip", "The transcript and contact-sheet check after a Sharp Spec clip", setSwitch(p.qa_gate, v => put1({ qa_gate: v }), "QA gate")),
+    setRow("Describe new clips automatically", "When nothing is rendering, the local model looks at new clips and pictures so the Library can search by what is in them", setSwitch(p.captions_auto !== false, v => put1({ captions_auto: v }), "Describe new clips automatically")),
     setRow("Delivery sound", "On a DGX Spark a clip's sound is 32 kHz; 48 kHz stereo re-encodes only the sound", setSeg(p.audio_rate, { keep: "Keep 32 kHz", "48000": "48 kHz stereo" }, v => put1({ audio_rate: v }), "Delivery sound")),
     setRow("Seed", "Fixed repeats a take; random gives each a new one", setSeg(p.seed, { fixed: "Fixed", random: "Random" }, v => put1({ seed: v }), "Seed")),
     setRow("Renders go to", "The studio folder, set when the studio starts (STUDIO_HOME)", el("code", { class: "st-path" }, (S && S.home) || "the studio folder")))]; }

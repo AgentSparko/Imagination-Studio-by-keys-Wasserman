@@ -46,6 +46,10 @@ TOOLS = [
     {"name": "list_library", "description": "Clips and stills in the Studio's Library, newest first. Each has a path to use in other tools.",
      "inputSchema": text_schema({"kind": {"type": "string", "enum": ["video", "image"], "description": "only videos or only images"},
                                  "limit": {"type": "integer", "description": "at most this many (default 50)"}})},
+    {"name": "search_library", "description": "Search the Library by what is in each clip and picture (the Studio describes them): "
+                                              "'a dog chasing a kite'. Returns the best matches with a caption and a path to use in other tools.",
+     "inputSchema": text_schema({"query": {"type": "string", "description": "what to look for, in plain words"},
+                                 "limit": {"type": "integer", "description": "at most this many (default 10)"}}, ("query",))},
     {"name": "queue_still", "description": "Queue still pictures from a prompt (a scout job: several candidates and a contact sheet).",
      "inputSchema": text_schema({"prompt": {"type": "string"}, "count": {"type": "integer", "description": "how many pictures, 1 to 12 (default 1); several only when the filmmaker asks for options or a number"},
                                  "preset": {"type": "string", "description": "a preset from studio_state; sets the picture size (default 2k: 1024x576)"},
@@ -319,6 +323,9 @@ def run(name: str, args: dict):
     if name == "list_library":
         items = [i for i in call("GET", "/api/library") if not args.get("kind") or i.get("kind") == args["kind"]]
         return items[:int(args.get("limit") or 50)]
+    if name == "search_library":
+        found = call("GET", "/api/library/search?" + urllib.parse.urlencode({"q": args.get("query") or ""}))["items"]
+        return [{k: i.get(k) for k in ("path", "kind", "caption", "tags", "score")} for i in found[:int(args.get("limit") or 10)]]
     if name == "queue_still":
         params = {k: args[k] for k in ("prompt", "count", "preset", "width", "height", "seed", "image_model") if args.get(k) not in (None, "")}
         params.setdefault("count", 1)  # a picture asked of an agent is one picture; the page's scout of four is for browsing

@@ -39,7 +39,7 @@ DEFAULTS = {
                    "start_cards": ["clip", "scout", "still", "sharp", "long", "voice"], "start_off": []},
     "layout": {"hidden": [], "order": []},
     "presets": {"recipe": "quick", "image_model": "qwen", "seconds": 5, "qa_gate": True, "audio_rate": "keep",
-                "seed": "fixed", "mode": "clip"},
+                "seed": "fixed", "mode": "clip", "captions_auto": True},
     "hermes_profile": "",
     "hermes_command": "",
 }
@@ -52,7 +52,7 @@ CHOICES = {
     ("presets", "seed"): ("fixed", "random"),
     ("presets", "mode"): ("clip", "picture", "voice", "song"),
 }
-FLAGS = {("appearance", "glow"), ("appearance", "poster"), ("presets", "qa_gate")}
+FLAGS = {("appearance", "glow"), ("appearance", "poster"), ("presets", "qa_gate"), ("presets", "captions_auto")}
 # what the Agent room runs with the user's sign-ins: set from this computer or its Tailscale address only (agents.local)
 LOCAL_ONLY = ("hermes_command", "hermes_profile")
 

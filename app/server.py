@@ -2780,6 +2780,12 @@ import sound  # noqa: E402  (sound effects and foley: Stable Audio Open and MMAu
 sound_router, sound_build, sound_title, sound_source = sound.attach(HOME, PACK, SPARK, inside, relative, held_room, media_seconds)
 app.include_router(action_router)
 app.include_router(sound_router)
+import captions  # noqa: E402  (what is in each clip and picture, described by the local vision model and searched, beside this file)
+caption_router = captions.attach(HOME, library, inside, relative, lambda request, mutation=False: agents.local(request, mutation),
+                                 lambda: running["process"] is None and not any(j["status"] in ("queued", "running") for j in list(jobs.values())),
+                                 lambda: hub.takes(), lambda: settings.load()["presets"].get("captions_auto", True))
+app.include_router(caption_router)
+caption_router.captioner["start"]()
 import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
 app.include_router(clear.attach(HOME, jobs, order, lock)[0])
 import sparks  # noqa: E402  (worker Sparks behind this queue: a job's "sparks" number, beside this file)

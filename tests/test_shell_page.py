@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-FILES = ["shell.js", "home.js", "engines.js", "machine.js", "agent.js", "suite.js", "updates.js", "settings.js", "sound.js"]
+FILES = ["shell.js", "captions.js", "home.js", "engines.js", "machine.js", "agent.js", "suite.js", "updates.js", "settings.js", "sound.js"]
 HARNESS = r"""
 const vm = require("vm"), fs = require("fs");
 globalThis.S = { platform: "spark", platform_label: "DGX SPARK · NVIDIA GB10 · H3-CUDA", presets: { small: { size: [864, 480] }, p720: { size: [1280, 720] }, sharp: { size: [1376, 768] } },
@@ -654,3 +654,15 @@ def test_tools_a_remote_agent_cannot_start_yet_are_set_aside_with_the_reason_and
       BR.tools.unreachable = {}; viewAgent(); out.back = [...AG.tools].sort();""")
     assert out["tools"] == ["studio"] and out["off"] == "true" and "reach this studio" in out["note"]
     assert "needs a way back" in out["toast"] and out["back"] == ["blender", "studio"]
+
+
+def test_the_library_search_box_asks_the_server_and_shows_captions_under_the_names():
+    out = run("""answers["/api/library/search?q=dog%20kite"] = { items: [{ path: "renders/a.mp4", kind: "video", caption: "A dog chases a kite." }] };
+      answers["/api/library/captions"] = { captions: { "renders/a.mp4": { caption: "A dog chases a kite." } } };
+      await capLoad(); out.title = capText("renders/a.mp4"); out.none = capButton({ kind: "video", path: "renders/a.mp4" });
+      out.btn = text(capButton({ kind: "image", path: "renders/new.png" }));
+      let grid = el("div", {}); const bar = capSearch(() => grid);
+      out.placeholder = text(bar.box); const input = find(bar.box, n => n.tag === "input"); out.ph = input.attrs.placeholder;
+      input.value = "dog kite"; await bar.run(); out.called = calls.some(c => c[0] === "/api/library/search?q=dog%20kite");""")
+    assert out["ph"] == "Search what is in your clips…" and out["title"] == "A dog chases a kite." and out["none"] is None
+    assert "Describe now" in out["btn"] and out["called"]

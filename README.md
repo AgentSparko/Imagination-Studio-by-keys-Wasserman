@@ -1834,6 +1834,20 @@ the LoRA hub, the Sharp Spec, Voice, Music, the Library actions and the Sparks s
 the tab a step is about and outlines the control; a bar at the bottom then carries the lesson forward from inside
 the app. Finished lessons are remembered in the browser.
 
+### Search your library by what is in it
+
+The Library describes your clips and pictures by itself. Whenever nothing is rendering or waiting, the studio's local
+vision model looks at up to five new or changed files a minute (a clip by three frames of it, a picture as it is) and
+writes one sentence and a few tags for each. Type what you remember into **Search what is in your clips…** at the top of
+the Library, such as "dog chasing a kite", and the matching tiles appear with their description under the name; clear the
+box to get the whole Library back. A tile that has no description yet has a **Describe now** button, and hovering a tile
+shows its description. The words of the prompt a clip was made from are searched too, and the Agent room can search the
+same way (`search_library`).
+
+It needs the local model (Settings → Brains & tools) and nothing else: no account, and nothing leaves this computer.
+If a render is using the memory the model waits and tries again. **Settings → Presets & preferences → Describe new clips
+automatically** turns it off. The descriptions are kept in `library/captions.json` in the studio folder.
+
 ### Library actions: Turnaround sheet, Upscale, Remove a person
 
 Three LoRAs of the hub each do one job that is not "make a clip", through a workflow their authors built. The Library
