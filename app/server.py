@@ -1918,15 +1918,15 @@ def perform(job: dict, worker: dict | None = None) -> None:
     try:
         # a Drama 3 server kept loaded after a voice take (voice.py) never stands beside a render here, nor MiniMax Music 3
         # kept loaded after a song (music.py): each is unloaded before any other job of this machine's queue
-        if job["kind"] not in ("voice", "export", "soundtrack", "finish") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("voice", "export", "soundtrack", "finish", "graphics") and worker is None and not job.get("remote"):
             if voice.release(f"a {job['kind']} job needs the GPU"):
                 job["log"] += "[tensorfold] Drama 3 was unloaded to give this job its memory\n"
-        if job["kind"] not in ("music", "export", "soundtrack", "finish") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("music", "export", "soundtrack", "finish", "graphics") and worker is None and not job.get("remote"):
             if music.release(f"a {job['kind']} job needs the GPU"):
                 job["log"] += "[tensorfold] MiniMax Music 3 was unloaded to give this job its memory\n"
         # NVIDIA Nemotron 3.5 Bolt (bolt.py), the Studio's brain engine: unloaded before this job when the job's measured
         # peak does not fit beside it (bolt_need), after the answers in flight; held until the queue is empty
-        if job["kind"] not in ("export", "soundtrack", "finish") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("export", "soundtrack", "finish", "graphics") and worker is None and not job.get("remote"):
             job["log"] += bolt.admit(job, lambda resident: bolt_need(job, resident))
         if job["kind"] in train.KINDS and worker is None:  # a LoRA run holds about 55 GB for hours: ComfyUI's models go first
             job["log"] += train_free(job)
