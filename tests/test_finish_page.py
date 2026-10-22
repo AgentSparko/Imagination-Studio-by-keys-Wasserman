@@ -43,7 +43,7 @@ def run(code: str) -> dict:
 
 
 def test_the_panel_says_where_it_runs_and_queues_the_finish():
-    out = run("""FIN.state = { ok: true, where: "ssh:me@mac.example.com", machine: "Studio Mac", version: "0.4.0", converter: { ok: true } };
+    out = run("""FIN.state = { ok: true, where: "ssh:me@example.com", machine: "Studio Mac", version: "0.4.0", converter: { ok: true } };
       FIN.sounds = [{ path: "music/song.wav", kind: "audio", sound: "music", title: "Night theme" }, { path: "voice/v1.wav", kind: "audio", sound: "voice", title: "Opening line" }];
       const project = { id: "film1", name: "Night Drive", timeline: [{ path: "renders/a.mp4" }], soundtrack: { take: "s1" } };
       let panel = finishPanel(project); out.text = text(panel);
