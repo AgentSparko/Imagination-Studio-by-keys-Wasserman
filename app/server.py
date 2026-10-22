@@ -2904,7 +2904,12 @@ def stop_session_comfy() -> None:
     script = PACK / ("mac/comfy.sh" if sys.platform == "darwin" else "spark/comfy.sh")
     if not script.is_file():
         return
-    done = subprocess.run(["bash", str(script), "stop"], check=False, capture_output=True, text=True)
+    try:
+        # The governor's stop waits up to about 25 s for its reservation to end, then the script waits 25 s more.
+        done = subprocess.run(["bash", str(script), "stop"], check=False, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        print("[studio] ComfyUI did not stop within 60 s", flush=True)
+        return
     if "stopped" in done.stdout:
         print("[studio] ComfyUI stopped", flush=True)
 

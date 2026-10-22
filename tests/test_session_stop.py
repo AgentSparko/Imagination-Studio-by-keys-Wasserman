@@ -29,6 +29,7 @@ def test_quitting_stops_this_installs_comfy(monkeypatch, capsys):
     server.stop_session_comfy()
     assert calls[0][0] == ["bash", str(server.PACK / "spark/comfy.sh"), "stop"]
     assert calls[0][1]["capture_output"] is True
+    assert calls[0][1]["timeout"] == 60
     assert "ComfyUI stopped" in capsys.readouterr().out
 
 
