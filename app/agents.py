@@ -1135,14 +1135,24 @@ def check_tool(tool: dict) -> dict:
                                    env=child_env(env), start_new_session=True)
     except OSError as error:
         return {"ok": False, "tools": [], "error": f"{argv[0]} could not start: {error}"}
-    lines: "queue.Queue[bytes | None]" = queue.Queue()
+    lines: "queue.Queue[bytes | None]" = queue.Queue(maxsize=1000)  # between requests nobody reads the queue: a
+    # server that prints on its own would fill this process's memory with its lines, so the old ones make room
     errors: list[bytes] = []
     def read():
         for line in process.stdout:
+            if lines.full():
+                lines.get_nowait()
             lines.put(line)
         lines.put(None)
+    def drain():  # the log is only ever shown as an error hint: 1 MB of it is plenty, whatever the server pours
+        kept = 0
+        for line in process.stderr:
+            if kept > 1 << 20:
+                break
+            kept += len(line)
+            errors.append(line)
     threading.Thread(target=read, daemon=True).start()
-    threading.Thread(target=lambda: errors.extend(process.stderr), daemon=True).start()
+    threading.Thread(target=drain, daemon=True).start()
 
     def answer(wanted: int):
         while True:
@@ -1303,9 +1313,15 @@ def work() -> None:
             with lock:
                 running.update(id=None, process=None, remote=None)
             task["finished"] = time.time()
-            task["outputs"] = outputs_of(task)
-            save_task(task)
-            finish_turn(task)
+            try:
+                task["outputs"] = outputs_of(task)  # a folder that changed under the walk must not ride on the answer
+            except OSError:
+                pass
+            try:  # this is the one worker thread for every agent task: whatever fails here would take it down, and
+                save_task(task)  # every task after it would sit queued forever behind a dead queue
+                finish_turn(task)
+            except OSError:
+                pass
 
 
 # ---------- threads: the Agent room's conversations ----------
@@ -2062,11 +2078,15 @@ class Mcp:
         except OSError:
             self.errors.close()
             raise
-        self.lines: "queue.Queue[bytes | None]" = queue.Queue()
+        self.lines: "queue.Queue[bytes | None]" = queue.Queue(maxsize=1000)  # a server that prints between its
+        # requests must not fill this process's memory with the lines nobody is reading (follow_install caps its
+        # own log the same way); the newest are the ones an answer is made of
         threading.Thread(target=self.read, daemon=True).start()
 
     def read(self) -> None:
         for line in self.process.stdout:
+            if self.lines.full():
+                self.lines.get_nowait()
             self.lines.put(line)
         self.lines.put(None)
 
