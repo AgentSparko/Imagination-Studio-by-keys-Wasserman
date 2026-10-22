@@ -94,7 +94,10 @@ def onset_strength(y, rate: int = RATE, n_fft: int = N_FFT, hop: int = HOP):
         levels[start:start + len(chunk)] = power @ weights
     db = 10.0 * np.log10(np.maximum(levels, 1e-10))
     db = np.maximum(db, db.max() - 80.0)  # 80 dB below the loudest: silence does not flicker
-    rise = np.maximum(0.0, np.diff(db, axis=0, prepend=db[:1]))
+    # the first frame rises from the quietest of the first quarter second, not from itself: a song that starts on its
+    # first beat keeps that beat, and one that starts mid-sound gains no false one
+    before = db[:max(1, int(0.25 * rate / hop))].min(axis=0, keepdims=True)
+    rise = np.maximum(0.0, np.diff(db, axis=0, prepend=before))
     env, low_env = rise.mean(axis=1), rise[:, low].mean(axis=1) if low.any() else rise.mean(axis=1)
 
     def detrend(e):
@@ -213,7 +216,8 @@ def analyse_wave(y, rate: int = RATE) -> dict:
     for k in range(min(4, len(frames))):
         chosen = frames[k::4]
         phases.append(float(low_env[chosen].mean() + 0.5 * env[chosen].mean()))
-    phase = int(np.argmax(phases)) if phases else 0
+    # the strongest phase, a tie (within 2 %) to the earliest
+    phase = next(k for k, v in enumerate(phases) if v >= max(phases) - 0.02 * abs(max(phases))) if phases else 0
     downbeats = times[phase::4]
     salience = float(np.clip(env[frames].mean() / (env.mean() * 4 + 1e-9), 0, 1)) if env.mean() > 0 else 0.0
     return {"bpm": round(bpm, 2), "beats": [round(float(t), 3) for t in times], "downbeats": [round(float(t), 3) for t in downbeats],

@@ -379,8 +379,8 @@ def make(body: dict) -> dict:
         raise HTTPException(400, "cut is beat, bar, two-bars or natural")
     if order not in ORDERS:
         raise HTTPException(400, "order is given, shuffle or energy")
-    width = number(body, "width", 1920, 256, 4096, int)
-    height = number(body, "height", 1080, 256, 4096, int)
+    width = number(body, "width", None, 256, 4096, int)
+    height = number(body, "height", None, 256, 4096, int)
     import music
     music_db = number(body, "music_db", music.MUSIC_DB, -30, 0)
     seed = number(body, "seed", random.randrange(1 << 30), 0, 1 << 31, int)
@@ -402,6 +402,15 @@ def make(body: dict) -> dict:
             raise HTTPException(400, f"not a clip in the studio folder: {path}")
         seconds = media_seconds(str(target))[0]
         clips.append({"path": relative(target), "seconds": seconds})
+    if width is None or height is None:  # the first clip's own size: a cut is never enlarged unless asked
+        seen = suite.probe(inside(clips[0]["path"]))
+        own = (int(seen["width"]), int(seen["height"])) if seen.get("width") and seen.get("height") else (1920, 1080)
+        if width is None and height is None:
+            width, height = own
+        elif width is None:
+            width = max(2, round(height * own[0] / own[1] / 2) * 2)
+        else:
+            height = max(2, round(width * own[1] / own[0] / 2) * 2)
     title = str(body.get("title") or "").strip()[:80] or (f"Rough cut of {name}" if name else "Trailer")
     song = song_of(str(body.get("song") or ""))
     try:

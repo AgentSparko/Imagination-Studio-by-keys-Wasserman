@@ -30,9 +30,11 @@ needs_ffmpeg = pytest.mark.skipif(not beats.ffmpeg() or not shutil.which("ffprob
                                   reason="ffmpeg and ffprobe are needed")
 
 
-def click_track(path: Path, bpm: float, seconds: float = 24.0, rate: int = 44100, start: float = 0.3, accent_phase: int = 0) -> None:
+def click_track(path: Path, bpm: float, seconds: float = 24.0, rate: int = 44100, start: float = 0.3, accent_phase: int = 0,
+                tone: bool = False) -> None:
     """A 16-bit WAV of clicks at ``bpm``: a short high tick on every beat, a low thump with it on every fourth beat
-    from ``accent_phase`` (the bar's first beat), and a little noise under it all."""
+    from ``accent_phase`` (the bar's first beat; with ``tone`` a louder 600 Hz click in place of the tick), and a
+    little noise under it all."""
 
     count, period = int(seconds * rate), 60.0 / bpm
     samples = [0.0] * count
@@ -42,8 +44,9 @@ def click_track(path: Path, bpm: float, seconds: float = 24.0, rate: int = 44100
         first = int(at * rate)
         for i in range(min(tick, count - first)):
             t = i / rate
-            value = 0.4 * math.sin(2 * math.pi * 1500 * t) * math.exp(-t * 120)
-            if beat % 4 == accent_phase:
+            accented = beat % 4 == accent_phase
+            value = (0.9 * math.sin(2 * math.pi * 600 * t) if tone and accented else 0.4 * math.sin(2 * math.pi * 1500 * t)) * math.exp(-t * 120)
+            if accented and not tone:
                 value += 0.5 * math.sin(2 * math.pi * 60 * t) * math.exp(-t * 40)
             samples[first + i] += value
         beat += 1
@@ -85,6 +88,16 @@ def test_the_bar_starts_on_the_accented_beat(tmp_path):
     found = beats.analyse(song)
     assert abs(found["first"] - 1.3) < 0.03
     assert all(abs((b - a) - 2.0) < 0.03 for a, b in zip(found["downbeats"], found["downbeats"][1:]))
+
+
+@needs_ffmpeg
+def test_a_song_that_starts_on_its_accented_first_beat_has_its_first_bar_at_zero(tmp_path):
+    pytest.importorskip("numpy")
+    song = tmp_path / "from-zero.wav"
+    click_track(song, 100, seconds=40, start=0.0, tone=True)  # louder 600 Hz clicks on beats 0, 4, 8... from t = 0
+    found = beats.analyse(song)
+    assert found["bpm"] == pytest.approx(100, rel=0.02) and found["first"] < 0.1 and found["beats"][0] < 0.1
+    assert all(abs((b - a) - 2.4) < 0.03 for a, b in zip(found["downbeats"], found["downbeats"][1:]))
 
 
 @needs_ffmpeg
@@ -264,6 +277,7 @@ def test_a_trailer_from_library_clips_with_foley_uses_the_foley_clips(stand_in):
     assert {b["params"]["video"] for b in foley} == {"renders/rc-one.mp4", "renders/rc-three.mp4"} and all(b["params"]["keep_sound"] for b in foley)
     export = stand_in[-1]
     assert export["kind"] == "export" and all(c["path"].startswith("sound/foley/") for c in export["params"]["clips"])
+    assert (export["params"]["width"], export["params"]["height"]) == (64, 48)  # no size given: the first clip's, never enlarged
     assert all(c["out"] - c["in"] == pytest.approx(0.5, abs=0.05) for c in export["params"]["clips"])
 
 
