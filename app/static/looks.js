@@ -101,6 +101,7 @@ function lookCard(r) { const st = r.installing, busy = lookBusy(r), dead = r.sta
         : busy ? null
         : !r.installed ? el("button", { type: "button", class: "small", title: r.page || "", onclick: () => lookInstall([r]) }, st && st.stage === "failed" ? "Try again" : "Install")
         : use,
+        r.trained && r.installed && !busy && typeof trainTryButton === "function" ? trainTryButton(r) : null,  // a LoRA trained here (train.js)
         r.installed && !busy ? el("button", { type: "button", class: "small ghost", title: "Moves this LoRA's file to the trash folder" + (r.builtin ? "; the preset stays here" : " and takes it out of the hub"), onclick: () => lookRemove(r) }, "Remove") : null))); }
 
 function lookForm() { const f = LK.form;
