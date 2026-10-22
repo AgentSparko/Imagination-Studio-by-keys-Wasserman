@@ -2741,6 +2741,9 @@ def slate_room(plan: dict, lora: bool) -> dict:
 
 app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, REFERENCE_LIMIT,
                                 lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}, slate_room))
+import director  # noqa: E402  (the Director: a logline to a checked, cut film, beside this file)
+app.include_router(director.attach(HOME, queue=queue_job, lookup=jobs.get, stop_job=cancel, check=qa_gate, new_project=new_project,
+                                   save_project=save_project, presets={k: v[1] for k, v in PRESETS.items()}, app=app, references=ref2va_ready))
 import agents  # noqa: E402  (Brains and agents: the user's own CLI sign-ins and MCP tools, beside this file)
 app.include_router(agents.attach(HOME))
 

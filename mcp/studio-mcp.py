@@ -182,6 +182,21 @@ TOOLS = [
      "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"},
                                  "shot": {"type": "string", "description": "the shot's id or name"},
                                  "first_frame": {"type": "string", "description": "Library path of the opening picture"}}, ("film", "shot"))},
+    {"name": "direct_film", "description": "The Director: from a logline to a checked, cut film. It writes what the film lacks (cast, "
+                                          "places, scenes, shots with their lines), makes each character's reference picture and turnaround "
+                                          "and each place's plate, renders every shot in order, checks each take with the QA gate and "
+                                          "renders a failed one again, and cuts the best takes together. It runs on its own: follow it "
+                                          "with director_status. A film that has a run stopped or cut off continues where it was.",
+     "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name (slate_new_film makes one)"},
+                                 "logline": {"type": "string", "description": "the film in one sentence (default the film's own)"},
+                                 "scenes": {"type": "integer", "description": "scenes to write when the film has none (default 3)"},
+                                 "shotsPerScene": {"type": "integer", "description": "shots in each scene (default 3)"},
+                                 "seconds": {"type": "integer", "description": "each shot's length, 1 to 15 (default 8)"},
+                                 "cut": {"type": "boolean", "description": "cut the best takes together when done (default true)"}}, ("film",))},
+    {"name": "director_status", "description": "Where the Director's run on a film stands: its stage (writing, casting, rendering, "
+                                              "checking, retaking, cutting, done, failed, stopped), shots rendered and checked, retakes, "
+                                              "the latest lines of its log and, when done, the cut's files.",
+     "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"}}, ("film",))},
     {"name": "upload_file", "description": "Copy a file from this machine into the Studio's Library (png, jpg, webp, mp4, mov, wav, mp3...). "
                                            "Returns its Library path.",
      "inputSchema": text_schema({"path": {"type": "string", "description": "absolute path of the file on this machine"}}, ("path",))},
@@ -482,6 +497,16 @@ def run(name: str, args: dict):
                                                for k in ("preset", "quality", "frames", "seconds", "width", "height") if (job.get("params") or compiled["plan"]).get(k) is not None}})
         save_film(film)
         return {**job_summary(job), "take": output, "warnings": compiled.get("warnings") or []}
+    if name == "direct_film":
+        film = film_of(args["film"])
+        body = {"project": film["id"], **{key: args[key] for key in ("logline", "scenes", "shotsPerScene", "seconds", "cut") if args.get(key) not in (None, "")}}
+        run = call("POST", "/api/slate/direct", body)
+        return {"film": film["id"], "state": run.get("state"), "note": "the Director is at work: follow it with director_status"}
+    if name == "director_status":
+        film = film_of(args["film"])
+        run = call("GET", "/api/slate/direct/" + urllib.request.quote(film["id"], safe=""))
+        return {"film": film["id"], "state": run.get("state"), "running": run.get("running"), "counts": run.get("counts"), "error": run.get("error") or None,
+                "log": [line.get("text") for line in (run.get("log") or [])[-12:]], "cut": run.get("cut")}
     if name == "list_jobs":
         return [job_summary(job) for job in call("GET", "/api/jobs")[:int(args.get("limit") or 20)]]
     if name == "upload_file":
