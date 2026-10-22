@@ -341,6 +341,36 @@ def test_the_key_pair_is_made_once_and_kept_private(pushed, tmp_path):
     first = push.keys()["public"]
     assert push.keys()["public"] == first and len(push.unb64(first)) == 65 and push.unb64(first)[0] == 4
     assert oct((tmp_path / "push" / "vapid.json").stat().st_mode & 0o777) == "0o600"
+    assert oct((tmp_path / "push").stat().st_mode & 0o777) == "0o700"
+
+
+def test_a_push_service_is_given_ten_seconds(monkeypatch, tmp_path):
+    asked = {}
+
+    class Answer:
+        status = 201
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(push.urllib.request, "urlopen", lambda request, timeout=None: asked.update(timeout=timeout) or Answer())
+    assert push.post("https://fcm.googleapis.com/fcm/send/x", b"", {}) == 201 and asked["timeout"] == 10
+
+    class Library:
+        WebPushException = Exception
+
+        @staticmethod
+        def webpush(sub, data, **given):
+            asked.update(given)
+            return type("Answer", (), {"status_code": 201})()
+
+    monkeypatch.setattr(push, "pywebpush", Library)
+    monkeypatch.setitem(sys.modules, "py_vapid", type(sys)("py_vapid"))
+    sys.modules["py_vapid"].Vapid01 = lambda private_key: private_key
+    assert push.deliver({"endpoint": "https://fcm.googleapis.com/fcm/send/x"}, b"{}", {"private": "key"}) == 201 and asked["timeout"] == 10
 
 
 @need_crypto
