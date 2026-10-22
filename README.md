@@ -2342,6 +2342,26 @@ writes the lines into the prompt and MiniMax H3 speaks them with the picture, in
 take) to the model as the timbre reference of their lines; this needs a shot on reference pictures, and the preflight
 says so otherwise. A shot can choose otherwise next to its spoken lines.
 
+**The Director: from a logline to a checked cut.** At the bottom of the First AD tab, *Direct the whole film* takes
+the film's logline and a few numbers (scenes, shots a scene, seconds a shot, quality, how many retakes a failed take
+gets, whether to cut it and a song from the Music tab under the cut) and runs the whole production while you watch.
+The film's brain writes what the film lacks: characters with their voices and places when it has none, then the
+scenes, then each scene's shots with their sectioned prompts, cast, place and short spoken lines (the first shot of a
+scene is a cut, on the cast's stills where Ref2VA is installed; the rest carry on from the shot before). Each
+character without a pinned picture gets a reference still and a turnaround of it, each place a plate, pinned to their
+sheets. Then every shot is rendered in order, at most three in the queue at once, and each take is checked by the QA
+gate; a take that fails is rendered again at the next seed. The take that passes is rated *good* and a failed one
+*no good*. Last, the best take of every shot is cut: with a song, by the rough cut on the song's bar lines with the
+song under it, its FCPXML, EDL and Resolve zip in exports/; without one, on an Editor timeline that is exported, with
+the timeline's FCPXML, EDL and package beside it. The panel shows the stage, the counts (*7 of 9 shots rendered, 2 retakes*), the job at
+work and the run's log; *Stop* takes the jobs still waiting out of the queue, and *Direct it again* carries on: what
+is written, cast and rendered is kept, and so are shots that had a take before the Director came to them. A restart
+of the app picks a run up where it was. For scripts and agents: `POST /api/slate/direct {"project", "logline",
+"scenes", "shotsPerScene", "seconds", "quality", "retakes", "cut", "song"}`, `GET /api/slate/direct/{project}`,
+`POST /api/slate/direct/{project}/stop`, and the agents' `direct_film` and `director_status` tools. It needs the
+film's brain (Bible tab); the turnarounds need Turnaround in the LoRA hub and the check needs ffmpeg, and without them
+the run carries on without the turnaround, or with the take counted as not checked.
+
 Not ported from Slate: sequence chunks, alt takes, punch-ups, the tone dial, pickups on a selected span, reference
 and audio analysis, the stills library, compiles for other generators, and its MCP server. The app has no sign-in of
 its own: anyone who can open it can use the brain, so keep it on a network you trust.
