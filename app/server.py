@@ -1537,6 +1537,8 @@ def build(kind: str, params: dict, job_id: str, room: bool = True) -> tuple[list
         return built
     if kind in sound.KINDS:  # a sound effect or a clip's foley (sound.py)
         return sound_build(kind, params, job_id)
+    if kind in train.KINDS:  # a LoRA trained on this Spark (train.py: spark/train_lora.py)
+        return train_build(params, job_id)
     seed = str(int(params.get("seed", 0)))
     if kind == "scout":
         folder = HOME / "scouts" / job_id
@@ -1703,8 +1705,8 @@ def export(job: dict) -> None:
         job["progress"] = None
 
 
-STEP = re.compile(r"\[tensorfold\] (step|voice|ar|dit) (\d+)/(\d+)")
-STEP_WORDS = {"step": "picture", "voice": "sound", "ar": "the model writes the song", "dit": "the sound"}  # MiniMax Music 3: ar, dit
+STEP = re.compile(r"\[tensorfold\] (step|voice|ar|dit|train) (\d+)/(\d+)")
+STEP_WORDS = {"step": "picture", "voice": "sound", "ar": "the model writes the song", "dit": "the sound", "train": "training step"}  # MiniMax Music 3: ar, dit
 RAN_ON = re.compile(r"\[tensorfold\] engine: (\w+)")
 
 
@@ -1922,6 +1924,8 @@ def perform(job: dict, worker: dict | None = None) -> None:
         # peak does not fit beside it (bolt_need), after the answers in flight; held until the queue is empty
         if job["kind"] not in ("export", "soundtrack") and worker is None and not job.get("remote"):
             job["log"] += bolt.admit(job, lambda resident: bolt_need(job, resident))
+        if job["kind"] in train.KINDS and worker is None:  # a LoRA run holds about 55 GB for hours: ComfyUI's models go first
+            job["log"] += train_free(job)
         if params.get("first_frame_from"):  # continuity: open on the last frame of an earlier clip
             source = inside(params["first_frame_from"])
             if not source.is_file():
@@ -2281,7 +2285,7 @@ def cancel(job_id: str) -> dict:
     return public(job)
 
 
-NOT_ON_COMFY = ("voice", "export", "soundtrack", "qa")  # jobs a Spark runs without its ComfyUI server
+NOT_ON_COMFY = ("voice", "export", "soundtrack", "qa", "train")  # jobs a Spark runs without its ComfyUI server
 
 
 COMFY_PROMPT = re.compile(r"^\[tensorfold\] comfy prompt ([0-9a-f-]{8,64})$", re.M)
@@ -2780,6 +2784,9 @@ import sound  # noqa: E402  (sound effects and foley: Stable Audio Open and MMAu
 sound_router, sound_build, sound_title, sound_source = sound.attach(HOME, PACK, SPARK, inside, relative, held_room, media_seconds)
 app.include_router(action_router)
 app.include_router(sound_router)
+import train  # noqa: E402  (a LoRA trained from the Library's clips and stills on this Spark, beside this file)
+train_router, train_build, train_free = train.attach(HOME, PACK, SPARK, inside, media_seconds, enqueue, jobs, lock)
+app.include_router(train_router)
 import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
 app.include_router(clear.attach(HOME, jobs, order, lock)[0])
 import sparks  # noqa: E402  (worker Sparks behind this queue: a job's "sparks" number, beside this file)
