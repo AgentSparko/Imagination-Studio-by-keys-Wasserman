@@ -595,6 +595,13 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
         elif not previous:
             warnings.append(f"“{before.get('name')}” has no take yet: render it first, or use “Render the scene” to queue them in order.")
 
+    clip = extra.get("reference_video") if extra.get("reference_video") and (HOME / extra["reference_video"]).is_file() else None  # a previs clip brought in from the suite
+    if clip and not parts.get("ref2va"):
+        warnings.append("A previs reference clip needs the Ref2VA model (oneshot-setup.sh --ref2va); rendering without it.")
+        clip = None
+    elif clip and (image or previous):
+        warnings.append("A previs reference clip does not combine with a first frame: the clip leads and the frame is left out.")
+        image = previous = None
     # the picture: who is in it and where (Slate repeats bible descriptions in every prompt), then the sections
     named = [f"{sheet.get('name')} is {person(sheet)}." for sheet in cast if sheet.get("name") and person(sheet) and not references]
     where = place and sentence(", ".join(bit for bit in (
@@ -653,8 +660,9 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
             **({"preset": size} if isinstance(size, str) else {"preset": "custom", "width": size[0], "height": size[1]}),
             **({"references": references, "ref_turbo": film.get("refPasses") == "4"} if references else {}),
             **({"reference_audios": audios} if audios else {}),
-            **({"image": image} if image else {}), **({"first_frame_from": previous} if previous else {})}
-    mode = "references" if references else "image" if image else "previous" if previous else "text"
+            **({"image": image} if image else {}), **({"first_frame_from": previous} if previous else {}),
+            **({"reference_videos": [clip]} if clip else {})}
+    mode = "references" if references or clip else "image" if image else "previous" if previous else "text"
     if own and references:
         warnings.append("A shot that opens on cast stills renders on the reference model: its own LoRA is left out.")
     # the machine's memory (a DGX Spark's guard): said here, before the shot is queued, with what fits
