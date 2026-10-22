@@ -39,7 +39,7 @@ function rcResult(key) { const made = RC.made[key], s = RC.state[key]; if (!made
     el("div", { class: "note" }, made.timeline.length + " cuts on " + RC_CUTS[made.cut][0].toLowerCase() + " at " + Math.round(made.beats.bpm) + " BPM" + (made.dropped.length ? " · " + made.dropped.length + " clips left out: the song ended" : "") + " · " + RC_STAGES[stage] + (stage === "failed" && s.error ? ": " + s.error : "")),
     stage === "done" ? null : cards.map(jobCard),
     (s && s.notes || []).map(n => el("div", { class: "note", style: "color:var(--warn)" }, n)),
-    stage === "done" && s.video ? el("div", {}, el("video", { src: file(s.video), controls: true, preload: "metadata", style: "width:100%;max-width:560px;border-radius:8px;margin-top:8px" }),
+    stage === "done" && s.video ? el("div", {}, el("video", { src: file(s.video), controls: true, preload: "metadata", style: "width:100%;max-width:560px;border-radius:var(--r2);margin-top:8px" }),
       el("div", { class: "row", style: "margin-top:8px" },
         el("a", { class: "fit tag2", href: file(s.video), target: "_blank", rel: "noopener" }, "Play"),
         files ? el("a", { class: "fit tag2", href: file(files.zip), download: "", title: "The cut and every clip and the song, for DaVinci Resolve: unzip it, then File > Import > Timeline" }, "Open in Resolve (zip)") : null,
