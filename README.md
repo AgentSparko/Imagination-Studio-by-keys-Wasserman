@@ -65,10 +65,10 @@ STUDIO_HOME=/data/studio/ImaginationStudio STUDIO_GPU=1 \
 bash scripts/app.sh
 ```
 
-Ctrl-C in that terminal stops the web app. ComfyUI stays up in its own session, with the models loaded, and keeps
-the card. Stop it from any terminal with the same `PREFIX` and `STUDIO_GPU`. `PREFIX` is this install. `STUDIO_GPU`
-is required when more than one GPU is not driving a display: the stop checks the card first and exits before
-ComfyUI is touched when that variable is missing.
+Ctrl-C in that terminal stops the app and the ComfyUI for this install, and the card is freed. The same quit works
+on a DGX Spark. ComfyUI stays loaded between clips while the app is running. To free the card and leave the app up,
+run this from the repo. `PREFIX` is this install. `STUDIO_GPU` is required when more than one GPU is not driving a
+display.
 
 ```bash
 PREFIX=/data/studio STUDIO_GPU=1 bash spark/comfy.sh stop
@@ -870,9 +870,9 @@ What is different from the Mac build:
   4-bit Spark recipe is not used: on the test machine it gave flying debris and results that changed between runs.
 - **Why int8.** The GB10's tensor cores run int8 products at 245 TOPS and bf16 ones at 122 (measured on registers).
   PyTorch's stock int8 routine reaches about 52; the engine's own kernel 150 to 175 on FastH3's shapes.
-- ComfyUI keeps running with the models loaded after a render (`bash spark/comfy.sh stop` frees the memory). It runs
-  at low priority with a memory guard beside it, because a Spark that runs out can become unreachable: see
-  *The memory guard* below.
+- ComfyUI keeps running with the models loaded after a render, and quitting the app stops it.
+  `bash spark/comfy.sh stop` frees the memory while the app stays up. It runs at low priority with a memory guard
+  beside it, because a Spark that runs out can become unreachable: see *The memory guard* below.
 
 ### More than one DGX Spark: the Sparks setting
 

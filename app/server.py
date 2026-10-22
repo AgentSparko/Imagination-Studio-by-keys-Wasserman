@@ -11,6 +11,7 @@ Projects, uploads and renders live under $STUDIO_HOME (default ~/ImaginationStud
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ipaddress
 import json
 import math
@@ -2870,16 +2871,64 @@ app.mount("/", StaticFiles(directory=HERE / "static", html=True), name="static")
 if not media_tools()["ffmpeg"]:
     print("[studio] " + FFMPEG_NOTE, flush=True)
 
+def begin_shutdown(sig_handler, sig, frame) -> None:
+    """Ctrl-C and an update's restart end the open event streams, then the server closes."""
+
+    telemetry.STOPPING.set()
+    sig_handler(sig, frame)
+
+
+@contextlib.contextmanager
+def catch_exit(handle_exit):
+    """Catch Ctrl-C and SIGTERM for one server run. The hooks finish, and the signal is not raised again:
+    raising it is what prints the traceback after a clean stop."""
+
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    handled = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):  # Windows Ctrl+Break, as Uvicorn handles it
+        handled.append(signal.SIGBREAK)
+    original = {sig: signal.signal(sig, handle_exit) for sig in handled}
+    try:
+        yield
+    finally:
+        for sig, handler in original.items():
+            signal.signal(sig, handler)
+
+
+def stop_session_comfy() -> None:
+    """ComfyUI runs in its own session so the models stay loaded between clips. This process is the session:
+    quitting it stops that server. PREFIX and SPARK_COMFY_PORT are already this install's, on a Spark and on a card."""
+
+    script = PACK / ("mac/comfy.sh" if sys.platform == "darwin" else "spark/comfy.sh")
+    if not script.is_file():
+        return
+    done = subprocess.run(["bash", str(script), "stop"], check=False, capture_output=True, text=True)
+    if "stopped" in done.stdout:
+        print("[studio] ComfyUI stopped", flush=True)
+
+
 if __name__ == "__main__":
     import uvicorn
+
+    class StudioServer(uvicorn.Server):
+        def handle_exit(self, sig, frame) -> None:
+            begin_shutdown(super().handle_exit, sig, frame)
+
+        @contextlib.contextmanager
+        def capture_signals(self):
+            with catch_exit(self.handle_exit):
+                yield
 
     if os.environ.get("STUDIO_PIDFILE"):  # a worker Spark's app, started by another Spark's Studio: how that one finds it again
         Path(os.environ["STUDIO_PIDFILE"]).write_text(str(os.getpid()))
     hub.start()
+    app.router.on_shutdown.append(stop_session_comfy)  # the detached ComfyUI belongs to this process, not to one render
 
     # Update authorization needs the actual socket peer. Tailscale Serve forwards the browser's IP,
     # but its authenticated local proxy is the peer allowed to manage this loopback installation.
-    web_server = uvicorn.Server(uvicorn.Config(app, host=os.environ.get("HOST", "127.0.0.1"),
+    web_server = StudioServer(uvicorn.Config(app, host=os.environ.get("HOST", "127.0.0.1"),
                                port=int(os.environ.get("PORT", "7870")), log_level="warning", proxy_headers=False,
                                timeout_graceful_shutdown=10))  # open connections (event streams) never hold a restart
 
@@ -2888,4 +2937,7 @@ if __name__ == "__main__":
         web_server.should_exit = True
 
     updater.restart = restart
-    web_server.run()
+    try:
+        web_server.run()
+    except KeyboardInterrupt:  # Uvicorn re-raises Ctrl-C after the shutdown hooks have run
+        pass

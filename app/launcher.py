@@ -79,8 +79,11 @@ def main() -> int:
     def stop(signum, _frame):
         nonlocal stopping
         stopping = True
-        if child and child.poll() is None:
-            child.send_signal(signum)
+        # Ctrl-C already reaches the server: it shares this terminal's process group. Sending it
+        # again is a second SIGINT, which the server treats as a forced exit and a traceback.
+        if signum == signal.SIGINT or child is None or child.poll() is not None:
+            return
+        child.send_signal(signum)
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
