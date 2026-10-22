@@ -720,8 +720,13 @@ def attach(home: Path, pack: Path, spark: bool) -> APIRouter:
                     raise HTTPException(400, "this pack's bundle_manifest.json is not in the production pack layout")
                 folder.mkdir(parents=True)
                 for name, item in wanted.items():
+                    written = 0
                     with bundle.open(item) as source, open(folder / name, "wb") as target:
-                        shutil.copyfileobj(source, target)
+                        while chunk := source.read(1 << 20):  # count the bytes that actually arrive: a header can lie about its size
+                            written += len(chunk)
+                            if written > item.file_size + 1024:
+                                raise HTTPException(400, "a ZIP entry grew past the size it declared")
+                            target.write(chunk)
         except (zipfile.BadZipFile, ValueError, KeyError) as error:
             shutil.rmtree(folder, ignore_errors=True)
             archive.unlink(missing_ok=True)
