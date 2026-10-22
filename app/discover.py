@@ -1036,6 +1036,23 @@ def present(item: dict) -> bool:
     return place.is_file() and (not item["executable"] or os.access(place, os.X_OK))
 
 
+def reprove(item: dict, path: Path) -> None:
+    """Refuse to link a file that is no longer the bytes the scan vouched for. The hash cache answers by path,
+    size and time, and all three are cheap for whoever planted the file to keep (a swap in place keeps the size,
+    utime sets the time back), so the scan's word is not proof at link time: a pinned file is hashed afresh here,
+    the last moment anything can still say no before the studio symlinks it where an engine will read or run it."""
+
+    if path.is_dir():
+        return
+    if item["sha256"]:
+        if sha256_of(path, {}) != item["sha256"]:  # no cache: this is the reading that must not be remembered
+            raise ValueError(f"{shown(path)} is not the bytes the scan hashed any more: scan again")
+    elif item["check"] and item["check"](path):
+        raise ValueError(f"{shown(path)} is not the file the scan read any more: scan again")
+    if item["executable"] and not os.access(path, os.X_OK):
+        raise ValueError(f"{shown(path)} lost its executable bit: scan again")
+
+
 def use(nid: str, path: str) -> dict:
     """Link ``path`` (one of the scan's candidates for this need) where the studio looks for it."""
 
@@ -1053,6 +1070,7 @@ def use(nid: str, path: str) -> dict:
     found = Path(path)
     if not found.exists():
         raise ValueError(f"{shown(found)} is not there any more: scan again")
+    reprove(item, found)
     if item.get("unlisted") and not item.get("linkable"):
         raise ValueError("there is no folder to link an unlisted LoRA into here: add it in the LoRA hub under My LoRAs")
     place = item["link"].parent / found.name if item.get("link_by_name") else item["link"]
@@ -1125,6 +1143,15 @@ def auto_link(places: set | None = None) -> list[str]:
         if places is not None and not under(item["link"], places):
             continue
         found = [c for c in (data["needs"].get(item["id"]) or {}).get("candidates", []) if c.get("verified") and c.get("path")]
+        # only a proof that survives a swap of the bytes links itself without a person asking. A file's name and
+        # four magic bytes are a lie anyone can tell for free -- an ELF named drama3-generate that the voice engine
+        # would then EXECUTE, a PK-headed .pt that torch would UNPICKLE -- so an executable or a pickled-checkpoint
+        # candidate links only on the sha256 the catalogue pins (re-hashed at the link, past the scan's
+        # path|size|mtime cache, which utime can spoof). The rest is safe by format: a folder of the right members,
+        # or a .safetensors whose loader parses a JSON header and reads tensor bytes -- nothing it holds becomes
+        # code. Name-only suspects are offered on the page for a person to choose, never linked by the machine alone.
+        found = [c for c in found if Path(c["path"]).is_dir() or c.get("proof") == "sha256"
+                 or (c["path"].lower().endswith(".safetensors") and not item["executable"])]
         if len(found) == 1:  # exactly one proved: others offered (another sha256, a similar name) wait for a choice
             try:
                 use(item["id"], found[0]["path"])
