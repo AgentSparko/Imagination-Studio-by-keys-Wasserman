@@ -1973,6 +1973,8 @@ def perform(job: dict, worker: dict | None = None) -> None:
                 except Exception as error:  # noqa: BLE001
                     job["pace"] = {"verdict": "not measured", "note": str(error)[-200:]}
         hub.record(job)  # the clip, its seed and settings, and the Spark that rendered it (sparks/takes.jsonl)
+        if params.get("then") and job["status"] != "cancelled":  # the next step of Extend or Fix (revise.py)
+            revise_then(job)
         if job["status"] != "cancelled":
             job["status"] = "done"
     except sparks.Moved:  # the Spark it was on refused it, failed it or stopped answering: it is in the queue again
@@ -2164,6 +2166,8 @@ def export_clips(params: dict) -> None:
 @app.post("/api/jobs")
 def submit(body: dict) -> dict:
     try:
+        if body.get("kind") in revise.KINDS:  # Restyle, Extend, Fix (revise.py): a clip's job and what follows it
+            return revise_queue(body)
         return queue_job(body)
     except (TypeError, ValueError, AttributeError, KeyError) as error:
         # a setting sent as the wrong type (text for a number, a list for an object): said plainly, not a 500
@@ -2779,6 +2783,9 @@ action_router, action_build, action_title, action_source = actions.attach(HOME, 
 import sound  # noqa: E402  (sound effects and foley: Stable Audio Open and MMAudio, run locally, beside this file)
 sound_router, sound_build, sound_title, sound_source = sound.attach(HOME, PACK, SPARK, inside, relative, held_room, media_seconds)
 app.include_router(action_router)
+import revise  # noqa: E402  (Restyle, Extend and Fix: work on a clip you already have, Library actions, beside this file)
+revise_router, revise_queue, revise_then = revise.attach(sys.modules[__name__])
+app.include_router(revise_router)
 app.include_router(sound_router)
 import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
 app.include_router(clear.attach(HOME, jobs, order, lock)[0])
