@@ -18,6 +18,7 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
+import wave
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -251,6 +252,74 @@ def import_take(body: dict) -> dict:
     return {"take": take, "scene": scene.get("id"), "shot": shot.get("id"), "logged": bool(body.get("log"))}
 
 
+# ---------- a voice kept from a take: the sound of a rendered shot as a character's cast voice ----------
+
+VOICE_SECONDS = (2.0, 15.0)  # a reference audio clip for MiniMax's Ref2VA, as cast_voices takes it
+
+
+def take_sound(source: Path, target: Path) -> float:
+    """A take's sound as a mono 44.1 kHz 16-bit WAV of at most 15 s (the first 15 s of a longer one); its seconds."""
+
+    ffmpeg = cli("ffmpeg")
+    if not ffmpeg:
+        raise HTTPException(400, "keeping a voice from a take needs ffmpeg on this machine")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    done = subprocess.run([ffmpeg, "-v", "error", "-y", "-i", str(source), "-vn", "-ac", "1", "-ar", "44100", "-c:a", "pcm_s16le",
+                           "-t", f"{VOICE_SECONDS[1]:g}", str(target)], capture_output=True, text=True, timeout=120)
+    if done.returncode or not target.is_file():
+        target.unlink(missing_ok=True)
+        raise HTTPException(400, "this take has no sound to keep" if "does not contain any stream" in done.stderr or "matches no streams" in done.stderr
+                            else "the take's sound could not be read: " + done.stderr.strip()[-200:])
+    with wave.open(str(target)) as sound:
+        return sound.getnframes() / float(sound.getframerate() or 1)
+
+
+@router.post("/api/slate/voice-from-take")
+def voice_from_take(body: dict) -> dict:
+    """A take's sound kept as a character's voice: {project, shot, take, character}. The take's audio (its first 15 s)
+    is written to voice/<id>.wav with a .take.json as a Drama 3 take has (origin "take"), and the character's voice
+    sheet (a new one named after the character when there is none) gets it as its cast voice (``drama``), so the
+    shots after it in Drama 3 dialogue use it as the timbre reference. Returns the film."""
+
+    file = project_file(str(body.get("project") or ""))
+    if not file.is_file():
+        raise HTTPException(404, "no such film")
+    project = json.loads(file.read_text())
+    scene, shot, _ = find_shot(project, str(body.get("shot") or ""))
+    take = next((t for t in shot.get("takes") or [] if t.get("id") == body.get("take")), None)
+    if not take or not take.get("mediaPath"):
+        raise HTTPException(404, "no such take")
+    source = (HOME / take["mediaPath"]).resolve()
+    if HOME.resolve() not in source.parents or not source.is_file():
+        raise HTTPException(400, "the take's clip is not on disk")
+    who = next((c for c in project.get("characters") or [] if c.get("id") == body.get("character")), None)
+    if not who:
+        raise HTTPException(404, "no such character")
+    take_id = time.strftime("%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+    wav = HOME / "voice" / f"{take_id}.wav"
+    seconds = take_sound(source, wav)
+    if seconds < VOICE_SECONDS[0] - 0.05:
+        wav.unlink(missing_ok=True)
+        raise HTTPException(400, f"the take's sound is {seconds:.1f} s and a voice to keep is at least {VOICE_SECONDS[0]:g} s: keep a longer take")
+    voices = project.setdefault("voices", [])
+    sheet = next((v for v in voices if v.get("characterId") == who.get("id")), None)
+    if sheet is None:
+        sheet = {"id": f"voice-{int(time.time() * 1000):x}-{uuid.uuid4().hex[:5]}", "name": who.get("name") or "Voice", "characterId": who.get("id"),
+                 "ageGender": "", "accent": "", "timbre": "", "pitch": "", "pacing": "", "energy": "", "texture": "", "emotionalRange": "",
+                 "sampleLine": "", "notes": ""}
+        voices.append(sheet)
+    words = " ".join((line.get("text") or "").strip() for line in (shot.get("tf") or {}).get("lines") or []
+                     if line.get("characterId") == who.get("id") and (line.get("text") or "").strip())
+    path = str(wav.relative_to(HOME))
+    record = {"id": take_id, "path": path, "title": f"Kept from a take: {who.get('name') or 'voice'}"[:80], "text": words, "seed": take.get("seed"),
+              "backend": "take", "created": time.time(), "duration": round(seconds, 3), "origin": "take",
+              "source": {"take": take.get("id"), "clip": take["mediaPath"], "shot": shot.get("id"), "scene": scene.get("id")},
+              "reference": None, "slate": {"project": project.get("id"), "voice": sheet["id"]}}
+    wav.with_suffix(".take.json").write_text(json.dumps(record, indent=1) + "\n")
+    sheet["drama"] = {"path": path, "seconds": round(seconds, 3), "text": words, "seed": take.get("seed"), "take": take_id, "use": True, "origin": "take"}
+    return write(project)
+
+
 # ---------- the brain: Slate's three backends ----------
 
 def cli(name: str) -> str | None:
@@ -463,6 +532,48 @@ def cast_voices(lines: list[dict], sheets: list[dict | None], warnings: list[str
     return audios, notes
 
 
+DIALOGUE = ("h3", "drama3")  # who speaks a shot's lines: the video model from the words, or Drama 3's cast voices
+
+
+def stills_of(sheet: dict) -> list[str]:
+    """A sheet's pinned pictures that are on disk, the reference first."""
+
+    return [p for p in sheet.get("images") or [] if isinstance(p, str) and (HOME / p).is_file()]
+
+
+def bible_pictures(cast: list[dict], place: dict | None, each: int) -> tuple[list[str], list[str], list[str], list[str]]:
+    """(pictures, subjects, pictured ids, definitions) of a shot on reference pictures. The cast come first: each
+    pictured person's reference still is a ``<Subject N>`` in ``<Picture N>``; then up to ``each`` - 1 more of their
+    pinned pictures ("the look of" them), then up to 2 of the place's ("the place:"), while the 9 pictures last."""
+
+    pictures, subjects, pictured, more = [], [], [], []
+    for sheet in cast:
+        stills = stills_of(sheet)
+        if stills and len(pictures) < LIMIT:
+            pictures.append(stills[0])
+            subjects.append(f"{sheet.get('name', 'the person')}, {person(sheet)}".rstrip(", "))
+            pictured.append(sheet.get("id"))
+            more += [(path, f"another view of <Subject {len(subjects)}>: the look of {sheet.get('name') or 'this person'}") for path in stills[1:each]]
+    if place and pictures:  # a place only beside someone pictured: a picture alone is the shot's subject to the model
+        more += [(path, f"the place: {place.get('name') or 'the location'}") for path in stills_of(place)[:2]]
+    definitions = []
+    for path, note in more:
+        if len(pictures) >= LIMIT or path in pictures:
+            continue
+        pictures.append(path)
+        number = len(pictures)
+        keep = "the setting, architecture and light" if note.startswith("the place") else "the identity, face, hair, clothing and colours"
+        definitions.append(f"<Picture {number}> is {note}; {keep} shown in <Picture {number}> are kept.")
+    return pictures, subjects, pictured, definitions
+
+
+def lora_list(given) -> list[dict]:
+    """LoRAs as a job carries them, {id, strength?, style?}, from a list (or one sheet's) with the empty ones left out."""
+
+    return [{"id": str(one["id"]), **({"strength": one["strength"]} if one.get("strength") not in (None, "") else {}),
+             **({"style": one["style"]} if one.get("style") else {})} for one in given or [] if isinstance(one, dict) and one.get("id")]
+
+
 def find_shot(project: dict, shot_id: str) -> tuple[dict, dict, int]:
     for scene in project.get("scenes") or []:
         for index, shot in enumerate(scene.get("shots") or []):
@@ -568,19 +679,16 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
     size = SIZES[tier][ratio]
 
     references, subjects, pictured = [], [], []  # pictured: the cast ids of the references, <Subject 1> first
-    if start == "cast":
-        for sheet in cast:
-            stills = [p for p in sheet.get("images") or [] if (HOME / p).is_file()]
-            if stills and len(references) < LIMIT:
-                references.append(stills[0])
-                subjects.append(f"{sheet.get('name', 'the person')}, {person(sheet)}".rstrip(", "))
-                pictured.append(sheet.get("id"))
+    definitions = []  # the bible's further pictures: a second look of someone pictured, the place
+    bible = film.get("bible") != "off" and start in ("text", "cast")  # the bible, used automatically (bible_pictures)
+    if start == "cast" or (bible and parts.get("ref2va")):
+        references, subjects, pictured, definitions = bible_pictures(cast, place if bible else None, 2 if bible else 1)
         if not parts.get("ref2va"):
             warnings.append("Reference pictures need the Ref2VA model (oneshot-setup.sh --ref2va); rendering from text.")
-            references, subjects, pictured = [], [], []
-        elif not references:
+            references, subjects, pictured, definitions = [], [], [], []
+        elif not references and start == "cast":
             warnings.append("No one cast in this shot has a still pinned in Casting; rendering from text.")
-        if [s for s in cast if not [p for p in s.get("images") or [] if (HOME / p).is_file()]] and references:
+        if [s for s in cast if not stills_of(s)] and references:
             warnings.append("Cast without a pinned still are described in words only.")
     image = previous = None
     if start == "image":
@@ -628,7 +736,12 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
                       "sung": bool(line.get("sung")), "speaker": who.get("name") if who else "", **({"offscreen": True} if away else {}),
                       "subject": 0 if away else pictured.index(who["id"]) + 1 if who and who.get("id") in pictured else 1})
         sheets.append(sheet)
-    audios, notes = cast_voices(lines, sheets, warnings) if references else ([], [])
+    # the dialogue: spoken by the video model from the words alone (h3), or with each speaker's Drama 3 voice as the
+    # timbre reference (drama3), which only a shot on reference pictures can take
+    dialogue = extra.get("dialogue") if extra.get("dialogue") in DIALOGUE else film.get("dialogue") if film.get("dialogue") in DIALOGUE else "h3"
+    audios, notes = cast_voices(lines, sheets, warnings) if references and dialogue == "drama3" else ([], [])
+    if lines and dialogue == "drama3" and not references:
+        warnings.append("Dialogue voiced by Drama 3 needs a shot on reference pictures: here the video model speaks the lines from the words.")
     words = sum(len(line["text"].split()) for line in lines)
     if lines and words > seconds * 3.4:
         warnings.append(f"{words} words is a lot for {seconds} s (about three words a second): the line may be rushed or cut off.")
@@ -636,8 +749,8 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
     music = sentence(", ".join(bit for bit in (cue.get("genre"), cue.get("mood"), cue.get("tempo"), cue.get("instrumentation")) if bit)) if cue else (extra.get("music") or "N/A")
     fields = {"scene": picture, "camera": camera, "action": action, "dialogue": lines, "soundscape": extra.get("soundscape") or "",
               "music": music, "subjects": subjects, "people": bool(cast) or None,  # None: the builder reads the words
-              **({"audio_notes": notes} if audios else {})}
-    prompt = compose_references(fields, len(references)) if references else compose(fields, bool(image or previous), frames=frames)
+              **({"audio_notes": notes} if audios else {}), **({"definitions": definitions} if definitions else {})}
+    prompt = compose_references(fields, len(subjects)) if references else compose(fields, bool(image or previous), frames=frames)
     for one in negation.check_fields(fields)["negations"]:  # said, never rewritten (negation.py)
         warnings.append(f"“{one['phrase']}” ({one['field'].lower()}): the video model has no negative prompt, and what a prompt names tends to appear. Say what is there instead.")
     limit = 7000
@@ -645,18 +758,26 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
         warnings.append(f"The prompt is {len(prompt)} characters; MiniMax H3's guide suggests at most {limit}. Tighten the shot.")
     if not (shot.get("prompt") or "").strip():
         warnings.append("The shot has no prompt yet.")
-    # a LoRA for this shot alone (the hub's, as a job carries them): it stands in for the film's on this shot
-    own = [{"id": str(one["id"]), **({"strength": one["strength"]} if one.get("strength") not in (None, "") else {}),
-            **({"style": one["style"]} if one.get("style") else {})} for one in extra.get("loras") or [] if isinstance(one, dict) and one.get("id")]
+    # a LoRA for this shot alone (the hub's, as a job carries them): it stands in for the film's on this shot. The
+    # bible's LoRAs (a character's, the place's) join it in every mode: the shot's own first, at most 4, none twice
+    own = lora_list(extra.get("loras"))
+    entities = lora_list([sheet.get("lora") for sheet in [*cast, place or {}]])
+    if entities and not own and not references:
+        own = lora_list(film.get("loras"))  # the film's would stand in for none: they stay, and the bible's join them
+    loras = []
+    for one in own + entities:
+        if one["id"] not in {kept["id"] for kept in loras}:
+            loras.append(one)
+    if len(loras) > 4:
+        warnings.append("A clip takes at most 4 LoRAs: " + ", ".join(one["id"] for one in loras[4:]) + " left out.")
+        loras = loras[:4]
     plan = {"seconds": seconds, "frames": frames, "seed": int(extra.get("seed") or 1), "quality": film.get("quality") or "fh8",
-            **({"slot": slot} if slot else {}), **({"loras": own} if own and not references else {}),
+            **({"slot": slot} if slot else {}), **({"loras": loras} if loras else {}),
             **({"preset": size} if isinstance(size, str) else {"preset": "custom", "width": size[0], "height": size[1]}),
             **({"references": references, "ref_turbo": film.get("refPasses") == "4"} if references else {}),
             **({"reference_audios": audios} if audios else {}),
             **({"image": image} if image else {}), **({"first_frame_from": previous} if previous else {})}
     mode = "references" if references else "image" if image else "previous" if previous else "text"
-    if own and references:
-        warnings.append("A shot that opens on cast stills renders on the reference model: its own LoRA is left out.")
     # the machine's memory (a DGX Spark's guard): said here, before the shot is queued, with what fits
     try:
         memory = room(plan, bool(plan.get("loras") or (film.get("loras") and not references)))
@@ -664,7 +785,7 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
         memory = {"fits": True, "reason": ""}
     if not memory.get("fits", True):
         warnings.append("This shot will be refused when queued: " + memory["reason"])
-    return {"prompt": prompt, "plan": plan, "mode": mode, "warnings": warnings, "chars": len(prompt), "memory": {"fits": memory.get("fits", True), "reason": memory.get("reason", ""), "need_mb": memory.get("need_mb"), "nearest": memory.get("nearest")}}
+    return {"prompt": prompt, "plan": plan, "mode": mode, "dialogue": dialogue, "warnings": warnings, "chars": len(prompt), "memory": {"fits": memory.get("fits", True), "reason": memory.get("reason", ""), "need_mb": memory.get("need_mb"), "nearest": memory.get("nearest")}}
 
 
 @router.post("/api/slate/compile")
