@@ -12,6 +12,11 @@ set -euo pipefail
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MUSIC3_METAL_COMMIT="${MUSIC3_METAL_COMMIT:-8c9559da70b70650309b36f96e6a30f69cd1607c}"
 ZIG_VERSION=0.17.0
+# the sha256 ziglang publishes for the tarball below: the aarch64-macos entry's "tarball_sha256" in
+# https://ziglang.org/download/index.json (the release page for ZIG_VERSION lists the same). Fill it in whenever
+# ZIG_VERSION is bumped; the 0.17.0 release was not in the index when this was written, so it waits here empty and
+# the fetch says, loudly, that it could not verify.
+ZIG_SHA256=""
 OUT="$PREFIX/music3"
 [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] || { echo "the Metal music3 engine builds on an Apple-silicon Mac" >&2; exit 1; }
 if [ -x "$OUT/bin/music3-generate" ] && [ "$(cat "$OUT/commit" 2>/dev/null)" = "$MUSIC3_METAL_COMMIT" ] && [ -z "${MUSIC3_SOURCE:-}" ]; then
@@ -34,7 +39,21 @@ if [ -z "$ZIG" ] || [ "$("$ZIG" version)" != "$ZIG_VERSION" ]; then
   if [ ! -x "$ZIG" ]; then
     echo "[tensorfold] fetching Zig $ZIG_VERSION"
     mkdir -p "$PREFIX/zig-$ZIG_VERSION"
-    curl -sfL "https://ziglang.org/download/$ZIG_VERSION/zig-aarch64-macos-$ZIG_VERSION.tar.xz" | tar -xJ --strip-components=1 -C "$PREFIX/zig-$ZIG_VERSION"
+    # the tarball lands in a temp folder first: piped straight into tar it was neither inspectable nor checkable,
+    # and the server is the only thing that said what was in it
+    T="$(mktemp -d)"
+    if ! curl -sfL -o "$T/zig.tar.xz" "https://ziglang.org/download/$ZIG_VERSION/zig-aarch64-macos-$ZIG_VERSION.tar.xz"; then
+      rm -rf "$T"; echo "the Zig $ZIG_VERSION download failed" >&2; exit 1
+    fi
+    if [ -n "$ZIG_SHA256" ]; then
+      echo "$ZIG_SHA256  $T/zig.tar.xz" | shasum -a 256 -c - >/dev/null \
+        || { rm -rf "$T"; echo "the Zig $ZIG_VERSION tarball is not the sha256 this script embeds: refusing to unpack it" >&2; exit 1; }
+      echo "[tensorfold] Zig $ZIG_VERSION sha256 verified"
+    else
+      echo "[tensorfold] WARNING: no sha256 is embedded for Zig $ZIG_VERSION (ZIG_SHA256 above, from ziglang.org's index.json): the tarball is unpacked unverified" >&2
+    fi
+    tar -xJ --strip-components=1 -C "$PREFIX/zig-$ZIG_VERSION" -f "$T/zig.tar.xz" || { rm -rf "$T"; echo "the Zig $ZIG_VERSION tarball does not unpack" >&2; exit 1; }
+    rm -rf "$T"
   fi
 fi
 SRC="${MUSIC3_SOURCE:-$PREFIX/music3-metal-src}"

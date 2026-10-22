@@ -27,6 +27,7 @@ import shutil
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -44,13 +45,21 @@ def sha(path: Path) -> str:
     return digest.hexdigest()
 
 
+def is_hf(url: str) -> bool:
+    """Hugging Face itself, judged on the parsed host: a substring test would let a crafted url (a path or a query that
+    merely mentions the domain) carry the token to another server as its Authorization header."""
+
+    host = urllib.parse.urlsplit(url).hostname or ""
+    return host == "huggingface.co" or host.endswith(".huggingface.co")  # its own host, and its CDN's and Space's subdomains
+
+
 def fetch(url: str, target: Path, token: str, retries: int) -> None:
     """Download with resume: a .part file is continued with a Range request, and a failed try is repeated."""
 
     part = target.with_name(target.name + ".part")
     for attempt in range(retries + 1):
         headers = {"User-Agent": "TensorFoldStudio"}
-        if token and "huggingface.co/" in url:
+        if token and is_hf(url):
             headers["Authorization"] = "Bearer " + token
         have = part.stat().st_size if part.exists() else 0
         if have:
@@ -267,7 +276,14 @@ def main(argv: list[str]) -> int:
     for recipe in chosen:
         target, name = place(recipe), recipe["url"].rsplit("/", 1)[-1]
         if target.is_file():
-            states[recipe["id"]] = "already there" if good(recipe, target) else "checksum mismatch"
+            if good(recipe, target):
+                states[recipe["id"]] = "already there"
+            else:
+                # a file that fails its content check is not left in place: renamed aside like a fresh fetch's, so
+                # bundle.json never lists a bad file as an installed one. --verify and --dry-run only report.
+                states[recipe["id"]] = "checksum mismatch"
+                if not args.verify and not args.dry_run:
+                    target.rename(target.with_name(target.name + ".bad"))
         elif packed(recipe):
             states[recipe["id"]] = "already there"
         elif args.verify or args.dry_run:
@@ -304,7 +320,7 @@ def main(argv: list[str]) -> int:
                 states[recipe["id"]] = "checksum mismatch"
             else:
                 states[recipe["id"]] = "ok"
-                if "huggingface.co/" in recipe["url"]:  # the author's card and licence, kept beside the file
+                if is_hf(recipe["url"]):  # the author's card and licence, kept beside the file
                     base = recipe["url"].split("/resolve/")[0] + "/resolve/main/"
                     for card in CARDS:
                         if not (target.parent / card).is_file():

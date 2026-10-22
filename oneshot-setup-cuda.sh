@@ -94,6 +94,12 @@ if [ "$(uname -s)" = Linux ] && checklist_wanted "$@"; then
   set -- "$@" $LIST_FLAGS
 fi
 [ "$(uname -s)" != Linux ] || [ "${STUDIO_CHECKLIST_DRY:-0}" != 1 ] || { echo "$*"; exit 0; }
+# pinned floor for the floating pip installs below. every version here is one this repo already installs somewhere
+# (requirements.lock for the Studio's own venv, scripts/setup-comfy.sh for the Mac's ComfyUI venv): copy, never invent.
+# bump deliberately, the CI floor is this table. torchaudio and faster-whisper stay floating: no version of theirs is
+# written down in this repo to copy, and the resolver keeps them beside the torch pinned here.
+TORCH_PIN=(torch==2.14.1 torchvision==0.29.1)  # requirements.lock; scripts/setup-comfy.sh pins the same pair
+STUDIO_PIN=(huggingface_hub==1.33.0 fastapi==0.142.2 uvicorn==0.54.0 python-multipart==0.0.32 pillow==12.3.0)  # requirements.lock
 IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; VOICE=0; UPGRADE=0; LORAS=""; H3_BASE=0; WORKFLOWS=1; IMAGE_EDIT=0; FLUX3=0; MOSS=0; MUSIC=0; SOUND=0; BOLT=0; TRAIN=0; GRAPHICS=""; FINISH=""
 for arg in "$@"; do
   case "$arg" in
@@ -215,7 +221,7 @@ PY="$PREFIX/venv/bin/python"
 pipi() { UV_TORCH_BACKEND=cu130 uv pip install -q --python "$PY" "$@"; }
 if ! "$PY" -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
   [ "$VERIFY" = 0 ] || die "PyTorch does not see the GPU"
-  pipi torch torchvision torchaudio
+  pipi "${TORCH_PIN[@]}" torchaudio
 fi
 "$PY" -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)" || die "PyTorch does not see the GPU"
 ok "torch $("$PY" -c 'import torch; print(torch.__version__, "on", torch.cuda.get_device_name(0))')"
@@ -228,7 +234,7 @@ if [ "$(git -C "$PREFIX/ComfyUI" rev-parse HEAD 2>/dev/null)" != "$COMFY_COMMIT"
   git -C "$PREFIX/ComfyUI" checkout -q "$COMFY_COMMIT"
 fi
 if [ "$VERIFY" = 0 ]; then
-  pipi -r "$PREFIX/ComfyUI/requirements.txt" huggingface_hub fastapi uvicorn python-multipart pillow
+  pipi -r "$PREFIX/ComfyUI/requirements.txt" "${STUDIO_PIN[@]}"
   # speech-to-text for the QA gate of the Wasserman Sharp Spec (app/qa.py); without it that gate is shown as skipped
   pipi faster-whisper || echo "  note: faster-whisper was not installed; the QA gate's speech check will be skipped"
   # notifications on a phone when a night shift is done (app/push.py); without them the studio still runs

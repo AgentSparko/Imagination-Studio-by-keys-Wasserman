@@ -36,6 +36,10 @@ REPO="https://github.com/drowzeys/TensorFold.git"
 MLX_BRANCH="drama3-mlx"; MLX_COMMIT="8f3d4b33"
 CUDA_BRANCH="drama3-cuda"; CUDA_COMMIT="81173e6c"  # spark/build-drama3.sh pins the whole hash
 HF_REPO="fishaudio/drama-3"; CHECKPOINT_REVISION="b2b5ee998034b2975720906c815e7fb0e9f007bd"
+# pinned floor for the floating pip installs below. every version here is one requirements.lock already installs into
+# the Studio's own venv: copy, never invent. bump deliberately, the CI floor is this table. mlx-whisper and soundfile
+# stay floating: no version of theirs is written down in this repo to copy.
+PIP_PIN=(mlx==0.32.3 mlx-lm==0.32.0 torch==2.14.1 huggingface-hub==1.33.0)  # requirements.lock
 VERIFY=0; UPGRADE=0; TEST=1
 for arg in "$@"; do
   case "$arg" in
@@ -205,7 +209,7 @@ fi
 if ! "$PY" -I -c "import tensorfold.drama3, tensorfold.families.drama3.stream, mlx_whisper" 2>/dev/null; then
   [ "$VERIFY" = 0 ] || die "the environment lacks tensorfold.drama3 (with streaming) or mlx-whisper"
   "$PY" -m pip install -q --upgrade pip
-  "$PY" -m pip install -q -e "$SRC" mlx mlx-lm mlx-whisper soundfile torch huggingface_hub
+  "$PY" -m pip install -q -e "$SRC" "${PIP_PIN[@]}" mlx-whisper soundfile
 fi
 "$PY" -I -c "import tensorfold.drama3, tensorfold.families.drama3.stream, mlx_whisper" || die "the environment does not import the engine"
 ok "tensorfold.drama3 + mlx-whisper (the engine's own end-of-text check)"

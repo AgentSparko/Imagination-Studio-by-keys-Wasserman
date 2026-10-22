@@ -20,6 +20,9 @@ set -euo pipefail
 REPO="https://github.com/drowzeys/TensorFold.git"
 BRANCH="music3-mlx"; COMMIT="6844b413"
 HF_REPO="Comfy-Org/MiniMax-Music-3"
+# pinned floor for the floating pip installs below. every version here is one requirements.lock already installs into
+# the Studio's own venv: copy, never invent. bump deliberately, the CI floor is this table.
+PIP_PIN=(mlx==0.32.3 mlx-lm==0.32.0 tokenizers==0.23.2 numpy==2.4.6 huggingface-hub==1.33.0)  # requirements.lock
 FILES=(diffusion_models/minimax_music3_dit_fp16.safetensors text_encoders/minimax_music3_text_encoder_pruned_bf16.safetensors
        vae/minimax_music3_dav.safetensors)
 VERIFY=0
@@ -77,7 +80,7 @@ fi
 if ! "$PY" -I -c "import tensorfold.music3, tensorfold.families.music3.generate, tokenizers" 2>/dev/null; then
   [ "$VERIFY" = 0 ] || die "the environment lacks tensorfold.music3"
   "$PY" -m pip install -q --upgrade pip
-  "$PY" -m pip install -q -e "$SRC" mlx mlx-lm tokenizers numpy huggingface_hub
+  "$PY" -m pip install -q -e "$SRC" "${PIP_PIN[@]}"
 fi
 "$PY" -I -c "import tensorfold.music3, tensorfold.families.music3.generate, tokenizers" || die "the environment does not import the engine"
 ok "tensorfold.music3 ($("$PY" -I -c 'import mlx.core as mx; print("mlx", mx.__version__)'))"

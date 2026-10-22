@@ -52,6 +52,8 @@
 # weights, 37 GB more on disk, much slower than an M5); 128 GB with --turbo. Disk: 33 GB, 175 GB and 240 GB, and about
 # 0.6 GB more for motion graphics (0.4 GB) and Finish (0.15 GB), which every install includes.
 # Engine payload order: this clone's ./payload -> GHCR carrier image -> release download -> git at the pinned commit.
+# CARRIER_DIGEST: when set, the GHCR carrier image pulled for the payload must have exactly this digest (what
+# docker pull resolved to, as printed in the install log) or the install stops -- see fetch_ghcr for why.
 # Installs into its own venv ($PREFIX, default ~/.local/opt/tensorfold-studio). Touches nothing else.
 # Weights: $QWEN_MODEL_DIR (default ~/qwen-models/Qwen-Image-2.1-Turbo, 33 GB), $FASTH3_DIR (default
 #          ~/h3-models/FastH3-8-Step-V2, its transformer, 70 GB) and $H3_MODEL_DIR (default ~/h3-models/MiniMax-H3:
@@ -244,10 +246,18 @@ command -v git >/dev/null || die "git required"
 
 fetch_ghcr() {
   command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 1
-  local image
+  local image digest
   for image in "$IMAGE" "$IMAGE_BEFORE"; do
     docker pull -q "$image" >/dev/null 2>&1 || continue
     echo "  payload from GHCR $image"
+    # the tag can move under us, and the payload and its SHA256SUMS arrive in the same pull: verifying one against the
+    # other is self-referential -- whoever serves the payload serves its own checksums too. What is not self-referential
+    # is the digest the pull actually resolved: print it into the install log, and with CARRIER_DIGEST set, refuse any
+    # carrier that is not exactly that digest (a tag is a name that changes; a digest is what you looked at).
+    digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || echo "unknown")"
+    echo "  carrier digest: $digest"
+    { [ -z "${CARRIER_DIGEST:-}" ] || [ "$digest" = "$CARRIER_DIGEST" ]; } \
+      || die "the carrier pulled as $image is $digest, not the expected $CARRIER_DIGEST (CARRIER_DIGEST)"
     docker run --rm -v "$HERE":/out "$image" cp -a /payload/. /out/payload/
     return
   done
