@@ -2130,7 +2130,8 @@ def estimate_time(body: dict) -> dict:
         try:
             chosen, _ = custom(body)
             sized = {**(PRESETS[body["preset"]][2] if body.get("preset") in PRESETS else {}), **chosen}
-            count = int(body.get("references") or 0)
+            count = min(int(body.get("references") or 0), REFERENCE_TOTAL)  # the app itself attaches no more than this,
+            # and a bigger number here only costs this process memory to hold a list it cannot answer for
             room = memory_of(body, sized, lengths.of({"frames": body.get("frames"), "seconds": body.get("seconds") or 5}), bool(body.get("loras") or body.get("with_lora")),
                              {"pictures": [None] * count, "videos": []} if body.get("referenced") else None)
             room = {key: room.get(key) for key in ("fits", "reason", "need_mb", "error_mb", "left_mb", "floor_mb", "available_mb", "nearest")}
@@ -2640,12 +2641,21 @@ def save_project(project_id: str, body: dict) -> dict:
     return body
 
 
+_WAITERS = threading.Semaphore(4)  # a page holding /api/wait open is one thread of the small pool; a few at a
+# time is pages waiting on screenshots, more than that is someone holding the app hostage
+
+
 @app.get("/api/wait")
 def wait(ms: int = 1000):
     """Holds a response open; a page asked for with ?shot=1 loads an image from here so that a headless
     screenshot is taken after the app has drawn."""
 
-    time.sleep(min(max(ms, 0), 10000) / 1000)
+    if not _WAITERS.acquire(blocking=False):
+        return JSONResponse({"waited": 0})  # the pool is already full of waiters; nobody gets to add to it
+    try:
+        time.sleep(min(max(ms, 0), 10000) / 1000)
+    finally:
+        _WAITERS.release()
     return JSONResponse({"waited": ms})
 
 
