@@ -167,8 +167,9 @@ def has_prompt(shot: dict) -> bool:
 
 
 def good_take(shot: dict) -> bool:
-    """A take whose clip is in the studio folder and that is not marked no-good."""
-    return any(t.get("mediaPath") and t.get("rating") != "no-good" and (HOME / t["mediaPath"]).is_file() for t in shot.get("takes") or [])
+    """A take whose clip is in the studio folder and that is marked good or circled (a take still rendering has no
+    rating yet)."""
+    return any(t.get("mediaPath") and t.get("rating") in ("good", "circled") and (HOME / t["mediaPath"]).is_file() for t in shot.get("takes") or [])
 
 
 def film_shots(project: dict, wanted: set | None = None) -> list[tuple[dict, dict]]:
@@ -204,15 +205,18 @@ def render_shot(film: str, shot_id: str, chain: str | None) -> tuple[str, str]:
     asked = job.get("params") or params
     shot.setdefault("takes", []).insert(0, {
         "id": f"take-{int(time.time() * 1000):x}-{uuid.uuid4().hex[:5]}", "loggedAt": slate.now(), "model": "minimax-h3",
-        "prompt": prompt, "rating": "good", "notes": "", "origin": "Night shift", "mediaPath": output, "jobId": job["id"],
+        "prompt": prompt, "rating": "", "notes": "", "origin": "Night shift", "mediaPath": output, "jobId": job["id"],
         "seed": plan.get("seed"), "settings": {k: asked[k] for k in ("preset", "quality", "frames", "seconds", "width", "height", "loras") if asked.get(k) is not None}})
     slate.write(project)
     return job["id"], output
 
 
-def note_take(result: dict) -> None:
-    """A finished shot's checks written beside its take in the film, as an imported take keeps them."""
-    slated = (result.get("params") or {}).get("slate") or {}
+def note_take(result: dict, item: dict | None = None) -> None:
+    """A finished shot's checks written beside its take in the film, as an imported take keeps them, and its rating
+    from them: no-good when it failed or its checks did, else good. ``item``: the plan's item, for a result that
+    has no job record left (the studio restarted)."""
+    slated = (result.get("params") or {}).get("slate") or \
+        ({"project": item["film"], "shot": item["shot"]} if item and item.get("kind") == "shot" else {})
     if not slated.get("project"):
         return
     import slate
@@ -228,6 +232,8 @@ def note_take(result: dict) -> None:
                     take[key] = result[key]
             if result.get("status") != "done":
                 take["notes"] = (take.get("notes") or "") + ("" if not take.get("notes") else " · ") + "Night shift: " + (result.get("error") or result.get("status") or "")
+            if not take.get("rating"):  # a rating the user gave meanwhile stays
+                take["rating"] = "no-good" if verdict(result)[0] is False else "good"
             slate.write(project)
             return
 
@@ -307,6 +313,7 @@ def follow(plan: dict) -> bool:
             output = result.get("output")
             if output and (HOME / output).is_file():
                 result.update(status="done", outputs=[output], finished=time.time())
+                note_take(result, plan["items"][result["item"]])
                 kept.append(result)
             changed = True
             continue

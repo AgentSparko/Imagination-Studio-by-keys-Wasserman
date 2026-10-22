@@ -205,15 +205,32 @@ def test_a_film_plans_its_shots_without_a_good_take_and_each_take_is_logged(queu
     saved = client.get(f"/api/slate/projects/{film['id']}").json()
     take = saved["scenes"][0]["shots"][0]["takes"][0]
     assert take["jobId"] == "j1" and take["mediaPath"] == sent["params"]["output"] and take["origin"] == "Night shift"
+    assert take["rating"] == ""  # rated when it finishes, from its checks
 
     # its checks are written beside the take when it finishes
     finish(queue, "j1", qa={"passed": False, "takes": [{"audio": {"result": "fail", "note": "no speech heard"}, "identity": {"result": "pass", "note": ""}}]})
     nightshift.tick()
     saved = client.get(f"/api/slate/projects/{film['id']}").json()
     assert saved["scenes"][0]["shots"][0]["takes"][0]["qa"]["passed"] is False
+    assert saved["scenes"][0]["shots"][0]["takes"][0]["rating"] == "no-good"
+    wrote = HOME / queue["made"][1]["params"]["output"]
+    wrote.parent.mkdir(parents=True, exist_ok=True)
+    wrote.write_bytes(b"clip")
+    finish(queue, "j2", str(wrote.relative_to(HOME)))  # its clip written, no checks ran: good
+    nightshift.tick()
+    assert client.get(f"/api/slate/projects/{film['id']}").json()["scenes"][0]["shots"][2]["takes"][0]["rating"] == "good"
     named = client.post("/api/nightshift", json={"film": film["id"], "shots": ["Shot 02"]}).json()
     assert [i["shot"] for i in named["items"]] == ["shot-2"]
     assert client.post("/api/nightshift", json={"film": film["id"], "shots": ["Shot 99"]}).status_code == 404
+
+
+def test_only_a_good_or_circled_take_on_disk_is_a_good_take():
+    (HOME / "renders").mkdir(exist_ok=True)
+    (HOME / "renders" / "good.mp4").write_bytes(b"clip")
+    take = lambda rating, path="renders/good.mp4": {"takes": [{"mediaPath": path, "rating": rating}]}
+    assert nightshift.good_take(take("good")) and nightshift.good_take(take("circled"))
+    assert not nightshift.good_take(take("")) and not nightshift.good_take(take("no-good"))  # rendering, or failed
+    assert not nightshift.good_take(take("good", "renders/missing.mp4"))
 
 
 # ---------- the morning ----------
