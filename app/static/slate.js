@@ -509,7 +509,8 @@ function slBible() { const p = SL.p, d = p.defaults, film = slFilm(), b = SL.bra
     el("h3", {}, "Project file"), el("div", { class: "row" }, el("button", { class: "fit", onclick: () => slDown(p.name.replace(/[^\w-]+/g, "_") + ".project.json", JSON.stringify(p, null, 1), "application/json") }, "Download project.json (opens in Slate)"),
       el("button", { class: "fit", onclick: async () => { if (!confirm("Remove the film " + p.name + "? It is moved to the studio's trash folder.")) return; clearTimeout(slTimer); await api("/api/slate/projects/" + p.id, undefined, "DELETE"); SL.p = null; SL.metas = null; render(); } }, "Remove this film"), el("span"))); }
 // Deliver: the scene's takes, then a rough cut on the beat (roughcut.js) when that module is loaded
-function slDeliver() { const core = slDeliverCore(); return SL.p && slScene() && typeof rcPanel === "function" ? el("div", {}, core, rcPanel(SL.p)) : core; }
+function slDeliver() { const core = slDeliverCore(); if (!SL.p || !slScene()) return core;
+  return el("div", {}, core, typeof nightFromFilm === "function" ? el("div", { class: "row", style: "margin-top:10px" }, nightFromFilm(SL.p)) : null, typeof rcPanel === "function" ? rcPanel(SL.p) : null); }
 function slDeliverCore() { const p = SL.p, scene = slScene(); if (!scene) return el("div", { class: "note" }, "Nothing to deliver yet: add a scene and shots first.");
   const ready = scene.shots.filter(s => slBest(s)).length, issues = SL.issues && SL.issues.scene === scene.id ? SL.issues.list : null;
   return el("div", {}, el("div", { class: "row" }, field("Scene", (() => { const n = el("select", { onchange: () => { SL.sceneId = n.value; render(); } }, p.scenes.map(sc => el("option", { value: sc.id, selected: sc === scene }, sc.name + " · " + sc.shots.length + " shots"))); return n; })()),

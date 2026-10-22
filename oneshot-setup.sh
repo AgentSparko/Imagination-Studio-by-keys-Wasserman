@@ -215,6 +215,8 @@ fi
 cp "$HERE/h3_generate.py" "$HERE/qwen_image_generate.py" "$HERE/zig_fasth3.py" "$HERE/fasth3_q8.py" "$PREFIX/"
 # speech-to-text for the QA gate of the Wasserman Sharp Spec (app/qa.py); without it that gate is shown as skipped
 uv pip install -q -p "$PREFIX/venv/bin/python" faster-whisper || echo "  note: faster-whisper was not installed; the QA gate's speech check will be skipped"
+# notifications on a phone when a night shift is done (app/push.py); without them the studio still runs
+uv pip install -q -p "$PREFIX/venv/bin/python" cryptography pywebpush || echo "  note: cryptography and pywebpush were not installed; phone notifications will be off"
 "$PREFIX/venv/bin/python" - <<'EOF' || die "the installed TensorFold lacks the H3 or Qwen-Image family"
 import importlib.metadata as m
 import mlx.core as mx

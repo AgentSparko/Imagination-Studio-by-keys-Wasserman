@@ -125,7 +125,7 @@ STUDIO_TOOLS = ("studio_state (call first), list_library, search_library, queue_
                 "restyle_clip, extend_clip, fix_clip (work on a Library clip), queue_voice, queue_song, queue_sound (sfx, foley), queue_soundtrack, "
                 "music_beats, rough_cut (a film or clips cut to a song on the beat, for Resolve), rough_cut_status, check_clip (the QA gate), motion_previs, "
                 "job_status, wait_for_jobs, cancel_job, list_jobs, list_projects, add_to_timeline, export_timeline, upload_file, "
-                "train_lora and training_status (a LoRA trained on a DGX Spark from Library clips, for hours), "
+                "train_lora and training_status (a LoRA trained on a DGX Spark from Library clips, for hours), night_shift (a batch of Slate shots rendered overnight), "
                 "and Slate's slate_films, slate_film, slate_new_film, slate_add_scene, slate_add_shot, slate_render_shot, suite_imports and suite_attach (what the filmmaker suite brought in, sent into a film)")
 ROOM = (" This is a conversation with the filmmaker in the Studio's Agent room, and it continues over several turns."
         "{tools} When anything is unclear or a choice matters (length, look, voice, which take), ask the filmmaker one "
@@ -2148,7 +2148,7 @@ def answer_of(base: str, body: dict, stopped) -> dict | None:
 # the system prompt (no gain), and Bolt's reasoning, `think` (as exact, three times slower; kept as a part to turn on).
 
 MAKERS = ("search_library", "queue_still", "queue_clip", "queue_voice", "queue_song", "queue_edit", "queue_long", "queue_sound", "queue_soundtrack", "rough_cut",
-          "check_clip", "motion_previs", "slate_new_film", "slate_add_scene", "slate_add_shot", "slate_render_shot",
+          "check_clip", "motion_previs", "slate_new_film", "slate_add_scene", "slate_add_shot", "slate_render_shot", "night_shift",
           "suite_attach", "add_to_timeline", "export_timeline", "upload_file", "restyle_clip", "extend_clip", "fix_clip", "train_lora")
 LOCAL_RULES = (" Do only what the filmmaker asked, exactly: one call for each thing asked for, the number of pictures, takes or "
                "shots they asked for (one picture is count 1), the names and lengths they gave, word for word. Never add a picture, "
