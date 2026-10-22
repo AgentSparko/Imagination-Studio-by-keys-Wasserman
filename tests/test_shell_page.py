@@ -666,3 +666,22 @@ def test_the_library_search_box_asks_the_server_and_shows_captions_under_the_nam
       input.value = "dog kite"; await bar.run(); out.called = calls.some(c => c[0] === "/api/library/search?q=dog%20kite");""")
     assert out["ph"] == "Search what is in your clips…" and out["title"] == "A dog chases a kite." and out["none"] is None
     assert "Describe now" in out["btn"] and out["called"]
+
+
+def test_the_pages_inline_script_and_every_module_parse():
+    """index.html's own script and every static module must parse: a merge that leaves a stray line blanks the whole page."""
+    import re
+    html = (ROOT / "app/static/index.html").read_text()
+    scripts = [m.group(1) for m in re.finditer(r"<script(?![^>]*src=)[^>]*>(.*?)</script>", html, re.S)]
+    assert scripts, "index.html has inline scripts"
+    for n, body in enumerate(scripts):
+        path = ROOT / "app/static" / f".inline-{n}.check.js"
+        try:
+            path.write_text(body)
+            done = subprocess.run(["node", "--check", str(path)], capture_output=True, text=True)
+        finally:
+            path.unlink(missing_ok=True)
+        assert done.returncode == 0, done.stderr
+    for src in re.findall(r'<script src="([^"]+\.js)"', html):
+        done = subprocess.run(["node", "--check", str(ROOT / "app/static" / src)], capture_output=True, text=True)
+        assert done.returncode == 0, src + "\n" + done.stderr
