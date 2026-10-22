@@ -535,6 +535,16 @@ def cast_voices(lines: list[dict], sheets: list[dict | None], warnings: list[str
 DIALOGUE = ("h3", "drama3")  # who speaks a shot's lines: the video model from the words, or Drama 3's cast voices
 
 
+def film_dialogue(project: dict) -> str:
+    """The film's dialogue setting. A film made before it (no "dialogue" key) keeps what it had: its cast voices
+    (a voice sheet's Drama 3 take in use) voice the lines of shots on reference pictures, so it reads as drama3."""
+
+    film = project.get("tf") or {}
+    if "dialogue" not in film:
+        return "drama3" if any(((v or {}).get("drama") or {}).get("use") for v in project.get("voices") or []) else "h3"
+    return film["dialogue"] if film["dialogue"] in DIALOGUE else "h3"
+
+
 def stills_of(sheet: dict) -> list[str]:
     """A sheet's pinned pictures that are on disk, the reference first."""
 
@@ -680,7 +690,9 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
 
     references, subjects, pictured = [], [], []  # pictured: the cast ids of the references, <Subject 1> first
     definitions = []  # the bible's further pictures: a second look of someone pictured, the place
-    bible = film.get("bible") != "off" and start in ("text", "cast")  # the bible, used automatically (bible_pictures)
+    # the bible, used automatically (bible_pictures); a film made before the setting (no "bible" key) has it off, so
+    # it renders as it did: only a shot that opens on cast stills takes their reference stills
+    bible = film.get("bible", "off") != "off" and start in ("text", "cast")
     if start == "cast" or (bible and parts.get("ref2va")):
         references, subjects, pictured, definitions = bible_pictures(cast, place if bible else None, 2 if bible else 1)
         if not parts.get("ref2va"):
@@ -745,7 +757,7 @@ def compile_shot(project: dict, shot_id: str, chain: str | None = None) -> dict:
         sheets.append(sheet)
     # the dialogue: spoken by the video model from the words alone (h3), or with each speaker's Drama 3 voice as the
     # timbre reference (drama3), which only a shot on reference pictures can take
-    dialogue = extra.get("dialogue") if extra.get("dialogue") in DIALOGUE else film.get("dialogue") if film.get("dialogue") in DIALOGUE else "h3"
+    dialogue = extra.get("dialogue") if extra.get("dialogue") in DIALOGUE else film_dialogue(project)
     audios, notes = cast_voices(lines, sheets, warnings) if references and dialogue == "drama3" else ([], [])
     if lines and dialogue == "drama3" and not references:
         warnings.append("Dialogue voiced by Drama 3 needs a shot on reference pictures: here the video model speaks the lines from the words.")
