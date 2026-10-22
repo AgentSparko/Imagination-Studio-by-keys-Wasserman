@@ -2295,8 +2295,7 @@ def cancel(job_id: str) -> dict:
     return public(job)
 
 
-NOT_ON_COMFY = ("voice", "export", "soundtrack", "qa", "train")  # jobs a Spark runs without its ComfyUI server
-NOT_ON_COMFY = ("voice", "export", "soundtrack", "qa", "finish")  # jobs a Spark runs without its ComfyUI server
+NOT_ON_COMFY = ("voice", "export", "soundtrack", "qa", "train", "finish") + graphics.KINDS  # jobs a Spark runs without its ComfyUI server
 
 
 COMFY_PROMPT = re.compile(r"^\[tensorfold\] comfy prompt ([0-9a-f-]{8,64})$", re.M)

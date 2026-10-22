@@ -221,13 +221,13 @@ def test_on_a_spark_tesseract_runs_on_the_mac_over_ssh(tmp_path, monkeypatch):
     monkeypatch.setattr(finish, "remote_host", lambda: "")
     state = finish.ready(fresh=True)
     assert not state["ok"] and "Linux on ARM" in state["why"] and "Settings > Connections" in state["why"]
-    monkeypatch.setattr(finish, "remote_host", lambda: "me@mac.example.com:2222")
+    monkeypatch.setattr(finish, "remote_host", lambda: "me@example.com:2222")
     monkeypatch.setattr(finish, "probe_remote", lambda host: {"tsrct": "/Users/me/Library/Application Support/Tesseract/bin/tsrct",
         "version": "0.4.0", "conv": "/Users/me/.local/bin/tsrct-conv", "convversion": "0.3.0", "os": "Darwin arm64", "name": "Studio Mac"})
     state = finish.ready(fresh=True)
-    assert state["ok"] and state["where"] == "ssh:me@mac.example.com:2222" and state["machine"] == "Studio Mac"
-    assert state["converter"]["where"] == "ssh:me@mac.example.com:2222"
-    assert finish.ssh_of("me@mac.example.com:2222") == finish.SSH + ["-p", "2222", "me@mac.example.com", "--"]
+    assert state["ok"] and state["where"] == "ssh:me@example.com:2222" and state["machine"] == "Studio Mac"
+    assert state["converter"]["where"] == "ssh:me@example.com:2222"
+    assert finish.ssh_of("me@example.com:2222") == finish.SSH + ["-p", "2222", "me@example.com", "--"]
     # the runner over ssh: a folder of its own there, the inputs copied in, tsrct run inside it, the results copied back
     sent = []
 
@@ -236,12 +236,12 @@ def test_on_a_spark_tesseract_runs_on_the_mac_over_ssh(tmp_path, monkeypatch):
         out = "/Users/me/.imagination-studio/finish/j9.abc\n" if "mktemp" in argv[-1] else ""
         return subprocess.CompletedProcess(argv, 0, out, "")
     monkeypatch.setattr(finish.subprocess, "run", fake)
-    plan = {"id": "j9", "work": str(tmp_path), "host": "me@mac.example.com:2222", "tsrct": state["path"],
-            "ssh": finish.ssh_of("me@mac.example.com:2222"), "scp": finish.scp_of("me@mac.example.com:2222")}
+    plan = {"id": "j9", "work": str(tmp_path), "host": "me@example.com:2222", "tsrct": state["path"],
+            "ssh": finish.ssh_of("me@example.com:2222"), "scp": finish.scp_of("me@example.com:2222")}
     host = finish.Host(plan, print)
     host.send([str(tmp_path / "a clip.mp4"), str(tmp_path / "song.wav")])
     assert host.media(str(tmp_path / "a clip.mp4")) == "media/000-a-clip.mp4"
-    assert sent[1][:2] == ["scp", "-q"] and "-P" in sent[1] and sent[1][-1] == "me@mac.example.com:/Users/me/.imagination-studio/finish/j9.abc/media/000-a-clip.mp4"
+    assert sent[1][:2] == ["scp", "-q"] and "-P" in sent[1] and sent[1][-1] == "me@example.com:/Users/me/.imagination-studio/finish/j9.abc/media/000-a-clip.mp4"
     host.tsrct("project", "create", "--project", "cut.tsrct")
     line = sent[-1][-1]
     assert sent[-1][:3] == ["ssh", "-o", "BatchMode=yes"] and "cd /Users/me/.imagination-studio/finish/j9.abc && " in line
