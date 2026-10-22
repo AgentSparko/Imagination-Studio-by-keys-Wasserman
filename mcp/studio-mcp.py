@@ -110,6 +110,23 @@ TOOLS = [
      "inputSchema": text_schema({"song": {"type": "string", "description": "the song's job id"},
                                  "video": {"type": "string", "description": "Library path of the clip"},
                                  "music_db": {"type": "number", "description": "the song's level, -30 to 0 dB (default -10)"}}, ("song", "video"))},
+    {"name": "music_beats", "description": "A song's tempo and beats, measured on this machine: bpm, beats and downbeats (seconds), "
+                                           "bars, duration and confidence (0 to 1). The song is a Library path or a song's or voice line's id.",
+     "inputSchema": text_schema({"path": {"type": "string", "description": "Library path of the song, or its take id"}}, ("path",))},
+    {"name": "rough_cut", "description": "Cut a Slate film's best takes (or Library clips, for a trailer) to a song so every cut lands "
+                                         "on the beat; the export is queued with the song under it, and FCPXML, EDL and a zip for "
+                                         "DaVinci Resolve are written when it is done. Returns the project, the export job (or the "
+                                         "foley jobs first) and the tempo. Follow it with rough_cut_status.",
+     "inputSchema": text_schema({"film": {"type": "string", "description": "a Slate film's id (its best take of each shot, in order)"},
+                                 "clips": {"type": "array", "items": {"type": "string"}, "description": "Library paths of clips, instead of a film"},
+                                 "song": {"type": "string", "description": "Library path of the song, or a song's or voice line's id"},
+                                 "cut": {"type": "string", "enum": ["beat", "bar", "two-bars", "natural"], "description": "where cuts fall (default bar)"},
+                                 "order": {"type": "string", "enum": ["given", "shuffle", "energy"], "description": "clip order (default given; energy is calm to busy)"},
+                                 "foley": {"type": "boolean", "description": "make each clip's sound for its picture first (slower)"},
+                                 "title": {"type": "string"}}, ("song",))},
+    {"name": "rough_cut_status", "description": "Where a rough cut is: stage (foley, export, song, files, done, failed), its jobs, and "
+                                                "when done its video and files (fcpxml, edl, zip).",
+     "inputSchema": text_schema({"project": {"type": "string", "description": "the project id rough_cut returned"}}, ("project",))},
     {"name": "check_clip", "description": "Run the QA gate on a finished clip: its sound, the people's identity across the clip and its "
                                           "sharpness. Returns a job; its qa holds the report (passed and each check).",
      "inputSchema": text_schema({"path": {"type": "string", "description": "Library path of the clip"},
@@ -364,6 +381,17 @@ def run(name: str, args: dict):
     if name == "queue_soundtrack":
         body = {"take": str(args["song"]), "video": str(args["video"]), **({"music_db": args["music_db"]} if args.get("music_db") not in (None, "") else {})}
         return job_summary(call("POST", "/api/music/soundtrack", body))
+    if name == "music_beats":
+        return call("POST", "/api/music/beats", {"path": str(args["path"])})
+    if name == "rough_cut":
+        if bool(args.get("film")) == bool(args.get("clips")):
+            raise StudioError("give film (a Slate film's id) or clips (Library paths), one of the two")
+        body = {k: args[k] for k in ("film", "clips", "song", "cut", "order", "foley", "title") if args.get(k) not in (None, "", [])}
+        made = call("POST", "/api/roughcut", body)
+        return {k: made.get(k) for k in ("project", "job", "foley", "beats", "title", "dropped")} | {"cuts": len(made.get("timeline") or [])}
+    if name == "rough_cut_status":
+        said = call("GET", "/api/roughcut/" + urllib.request.quote(str(args["project"]), safe=""))
+        return {k: said.get(k) for k in ("project", "title", "stage", "error", "job", "foley", "video", "files", "notes")}
     if name == "check_clip":
         body = {k: args[k] for k in ("path", "prompt") if args.get(k) not in (None, "")}
         return job_summary(call("POST", "/api/qa", body))

@@ -2704,6 +2704,36 @@ the same ffmpeg step as on a Mac.
 Hugging Face page is gated, so accept the licence there first (the studio's Install guide signs you in to Hugging
 Face). MMAudio's weights are **CC-BY-NC 4.0: non-commercial**; its code is MIT. Do not redistribute either's weights.
 
+## A rough cut on the beat, straight to Resolve
+
+Slate's **Deliver** tab cuts a film to a song: pick the song (any song, voice line or sound in the Library), choose
+where the cuts fall, and press **Make a rough cut**. The studio takes the best take of every shot (circled, else
+good, else the newest that is not marked no-good) in scene and shot order, finds the song's beats, and lays the clips
+end to end so each cut lands on the music:
+
+- **Every beat** is a fast montage, **Every bar** gives each clip one bar, **Every two bars** longer, calmer shots.
+  A clip is trimmed around its middle to fill its slot; a clip shorter than its slot keeps its whole length and the
+  next cut lands back on the grid.
+- **Natural** lets each clip run about its own length and cuts it on the last beat it reaches.
+- **As filmed**, **Shuffled** or **Calm to busy** (the stillest clips first) sets the order.
+- **Foley for each clip** first makes each clip's sound for its picture (MMAudio, clips of 15 s or less; see Sound
+  effects and foley), and the cut uses those clips. Slower: one foley job a clip.
+
+The cut becomes an Editor project of its own and its export is queued with the song under it, lowered while someone
+speaks. When it is done the panel plays it and offers **Open in Resolve**: a zip with the FCPXML and every clip and
+the song in `media/` beside it (unzip it, then in DaVinci Resolve File > Import > Timeline), and the FCPXML and an EDL
+on their own. All three are kept in `~/ImaginationStudio/exports/`.
+
+In the **Library**, tick some clips and press **Trailer from these** for the same cut from a selection: shuffle it, or
+cut it calm to busy, for a different trailer from the same clips.
+
+The beats are found on this machine with numpy (no extra install): the tempo between 60 and 200 BPM, every beat, and
+the first beat of each bar (4/4). A song is measured once; the result is kept beside it as `<name>.beats.json`.
+Very fast songs may read at half tempo, which still cuts on the beat. Needs ffmpeg.
+`POST /api/music/beats {path}` gives {bpm, beats, downbeats, bars, duration, confidence};
+`POST /api/roughcut {film | clips, song, cut, order, foley, title, width, height}` makes the cut and
+`GET /api/roughcut/{project}` follows it. Agents have the same as `music_beats`, `rough_cut` and `rough_cut_status`.
+
 ## Motion Previs: a shot into control layers and a camera move
 
 **New to it? Start with the walkthrough:** [TUTORIAL.md, section 9](TUTORIAL.md#9-motion-previs-make-a-clip-that-moves-like-another)
