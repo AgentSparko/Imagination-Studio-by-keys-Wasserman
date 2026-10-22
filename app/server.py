@@ -2627,7 +2627,7 @@ def new_project(body: dict) -> dict:
     data = {"id": project_id, "name": body.get("name") or "Untitled", "preset": "small" if SPARK else "draft", "quality": "fh8" if SPARK else "standard",
             "segments": [], "timeline": []}
     file = project_file(project_id)
-    fresh = file.with_suffix(".json.new")
+    fresh = file.with_name(f"{file.name}.{uuid.uuid4().hex[:8]}.new")  # every writer its own temp: two saves never share one
     fresh.write_text(json.dumps(data, indent=1))
     fresh.replace(file)
     return data
@@ -2650,7 +2650,7 @@ def save_project(project_id: str, body: dict) -> dict:
     if not file.is_file():
         raise HTTPException(404, "no such project")
     body["id"] = project_id
-    fresh = file.with_suffix(".json.new")  # written beside it and swapped in: a reader never sees half a file
+    fresh = file.with_name(f"{file.name}.{uuid.uuid4().hex[:8]}.new")  # written beside it and swapped in: a reader never sees half a file, a second saver never steals this temp
     fresh.write_text(json.dumps(body, indent=1))
     fresh.replace(file)
     return body
