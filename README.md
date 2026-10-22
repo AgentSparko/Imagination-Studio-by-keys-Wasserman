@@ -144,6 +144,9 @@ cores · a 2x video decoder for 2K finals on the Mac
 
 ## New since 3.1.0 (on main; every install follows it by itself)
 
+- **Work on a clip you already have.** Under every clip in the Library: *Restyle* makes it again in a new look with
+  the same action and camera, *Extend* carries it on from its last frame and joins the two, *Fix* changes one thing
+  from a sentence. [Work on a clip you already have](#work-on-a-clip-you-already-have-restyle-extend-fix).
 - **Your phone and other devices, with an access key.** On the computer running the studio nothing is asked. A phone,
   a tablet or another computer signs in once: **Settings → Access key** shows a QR code that signs a phone in with one
   scan, the key itself to copy, and *Make a new key* for a lost phone. Step by step: TUTORIAL.md section 15, and
@@ -1949,6 +1952,26 @@ Memory: ComfyUI held 68 GB during the removal windows and up to 155 GB at an Ups
 programs on the same Mac loaded 70 to 140 GB beside them; on a Mac that runs nothing else beside the Studio there is
 room. The ComfyUI of a Mac has the kill-guard of `mac/comfy.sh` (16 GB available, `MAC_COMFY_GUARD_GB`), not the
 Spark's memory guard.
+
+### Work on a clip you already have: Restyle, Extend, Fix
+
+Every clip in the Library has three more buttons. Each opens a panel under the Library with the clip beside its
+settings and queues ordinary jobs, so the queue, the Sparks and the QA gate treat the results like any other clip.
+
+| Button | Does | Settings | Needs |
+|---|---|---|---|
+| **Restyle** | The clip made again in a new look. The clip goes in as a reference video, so its action, camera and timing stay and the picture is drawn again from your words. The new clip has the clip's size (the preset of that size, else the nearest size of your own). | the new look (required), seconds (2 to 15, default the whole clip), keep the clip's sound (default on), seed | MiniMax H3 Ref2VA |
+| **Extend** | The clip carried on: a new clip opens on its last frame, then the two are joined into one file, `renders/<job>-extended.mp4`, with the repeated frame at the join dropped. Over 15 seconds the new part is a long take (a chain of clips). | how much longer (5 to 30 s), what happens next (default: the clip's own prompt while the studio remembers it, else "continue the shot"), join (default on), seed | ffmpeg |
+| **Fix** | One thing changed from a sentence ("change the sky to a stormy sunset"), in two jobs. 1: the clip's first frame is redrawn by the picture model from the instruction. 2: the clip is made again from that frame as a reference picture and the clip as a reference video, so the motion is the clip's and the look the new frame's. | what to change (required), picture model (Qwen 2.1 Turbo or Full, FLUX3-K Fast or Full), keep the clip's sound, seed | MiniMax H3 Ref2VA and a picture model |
+
+A reference video is at most 15 seconds: a longer clip is cut to its first 15 for Restyle and Fix, and the panel says
+so. There is no mask in Fix: the whole first frame is redrawn from the instruction, so small details elsewhere can
+change too, and the new clip follows the redrawn frame's look wherever it differs from the clip. A clip without sound
+of its own gets sound made for it.
+
+Agents have the same three as `restyle_clip`, `extend_clip` and `fix_clip`; over the API they are
+`POST /api/revise {kind: "restyle" | "extend" | "fix", params}` (or `POST /api/jobs` with the same kind), which
+returns the first job and `revise`, the steps so far; `GET /api/revise/<id>` follows them.
 
 ### Clearing prompts and deleting clips
 
