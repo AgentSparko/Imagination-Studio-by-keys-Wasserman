@@ -703,6 +703,17 @@ def run(name: str, args: dict):
         source = Path(str(args["path"])).expanduser()
         if not source.is_file():
             raise StudioError(f"no file at {source}")
+        # the file is published to the Library, which every device of the studio can list and download: an agent
+        # must not be talked into posting the person's private files from here. What may be offered is a file of
+        # the studio folder itself (the app exports it to the tool servers it starts), and not a hidden one --
+        # a take, a picture a tool made, an upload; not a keyring reached by a path
+        home = Path(os.environ.get("STUDIO_HOME") or Path.home() / "ImaginationStudio").resolve()
+        try:
+            inside = source.resolve().relative_to(home)
+        except ValueError:
+            raise StudioError(f"{source} is not a file of the studio folder ({home}): make it one first, then upload")
+        if any(part.startswith(".") for part in inside.parts):
+            raise StudioError(f"{source} is hidden: hidden files of the studio folder are not published to the Library")
         boundary = uuid.uuid4().hex
         kind = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
         body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{source.name}\"\r\n"
