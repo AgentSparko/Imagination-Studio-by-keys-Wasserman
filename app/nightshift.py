@@ -208,6 +208,9 @@ def render_shot(film: str, shot_id: str, chain: str | None) -> tuple[str, str]:
     project = slate.get_project(film)  # logged into the film as it is after the job was queued
     _, shot, _ = slate.find_shot(project, shot_id)
     asked = job.get("params") or params
+    # a shift's earlier take of this shot whose render was lost (a restart) and left no clip is dropped: it is queued again here
+    shot["takes"] = [t for t in shot.get("takes") or [] if not (t.get("origin") == "Night shift" and not t.get("rating")
+                                                                 and not (HOME / str(t.get("mediaPath") or "")).is_file())]
     shot.setdefault("takes", []).insert(0, {
         "id": f"take-{int(time.time() * 1000):x}-{uuid.uuid4().hex[:5]}", "loggedAt": slate.now(), "model": "minimax-h3",
         "prompt": prompt, "rating": "", "notes": "", "origin": "Night shift", "mediaPath": output, "jobId": job["id"],

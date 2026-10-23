@@ -443,3 +443,15 @@ def test_the_push_routes(pushed):
     assert client.request("DELETE", "/api/push/subscribe", json={"endpoint": sub["endpoint"]}).json()["devices"] == 0
     refused = TestClient(server.app, base_url="http://studio.example.com").post("/api/push/subscribe", json=sub)
     assert refused.status_code == 403  # from this computer or its Tailscale address only
+
+
+def test_a_lost_render_leaves_no_empty_take_when_the_shot_is_queued_again(queue):
+    """A restart loses a shot's job: queued again, the shot keeps one take of the shift, not a clipless one as well."""
+    film = client.post("/api/slate/projects", json={"name": "Harbour at night"}).json()
+    film["scenes"] = [{"id": "scene-1", "name": "Night", "shots": [
+        {"id": "shot-1", "name": "Shot 01", "prompt": "# Subject: The harbour lights.", "spec": {"durationSec": 5}, "takes": []}]}]
+    client.put(f"/api/slate/projects/{film['id']}", json=film)
+    first, _ = nightshift.render_shot(film["id"], "shot-1", None)
+    again, _ = nightshift.render_shot(film["id"], "shot-1", None)
+    takes = client.get(f"/api/slate/projects/{film['id']}").json()["scenes"][0]["shots"][0]["takes"]
+    assert first != again and [t["jobId"] for t in takes if t.get("origin") == "Night shift"] == [again]
