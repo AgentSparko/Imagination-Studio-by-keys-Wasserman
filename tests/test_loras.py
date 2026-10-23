@@ -25,7 +25,7 @@ def fake(path: Path) -> str:
 
 def test_presets_are_well_formed():
     ids = [r["id"] for r in PRESETS]
-    assert len(ids) == len(set(ids)) == 22
+    assert len(ids) == len(set(ids)) == 23
     for r in PRESETS:
         assert r["name"] and r["author"] and r["page"] and r["licence"], r["id"]
         assert set(r["category"]) <= GROUPS and r["category"], r["id"]

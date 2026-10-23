@@ -477,9 +477,9 @@ with Qwen · Built with Fish Audio · MiniMax-Music3.
 The web app is **Imagination Studio by keys+Wasserman**, powered by TensorFold and built with Fish Audio Drama 3.
 Everything it did before is still here, arranged to be quicker to find and calmer to use.
 
-- **Creative Engines.** Story (the film board, Wasserman Slate, the First AD), Image (stills, scouts, edit a picture),
-  Video (clips with sound, long takes, references), Previs (Motion Previs, Ask your agent), Sound (Voice, Music) and
-  Edit (the Timeline and its exports). Each opens on a page of picture cards; a card opens the view that does it,
+- **Creative Engines.** Video (clips with sound, long takes, references), Image (stills, scouts, edit a picture), Sound
+  (Voice, Music, Foley), Story (the film board, Wasserman Slate, the First AD), Cast & Places, Director, Previs (Motion
+  Previs, Ask your agent), Motion graphics, Edit (the Timeline, Graphics, Finish and its exports) and Night shift. Each opens on a page of picture cards; a card opens the view that does it,
   already set up. In Create a small switch at the top says where the prompt goes: video with sound, an image, or an
   edit of a picture.
 - **Studio Vaults.** Library (every take), Looks (the LoRA hub as a library of styles, one card each), Suite (bring work
