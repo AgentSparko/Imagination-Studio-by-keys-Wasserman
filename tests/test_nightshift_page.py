@@ -23,7 +23,7 @@ def run(code: str) -> dict:
         (Path(scratch) / "harness.js").write_text(HARNESS)
         (Path(scratch) / "test.js").write_text(code)
         done = subprocess.run(["node", str(Path(scratch) / "harness.js"), str(Path(scratch) / "test.js"),
-                               *[str(ROOT / "app/static" / f) for f in FILES + ["nightshift.js"]]], capture_output=True, text=True, timeout=60)
+                               *[str(ROOT / "app/static" / f) for f in dict.fromkeys(FILES + ["nightshift.js"])]], capture_output=True, text=True, timeout=60)
     assert done.returncode == 0, done.stderr[-2000:]
     return json.loads(done.stdout.strip().splitlines()[-1])
 

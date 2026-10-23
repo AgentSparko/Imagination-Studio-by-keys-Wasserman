@@ -40,7 +40,7 @@ function drProgress(film, s) { const job = s.current && s.current.job && jobs.fi
     s.state === "done" ? el("div", { class: "row", style: "margin-top:8px" }, cut.mp4 ? el("a", { class: "fit", href: file(cut.mp4), target: "_blank" }, el("button", { class: "primary small", type: "button" }, "Watch the cut")) : null,
       cut.fcpxml ? el("a", { class: "fit", href: cut.fcpxml, download: "" }, "FCPXML") : null, cut.edl ? el("a", { class: "fit", href: cut.edl, download: "" }, "EDL") : null,
       cut.zip ? el("a", { class: "fit", href: cut.zip, download: "" }, "Package (ZIP)") : null,
-      el("button", { class: "small fit", onclick: () => { SL.view = "shots"; render(); } }, "Review takes"), el("span")) : null,
+      el("button", { class: "small fit", onclick: () => { if (tab !== "Production" && typeof slateMode === "function") return slateMode("slate", "shots"); SL.view = "shots"; render(); } }, "Review takes"), el("span")) : null,
     log.length ? slFold("director-log", "The log · " + log.length + " lines", () => el("div", { class: "receipt" }, log.slice().reverse().map(l => el("div", {}, (l.at || "").slice(11, 19) + "  " + l.text)))) : null); }
 function directorPanel(film) { if (!(film.id in DR.st)) { DR.st[film.id] = null; drLoad(film.id); }
   if (DR.songs === null) { DR.songs = []; api("/api/music/takes").then(list => { DR.songs = Array.isArray(list) ? list : []; render(); }).catch(() => {}); }

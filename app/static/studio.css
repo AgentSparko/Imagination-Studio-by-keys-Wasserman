@@ -621,6 +621,7 @@ nav#rooms button.on, #subtabs button.on { animation:tally-pill 7s ease-in-out in
   .brand, .sidefoot { display:none; }
   nav#rooms { flex-direction:row; overflow:hidden; padding:6px 6px; gap:2px; align-items:stretch; }
   nav#rooms .grp, nav#rooms button[data-group="vaults"], nav#rooms button[data-group="agent"] { display:none; }
+  nav#rooms button[data-fold="more"] { display:none; }  /* the engines' rooms of their own are in More */
   nav#rooms button, nav#rooms button.more { display:flex; flex:1 1 0; min-width:0; width:auto; height:48px; flex-direction:column; gap:4px; justify-content:center; padding:0; font-size:11.5px; }
   nav#rooms button .lbl { display:block; flex:none; }
   nav#rooms button.on::before { display:block; left:18px; right:18px; top:auto; bottom:-6px; width:auto; height:2px; }

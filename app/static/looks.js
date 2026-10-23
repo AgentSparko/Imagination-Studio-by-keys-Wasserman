@@ -133,13 +133,18 @@ function viewLooks() {
   const toInstall = shown.filter(r => !r.installed && r.status !== "unsupported" && !lookBusy(r));
   const search = el("input", { type: "search", class: "looksearch", placeholder: "Search looks: horror, anime, orbit…", value: HUB.q, "aria-label": "Search looks",
     oninput: e => { HUB.q = e.target.value; const at = e.target.selectionStart; render(); const again = document.querySelector(".looks input[type=search]"); if (again) { again.focus(); again.setSelectionRange(at, at); } } });
+  // two segments: the hub's looks, and Train a LoRA from Library clips and stills (train.js)
+  const training = !!LK.train && typeof trainPanel === "function";
+  const segs = typeof trainPanel === "function" ? el("div", { class: "seg-ctl", role: "tablist", "aria-label": "Looks or train a LoRA", style: "margin-bottom:14px" },
+    [[false, "Looks"], [true, "Train a LoRA"]].map(([on, label]) => el("button", { type: "button", role: "tab", "aria-selected": training === on ? "true" : "false", class: training === on ? "on" : "",
+      onclick: () => { if (training === on) return; LK.train = on; render(); } }, label))) : null;
+  const head = vaultHead("looks", "Looks", "Styles for pictures and clips, one LoRA a card.",
+    training ? null : el("span", { class: "chips" }, el("button", { type: "button", class: "small" + (LK.open ? " on" : ""), onclick: () => { LK.open = !LK.open; render(); } }, "+ Add your own")));
+  if (training) return el("div", { class: "looks" }, head, segs, trainPanel());
   return el("div", { class: "looks" },
-    vaultHead("looks", "Looks", "Styles for pictures and clips, one LoRA a card.",
-      el("span", { class: "chips" }, el("button", { type: "button", class: "small" + (LK.open ? " on" : ""), onclick: () => { LK.open = !LK.open; render(); } }, "+ Add your own"),
-        typeof trainPanel === "function" ? el("button", { type: "button", class: "small" + (LK.train ? " on" : ""), onclick: () => { LK.train = !LK.train; render(); } }, "Train your own") : null)),
+    head, segs,
     el("div", { class: "note looktally" }, LORAS.length ? lookTally() : "Loading the hub…"),
     LK.open ? lookForm() : null,
-    LK.train && typeof trainPanel === "function" ? trainPanel() : null,  // a LoRA trained here from Library clips and stills (train.js)
     el("div", { class: "looksbar" },
       el("div", { class: "seg-ctl" }, tabs.map(g => el("button", { type: "button", class: HUB.tab === g.id ? "on" : "", onclick: () => { HUB.tab = g.id; render(); } }, g.name))),
       search,

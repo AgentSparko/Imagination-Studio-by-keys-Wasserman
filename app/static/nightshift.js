@@ -1,6 +1,6 @@
 "use strict";
 // The night shift (app/nightshift.py): a batch of clips rendered overnight, and dailies to wake up to: a reel, the
-// Circle Take package and notes. nightPanel() is the panel on Home; nightFromFilm(film) is Slate's "Render the rest
+// Circle Take package and notes. nightPanel() is the panel on Home and in the Night shift room (rooms.js); nightFromFilm(film) is Slate's "Render the rest
 // tonight"; nightNotify() is Settings → Notifications (app/push.py, static/sw.js).
 const NS = { list: null, films: null, film: "", start: "idle", at: "23:00", busy: false, timer: null, notes: {}, open: null };
 const NS_STARTS = { idle: "When idle", at: "At 23:00", now: "Now" };
@@ -9,7 +9,7 @@ const nsLive = () => (NS.list || []).some(p => ["running", "planned", "morning"]
 async function nsLoad() { try { const got = await api("/api/nightshift"); NS.list = Array.isArray(got) ? got : NS.list || []; } catch { NS.list = NS.list || []; }
   if (NS.films === null) { try { const got = await api("/api/slate/projects"); NS.films = Array.isArray(got) ? got : []; } catch { NS.films = []; } }
   render(); }
-function nsWatch() { if (NS.timer) return; NS.timer = setInterval(async () => { if (tab !== "Home" || !nsLive()) { clearInterval(NS.timer); NS.timer = null; return; }
+function nsWatch() { if (NS.timer) return; NS.timer = setInterval(async () => { if (!["Home", "Night shift"].includes(tab) || !nsLive()) { clearInterval(NS.timer); NS.timer = null; return; }
   const before = JSON.stringify(NS.list); try { const got = await api("/api/nightshift"); if (Array.isArray(got)) NS.list = got; } catch {} if (JSON.stringify(NS.list) !== before) render(); }, 10000);
   if (NS.timer && NS.timer.unref) NS.timer.unref(); }
 // the start a plan is given: "idle", "now", or the time set beside "At"
@@ -69,7 +69,8 @@ function nightPanel() { if (NS.list === null) nsLoad(); else if (nsLive()) nsWat
 function nightFromFilm(film) {
   return el("button", { class: "fit", disabled: NS.busy, title: "Every shot with a prompt and no good take is rendered overnight, then a reel, the dailies and notes are made",
     onclick: async () => { if (typeof slTimer !== "undefined" && typeof SL !== "undefined" && SL.p && SL.p.id === film.id) { clearTimeout(slTimer); try { await slPut(SL.p); } catch (e) { return toast(e.message); } }
-      const p = await nsPlan({ film: film.id, start: NS.start === "now" ? "idle" : nsStart() }); if (p && typeof go === "function" && confirm("Planned " + nsCount(p.count, "shot") + " for tonight. Open the night shift on Home?")) go("Home"); } },
+      const p = await nsPlan({ film: film.id, start: NS.start === "now" ? "idle" : nsStart() }); if (typeof tab !== "undefined" && tab === "Night shift") return;
+      if (p && typeof go === "function" && confirm("Planned " + nsCount(p.count, "shot") + " for tonight. Open the Night shift?")) go(typeof TABS !== "undefined" && TABS.includes("Night shift") ? "Night shift" : "Home"); } },
     "Render the rest tonight"); }
 
 /* ---------- Settings → Notifications ---------- */

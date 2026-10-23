@@ -168,6 +168,12 @@ cores · a 2x video decoder for 2K finals on the Mac
 parts that need a download (motion graphics, Finish, training) are added by the installer's flags, listed under Install.
 
 
+Every new part has its place in the sidebar. Under **Creative Engines**: **Cast & Places** (the characters' and
+locations' sheets, with the bible and dialogue choices on top), **Director**, **Motion graphics** and **Night shift**,
+each with a film picker that starts on the film open in Production, else the newest. **Edit** gains a **Finish** tab,
+Production (Slate) a **Rough cut** tab beside Deliver, and **Looks** a **Train a LoRA** tab beside its looks. Each is
+also one ⌘K away. On a phone the bar keeps the main engines; the new rooms are under **More**.
+
 Making the film, in the order you would use it:
 
 - **The bible and dialogue.** Slate's bible keeps faces, places and voices the same in every shot, and a film's lines can
@@ -2398,7 +2404,7 @@ says so otherwise. A shot can choose otherwise next to its spoken lines.
 
 ##### The Director: from a logline to a checked cut
 
-At the bottom of the First AD tab, *Direct the whole film* takes
+In the **Director** room of the sidebar (or at the bottom of the First AD tab), *Direct the whole film* takes
 the film's logline and a few numbers (scenes, shots a scene, seconds a shot, quality, how many retakes a failed take
 gets, whether to cut it and a song from the Music tab under the cut) and runs the whole production while you watch.
 The film's brain writes what the film lacks: characters with their voices and places when it has none, then the
@@ -2892,7 +2898,7 @@ adapter is made from MiniMax H3. The LoRA you train is yours; what it may be use
 
 ## A rough cut on the beat, straight to Resolve
 
-Slate's **Deliver** tab cuts a film to a song: pick the song (any song, voice line or sound in the Library), choose
+Slate's **Rough cut** tab (also at the foot of **Deliver**) cuts a film to a song: pick the song (any song, voice line or sound in the Library), choose
 where the cuts fall, and press **Make a rough cut**. The studio takes the best take of every shot (circled, else
 good, else the newest that is not marked no-good) in scene and shot order, finds the song's beats, and lays the clips
 end to end so each cut lands on the music:
@@ -2925,7 +2931,7 @@ flag; it needs ffmpeg.
 
 Plan a batch before bed, and wake up to dailies on your phone.
 
-- **Plan it.** On **Home**, the *Night shift* panel: pick a film from Production and *Plan the shots without a good take*
+- **Plan it.** In the **Night shift** room of the sidebar (also a panel on **Home**): pick a film from Production and *Plan the shots without a good take*
   (every shot with a prompt and no take that is good or circled), or in the film's Slate, *Render the rest tonight*.
   An agent can do the same with the `night_shift` tool.
 - **When it starts:** *When idle* (once the queue has had nothing in it for two minutes), *At 23:00* (any time you
@@ -2962,7 +2968,7 @@ a narration take laid from the first shot, and the music under all of it, faded 
 or the narration has sound. A title, when you give one, opens the film as a scene of its own: a card with the title, a
 line and the subtitle, fading and rising in.
 
-The Finish panel sits on the Timeline; in the Library, tick clips and press **Finish these** to finish them as one
+The Finish panel sits on the Timeline and on Edit → **Finish**; in the Library, tick clips and press **Finish these** to finish them as one
 cut, in the order you ticked them. Choose the **Mix** (Dialogue first: the music at -18 dB and 12 dB lower under
 speech; Balanced: -10 dB and 12 dB lower; Music forward: -5 dB and 6 dB lower), the size (720p, 1080p or 4K) and the
 frames per second, then **Finish the cut**. Captions, when ticked, are the words a speech-to-text model on this
@@ -2999,7 +3005,7 @@ Tesseract Converter is MIT. Instrument Serif and Geist are under the SIL Open Fo
 
 ## Motion graphics: titles, captions, slideshows and music videos
 
-Edit → **Graphics** makes motion graphics from what is already in the Library and renders them to MP4 on this machine,
+**Motion graphics** in the sidebar (also Edit → **Graphics**) makes motion graphics from what is already in the Library and renders them to MP4 on this machine,
 with [HyperFrames](https://github.com/heygen-com/hyperframes) (open source, Apache-2.0) and GSAP. Pick what to make,
 fill in the words, pick the clips, pictures, voice line or song, choose a size and press **Make it**:
 

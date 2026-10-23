@@ -10,12 +10,13 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-FILES = ["shell.js", "captions.js", "home.js", "engines.js", "machine.js", "agent.js", "suite.js", "suitelinks.js", "updates.js", "settings.js", "sound.js"]
+FILES = ["shell.js", "captions.js", "home.js", "engines.js", "machine.js", "agent.js", "suite.js", "suitelinks.js", "updates.js", "settings.js", "sound.js",
+         "slate.js", "director.js", "nightshift.js", "looks.js", "train.js", "finish.js", "graphics.js", "roughcut.js", "rooms.js"]
 HARNESS = r"""
 const vm = require("vm"), fs = require("fs");
 globalThis.S = { platform: "spark", platform_label: "DGX SPARK · NVIDIA GB10 · H3-CUDA", presets: { small: { size: [864, 480] }, p720: { size: [1280, 720] }, sharp: { size: [1376, 768] } },
   sharp: { seed: 42, seconds: [8, 10], quality: "fh8" }, long: { 30: "30 s" }, ref2va: true, ref_media: true, reference_total: 12, sparks: { supported: true } };
-globalThis.TABS = ["Home", "Story", "Image", "Video", "Previs", "Sound", "Edit", "Create", "Production", "Import", "Motion Previs", "Agent", "Voice", "Music", "Foley", "Editor", "Library", "Looks", "Machine", "Sparks", "Brains", "Updates", "Tutorial", "Nodes", "Settings"];
+globalThis.TABS = ["Home", "Story", "Image", "Video", "Previs", "Sound", "Edit", "Create", "Production", "Import", "Motion Previs", "Agent", "Voice", "Music", "Foley", "Editor", "Graphics", "Finish", "Cast & Places", "Director", "Motion graphics", "Night shift", "Library", "Looks", "Machine", "Sparks", "Brains", "Updates", "Tutorial", "Nodes", "Settings"];
 globalThis.tab = "Home"; globalThis.renders = 0; globalThis.render = () => { renders++; };
 globalThis.toasts = []; globalThis.toast = t => toasts.push(String(t));
 globalThis.calls = []; globalThis.answers = {};
@@ -81,13 +82,13 @@ def test_every_tab_has_one_room_and_old_links_still_work():
       go("Voice"); out.voice = tab; goRoom("edit"); out.edit = tab; goRoom("library"); out.lib = tab; go("Nowhere"); out.still = tab; out.names = TABS.map(t => TAB_NAMES[t] || "");
       C.goes = "video"; out.createVideo = roomOf("Create").id; C.goes = "edit"; out.createEdit = roomOf("Create").id; C.goes = "image"; out.createImage = roomOf("Create").id;
       out.keys = ROOMS.map(r => r.key);""")
-    assert out["rooms"] == ["Story", "Image", "Video", "Previs", "Sound", "Edit", "Agent", "Library", "Looks", "Wasserman's Filmmaker Suite", "Nodes", "Machine", "Learn", "Settings"]
-    assert out["groups"] == ["Creative Engines:Story,Image,Video,Previs,Sound,Edit", ":Agent", "Studio Vaults:Library,Looks,Wasserman's Filmmaker Suite,Nodes,Machine,Learn,Settings"]
+    assert out["rooms"] == ["Story", "Cast & Places", "Director", "Image", "Video", "Previs", "Sound", "Edit", "Motion graphics", "Night shift", "Agent", "Library", "Looks", "Wasserman's Filmmaker Suite", "Nodes", "Machine", "Learn", "Settings"]
+    assert out["groups"] == ["Creative Engines:Story,Cast & Places,Director,Image,Video,Previs,Sound,Edit,Motion graphics,Night shift", ":Agent", "Studio Vaults:Library,Looks,Wasserman's Filmmaker Suite,Nodes,Machine,Learn,Settings"]
     assert out["homeless"] == ["Home", "Create"]  # home sits outside the rooms; Create is in Image and in Video
     assert (out["createVideo"], out["createEdit"], out["createImage"]) == ("video", "image", "image")
     assert out["voice"] == "Voice" and out["edit"] == "Edit" and out["lib"] == "Library" and out["still"] == "Library"
     assert all(out["names"])
-    assert out["keys"] == ["1", "2", "3", "4", "5", "6", "", "7", "8", "9", "", "0", "", ","]  # ⌥1 to ⌥9, ⌥0 and ⌥, for Settings
+    assert out["keys"] == ["1", "", "", "2", "3", "4", "5", "6", "", "", "", "7", "8", "9", "", "0", "", ","]  # ⌥1 to ⌥9, ⌥0 and ⌥, for Settings
 
 
 def test_the_sidebar_shows_both_groups_and_marks_the_room():
@@ -682,3 +683,128 @@ def test_the_pages_inline_script_and_every_module_parse(tmp_path):
     for src in re.findall(r'<script src="([^"]+\.js)"', html):
         done = subprocess.run(["node", "--check", str(ROOT / "app/static" / src)], capture_output=True, text=True)
         assert done.returncode == 0, src + "\n" + done.stderr
+
+
+# the rooms of their own (rooms.js): every new part of the studio is named in the sidebar and opens its own page
+ROOM_STANDINS = """globalThis.bind = (obj, key, node) => { node.attrs.value = obj[key] ?? ""; return node; };
+  globalThis.select = (obj, key, options) => el("select", { value: obj[key] }, Object.values(options));
+  globalThis.choice = (obj, key, options) => el("div", { class: "choice" }, Object.values(options).flat());
+  globalThis.jobCard = job => el("div", {}, "job " + job.id); globalThis.confirm = () => false; S.qualities = { fh8: "FastH3" }; S.durations = { 8: 192 };
+  const settle = () => new Promise(r => setTimeout(r, 0));
+  const FILM = (id, name) => ({ id, name, logline: "", world: "", defaults: { aspectRatio: "16:9", fps: 24, durationSec: 8, brain: "claude" }, scenes: [],
+    characters: [{ id: "c1", name: "Mara", age: "40" }], artDept: [], locations: [{ id: "l1", name: "Harbour wall" }], lookbook: [], music: [], voices: [], copilot: [] });
+  answers["/api/slate/projects"] = [{ id: "f-old", name: "Old film", updatedAt: "2026-01-01" }, { id: "f-new", name: "Night Bus", updatedAt: "2026-10-01" }];
+  answers["/api/slate/projects/f-new"] = FILM("f-new", "Night Bus"); answers["/api/slate/projects/f-old"] = FILM("f-old", "Old film");
+  answers["/api/nightshift"] = []; answers["/api/slate/direct/f-new"] = { state: "none" };"""
+NEW_ROOMS = [("cast", "Cast & Places", "Cast & Places", "viewCast"), ("director", "Director", "Director", "viewDirector"),
+             ("graphics", "Motion graphics", "Motion graphics", "viewGraphics"), ("night", "Night shift", "Night shift", "viewNight")]
+
+
+def test_each_new_room_is_named_in_the_sidebar_and_opens_its_own_page():
+    out = run("""for (const k of ["#rooms", "#roomname", "#subtabs"]) NODES[k] = el("div", {});
+      renderShell(); const nav = NODES["#rooms"].kids, btn = id => nav.find(n => n.attrs && n.attrs["data-room"] === id);
+      out.rooms = {}; for (const id of ["cast", "director", "graphics", "night"]) { const b = btn(id); b.attrs.onclick(); renderShell();
+        out.rooms[id] = { label: text(b), group: b.attrs["data-group"], fold: b.attrs["data-fold"], tab, room: NODES["#roomname"].textContent,
+          lit: NODES["#rooms"].kids.filter(n => n.attrs && n.attrs.class === "on").map(n => n.attrs["data-room"]), icon: ICON[id] !== ICON.home && !!ICON[id] }; }
+      out.engines = nav.filter(n => n.attrs && n.attrs["data-group"] === "engines").map(n => n.attrs["data-room"]);
+      go("Editor"); renderShell(); out.editTabs = text(NODES["#subtabs"]);
+      go("Finish"); renderShell(); out.finishRoom = NODES["#roomname"].textContent; out.train = !!ICON.train;""")
+    for room, label, tab, _ in NEW_ROOMS:
+        got = out["rooms"][room]
+        assert label in got["label"] and got["group"] == "engines" and got["fold"] == "more", got
+        assert got["tab"] == tab and got["room"] == label and got["lit"] == [room] and got["icon"], got
+    assert out["engines"] == ["story", "cast", "director", "image", "video", "previs", "sound", "edit", "graphics", "night"]
+    assert "Graphics" in out["editTabs"] and "Finish" in out["editTabs"] and out["finishRoom"] == "Edit" and out["train"]
+
+
+def test_the_page_routes_each_new_tab_to_its_view():
+    """index.html's view map: each new tab opens the view of its room, and rooms.js is loaded."""
+    html = (ROOT / "app/static/index.html").read_text()
+    assert '<script src="rooms.js"></script>' in html
+    for _, _, tab, view in NEW_ROOMS + [("edit", "Finish", "Finish", "viewFinish")]:
+        key = '"' + tab + '"' if " " in tab or "&" in tab else tab
+        assert f"{key}: {view}" in html, tab
+        assert f'"{tab}"' in html.split("const TABS = ")[1].split("\n")[0], tab
+
+
+def test_cast_and_places_opens_the_newest_film_with_its_sheets_and_the_bible_choices():
+    out = run(ROOM_STANDINS + """
+      go("Cast & Places"); viewCast(); await settle(); out.loading = text(viewCast()); await settle(); await settle(); let page = viewCast(); out.page = text(page); out.film = SL.p && SL.p.id;
+      out.picker = find(page, n => n.tag === "select" && n.attrs["aria-label"] === "Film").kids.filter(o => o.attrs.selected).map(text);
+      button(page, "Locations").attrs.onclick(); out.places = text(viewCast());
+      await find(viewCast(), n => n.tag === "select" && n.attrs["aria-label"] === "Film").attrs.onchange({ target: { value: "f-old" } }); out.switched = SL.p.id;
+      button(viewCast(), "Open the film in Production").attrs.onclick(); out.prod = [tab, SL.view, SL.mode]; clearTimeout(slTimer);""")
+    assert "Loading" in out["loading"] or "Opening the film" in out["loading"]
+    assert out["film"] == "f-new" and out["picker"] == ["Night Bus"]  # no film open: the newest
+    for words in ("Cast & Places", "Faces, places and voices", "The bible in shots", "Dialogue", "Casting", "Mara", "+ New character"):
+        assert words in out["page"], words
+    assert "Harbour wall" in out["places"] and "+ New location" in out["places"]
+    assert out["switched"] == "f-old" and out["prod"] == ["Production", "studios", "slate"]
+
+
+def test_the_director_room_shows_the_panel_for_the_open_film_and_links_to_the_takes():
+    out = run(ROOM_STANDINS + """
+      SL.p = FILM("f-new", "Night Bus"); go("Director"); viewDirector(); await settle(); const page = viewDirector(); out.page = text(page);
+      DR.st["f-old"] = { running: true, state: "rendering" }; RM.films = answers["/api/slate/projects"]; out.live = text(viewDirector());
+      button(page, "See the takes in Production").attrs.onclick(); out.prod = [tab, SL.view]; clearTimeout(slTimer); clearTimeout(DR.poll);""")
+    assert "Direct the whole film" in out["page"] and "Direct it" in out["page"]
+    assert "The Director is running on Old film" in out["live"] and "Show that run" in out["live"]
+    assert out["prod"] == ["Production", "deliver"]
+
+
+def test_the_night_shift_room_plans_the_picked_film_and_keeps_the_home_panel():
+    out = run(ROOM_STANDINS + """
+      SL.p = FILM("f-new", "Night Bus"); go("Night shift"); viewNight(); await settle(); const page = viewNight(); out.page = text(page); out.nsFilm = NS.film;
+      answers["/api/nightshift"] = { id: "s1", count: 2, state: "planned", start: "idle" }; await button(page, "Render the rest tonight").attrs.onclick();
+      out.sent = calls.filter(c => c[0] === "/api/nightshift" && c[1]).slice(-1)[0][1]; out.stay = tab; out.home = typeof nightPanel === "function";""")
+    assert "Night shift" in out["page"] and "Render the rest tonight" in out["page"] and "Night Bus" in out["page"] and "No night shift planned." in out["page"]
+    assert out["nsFilm"] == "f-new" and out["sent"]["film"] == "f-new" and out["stay"] == "Night shift" and out["home"]
+
+
+def test_looks_has_a_train_a_lora_segment_and_the_tally_stays_on_looks():
+    out = run(ROOM_STANDINS + """
+      globalThis.LORAS = []; globalThis.HUB = { groups: [], tab: "all", q: "", mine: false };
+      globalThis.loadLoras = async () => {}; globalThis.hubWatch = () => {}; globalThis.sizeText = n => n + " B";
+      answers["/api/train"] = { ready: true, spark: true, missing: [], datasets: [], runs: [], limits: { items: 8 }, sizes: { standard: { label: "928x512", per_step: 110 } } };
+      go("Looks"); let page = viewLooks(); const seg = find(page, n => n.attrs && n.attrs.class === "seg-ctl" && n.attrs.role === "tablist");
+      out.segs = seg.kids.map(text); out.on = seg.kids.filter(n => n.attrs.class === "on").map(text); out.looks = text(page);
+      out.tally = !!find(page, n => n.attrs && /looktally/.test(n.attrs.class || "")); out.search = !!find(page, n => n.attrs && n.attrs["aria-label"] === "Search looks");
+      button(seg, "Train a LoRA").attrs.onclick(); viewLooks(); await settle(); page = viewLooks(); out.train = text(page);
+      out.trainOn = find(page, n => n.attrs && n.attrs.role === "tablist").kids.filter(n => n.attrs.class === "on").map(text);
+      out.trainTally = !!find(page, n => n.attrs && /looktally/.test(n.attrs.class || "")); out.trainSearch = !!find(page, n => n.attrs && n.attrs["aria-label"] === "Search looks");
+      button(page, "Looks").attrs.onclick(); out.back = LK.train;""")
+    assert out["segs"] == ["Looks", "Train a LoRA"] and out["on"] == ["Looks"] and out["tally"] and out["search"]
+    assert "Train a LoRA" in out["train"] and "Start training" in out["train"] and out["trainOn"] == ["Train a LoRA"]
+    assert not out["trainTally"] and not out["trainSearch"] and out["back"] is False
+
+
+def test_production_has_a_rough_cut_tab_and_edit_a_finish_tab():
+    out = run(ROOM_STANDINS + """
+      SL.data = { plans: [], categories: [], profiles: [] }; SL.brain = { claude: true }; SL.p = FILM("f-new", "Night Bus");
+      let page = viewSlate(null); out.tabs = text(find(page, n => n.attrs && n.attrs.class === "steps"));
+      button(find(page, n => n.attrs && n.attrs.class === "steps"), "Rough cut").attrs.onclick(); out.view = SL.view; out.rough = text(viewSlate(null));
+      SL.p.scenes = [{ id: "s1", name: "Scene 1", synopsis: "", shots: [] }]; SL.view = "deliver"; out.deliver = text(viewSlate(null));
+      project = { id: "p1", name: "Timeline", timeline: [] }; out.finish = text(viewFinish()); out.graphics = text(viewGraphics()); clearTimeout(slTimer);""")
+    assert out["tabs"].index("Deliver") < out["tabs"].index("Rough cut") and out["view"] == "rough"
+    assert "A rough cut on the beat" in out["rough"] and "Make a rough cut" in out["rough"]
+    assert "A rough cut on the beat" in out["deliver"]  # Deliver keeps it too
+    assert "Finish the cut" in out["finish"] and "Motion graphics" in out["graphics"]
+
+
+def test_the_palette_and_the_more_sheet_name_every_new_room():
+    out = run(ROOM_STANDINS + """for (const k of ["#rooms", "#roomname", "#subtabs"]) NODES[k] = el("div", {});
+      const acts = palActions(); out.labels = acts.map(a => a.label);
+      const run = label => { acts.find(a => a.label === label).run(); return tab; };
+      out.go = ["Cast & Places", "Director", "Night shift", "Motion graphics", "Finish"].map(run);
+      run("Train a LoRA"); out.train = [tab, LK.train]; SL.p = FILM("f-new", "Night Bus"); run("Rough cut"); out.rough = [tab, SL.view];
+      let sheet = null; document.body.append = n => { sheet = n; };
+      go("Director"); renderShell(); const more = NODES["#rooms"].kids.slice(-1)[0]; out.moreOn = more.attrs.class; more.attrs.onclick(); out.sheet = text(sheet);
+      button(sheet, "Night shift").attrs.onclick(); out.fromSheet = tab; clearTimeout(slTimer);""")
+    for label in ("Cast & Places", "Director", "Night shift", "Motion graphics", "Finish", "Rough cut", "Train a LoRA"):
+        assert label in out["labels"], label
+    assert out["go"] == ["Cast & Places", "Director", "Night shift", "Motion graphics", "Finish"]
+    assert out["train"] == ["Looks", True] and out["rough"] == ["Production", "rough"]
+    assert out["moreOn"] == "more on"  # a room the phone bar folds away: More is lit
+    for words in ("Creative Engines", "Cast & Places", "Director", "Motion graphics", "Night shift", "Studio Vaults"):
+        assert words in out["sheet"], words
+    assert out["fromSheet"] == "Night shift"
