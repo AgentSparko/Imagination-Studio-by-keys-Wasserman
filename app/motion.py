@@ -60,6 +60,8 @@ SUGGESTED = {"camera-only": ["ai-depth", "depth", "reference"], "actor-motion": 
 PACK_FILES = ({name for name in worker.BUNDLE_FILES.values() if name}
               | {"bundle_manifest.json", "analysis_manifest.json", "preview.jpg", "pose_high_contrast.webm", "openpose_pose.webm", "ai_depth.webm"})
 ZIP_LIMIT = 2 * 1024 ** 3
+# the analysis queue for other parts of the studio (revise.py: Restyle and Fix), filled by attach: submit, job, pack, able
+API: dict = {}
 
 
 def inside(path: str | Path) -> Path:
@@ -756,4 +758,5 @@ def attach(home: Path, pack: Path, spark: bool) -> APIRouter:
         (root / "handoff.json").unlink(missing_ok=True)
         return {"reference": None}
 
+    API.update(submit=submit, job=get_job, pack=get_pack, able=able)
     return router

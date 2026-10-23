@@ -32,7 +32,13 @@ Do these in order on the person's Mac, and report each result plainly.
 2. `brew install python@3.11 uv ffmpeg` (install Homebrew first only with the person's agreement).
 3. Tell the person the download sizes and licenses before starting: Qwen-Image-2.1 33 GB (Qwen Research License,
    non-commercial), MiniMax H3 text encoder and decoders 72 GB (MiniMax H3 Community License, territory limits; 134 GB with `--turbo`), FastH3 65 GB (same license).
-4. `bash oneshot-setup.sh --app` (add `--turbo` only if they ask for MiniMax H3 Turbo and have 128 GB; `--app` does step 5 with a Desktop shortcut). It resumes if interrupted. It ends by
+   The install also adds motion graphics (HyperFrames, Apache-2.0, about 400 MB) and Finish (about 150 MB: Tesseract is
+   free under Mirage's own terms, not open source, and leaves out commercial use by a business with 1 M USD or more a
+   year without Mirage's agreement; its converter is MIT). `--no-finish` or `--no-graphics` leaves one out if the person
+   asks. `--all` adds the big optional models; training a LoRA is DGX Spark only.
+4. `bash oneshot-setup.sh --yes --app` (in a terminal with no other flag the install first shows a checklist of parts,
+   everything ticked; `--yes` or any flag leaves it out, and so does a run that is not in a terminal. The list lives in
+   `scripts/install-checklist.sh`; `STUDIO_CHECKLIST_INPUT` and `STUDIO_CHECKLIST_DRY=1` drive it in tests. Add `--turbo` only if they ask for MiniMax H3 Turbo and have 128 GB; `--app` does step 5 with a Desktop shortcut). It resumes if interrupted. It ends by
    rendering `outputs/test.mp4`; confirm that file exists and plays.
 5. `bash scripts/make-app.sh` builds `~/Applications/Wasserman Slate AI Studio.app`. If the models are not in the default
    folders, export `QWEN_MODEL_DIR`, `H3_MODEL_DIR`, `FASTH3_DIR` first: the app records them. Do not set

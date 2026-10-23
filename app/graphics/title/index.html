@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<title>Title</title>
+<!-- Imagination Studio motion graphics: a film title. The studio writes data.js (window.STUDIO_DATA, the same object as
+     data.json) and the root's size and length; everything below reads them. -->
+<script src="gsap.min.js"></script>
+<script src="data.js"></script>
+<style>
+  @font-face { font-family: "Instrument Serif"; src: url("fonts/instrument-serif.woff2") format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Geist"; src: url("fonts/geist.woff2") format("woff2"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { margin: 0; overflow: hidden; background: #050506; }
+  #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: #050506; color: #efe9df; --u: 1px; }
+  .bgwrap { position: absolute; inset: 0; }
+  .bgwrap video, .bgwrap img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .shade { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 55%, rgba(5, 5, 6, 0.35) 0%, rgba(5, 5, 6, 0.92) 78%); }
+  .grain { position: absolute; inset: -2%; width: 104%; height: 104%; opacity: 0.09; mix-blend-mode: screen; }
+  .stage { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 0 calc(var(--u) * 160); text-align: center; }
+  #title { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: calc(var(--u) * 132); line-height: 1.02;
+    letter-spacing: 0.01em; max-width: calc(var(--u) * 1560); display: block; }
+  #rule { display: block; width: calc(var(--u) * 220); height: calc(var(--u) * 2); margin: calc(var(--u) * 40) auto calc(var(--u) * 34);
+    background: #c9a86a; transform-origin: 50% 50%; }
+  #subtitle { font-family: "Geist", system-ui, sans-serif; font-weight: 400; font-size: calc(var(--u) * 30); letter-spacing: 0.42em;
+    text-transform: uppercase; color: #b9b2a6; max-width: calc(var(--u) * 1400); display: block; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="6" data-width="1920" data-height="1080" data-fps="24">
+  <!-- studio:media -->
+  <div class="shade"></div>
+  <svg class="grain" id="grain" aria-hidden="true"><filter id="g"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" /></filter><rect width="100%" height="100%" filter="url(#g)" /></svg>
+  <section class="stage" id="card">
+    <div id="lift">
+      <h1 id="title"></h1>
+      <span id="rule"></span>
+      <p id="subtitle"></p>
+    </div>
+  </section>
+</div>
+<script>
+  const D = window.STUDIO_DATA || {}, root = document.getElementById("root");
+  const dur = Math.min(Number(D.hold) || Number(D.duration) || 6, Number(D.duration) || 6), u = Math.min(Number(D.width) || 1920, (Number(D.height) || 1080) * 16 / 9) / 1920;
+  root.style.setProperty("--u", u + "px");
+  document.getElementById("title").textContent = D.title || "";
+  document.getElementById("subtitle").textContent = D.subtitle || "";
+  if (!D.subtitle) document.getElementById("rule").style.display = "none";
+  const tl = gsap.timeline({ paused: true });
+  // a slow reveal: the title out of a soft blur, the rule drawn from the middle, the subtitle after it; all out at the end
+  tl.fromTo("#title", { opacity: 0, y: 18 * u, filter: "blur(14px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: Math.min(2.4, dur * 0.4), ease: "power2.out" }, 0.3);
+  tl.fromTo("#lift", { scale: 1.035 }, { scale: 1, duration: dur, ease: "none" }, 0);
+  if (D.subtitle) {
+    tl.fromTo("#rule", { scaleX: 0 }, { scaleX: 1, duration: 1.1, ease: "power3.inOut" }, Math.min(1.4, dur * 0.25));
+    tl.fromTo("#subtitle", { opacity: 0, y: 10 * u }, { opacity: 1, y: 0, duration: 1.6, ease: "power2.out" }, Math.min(1.9, dur * 0.32));
+  }
+  // over a clip or a picture: the picture darker while the title is up, a slow settle on a picture
+  if (document.getElementById("bgwrap")) tl.fromTo(".shade", { opacity: 1 }, { opacity: 0, duration: 1.2, ease: "power1.inOut" }, dur);
+  if (document.querySelector("#bgwrap img")) tl.fromTo("#bgwrap", { scale: 1.06 }, { scale: 1, duration: Number(D.duration) || dur, ease: "none" }, 0);
+  tl.to("#lift", { opacity: 0, duration: Math.min(1, dur * 0.18), ease: "power1.in" }, dur - Math.min(1, dur * 0.18));
+  window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

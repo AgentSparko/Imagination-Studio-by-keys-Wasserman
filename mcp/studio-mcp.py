@@ -46,6 +46,10 @@ TOOLS = [
     {"name": "list_library", "description": "Clips and stills in the Studio's Library, newest first. Each has a path to use in other tools.",
      "inputSchema": text_schema({"kind": {"type": "string", "enum": ["video", "image"], "description": "only videos or only images"},
                                  "limit": {"type": "integer", "description": "at most this many (default 50)"}})},
+    {"name": "search_library", "description": "Search the Library by what is in each clip and picture (the Studio describes them): "
+                                              "'a dog chasing a kite'. Returns the best matches with a caption and a path to use in other tools.",
+     "inputSchema": text_schema({"query": {"type": "string", "description": "what to look for, in plain words"},
+                                 "limit": {"type": "integer", "description": "at most this many (default 10)"}}, ("query",))},
     {"name": "queue_still", "description": "Queue still pictures from a prompt (a scout job: several candidates and a contact sheet).",
      "inputSchema": text_schema({"prompt": {"type": "string"}, "count": {"type": "integer", "description": "how many pictures, 1 to 12 (default 1); several only when the filmmaker asks for options or a number"},
                                  "preset": {"type": "string", "description": "a preset from studio_state; sets the picture size (default 2k: 1024x576)"},
@@ -96,6 +100,32 @@ TOOLS = [
                                  "preset": {"type": "string", "description": "a preset from studio_state"},
                                  "quality": {"type": "string", "description": "a quality from studio_state"},
                                  "seed": {"type": "integer"}, "title": {"type": "string"}}, ("prompt", "total_seconds"))},
+    {"name": "restyle_clip", "description": "Make a Library clip again in a new look, in three steps: its first frame redrawn in the look, "
+                                            "its motion read by Motion Previs, then the clip made from its depth layer and the new frame "
+                                            "(Ref2VA), so its motion, camera and timing stay. At most 15 s (a longer clip is cut to its "
+                                            "first 15). Returns the first job; list_jobs shows the last (its title ends \"3/3: the clip\").",
+     "inputSchema": text_schema({"video": {"type": "string", "description": "Library path of the clip"},
+                                 "prompt": {"type": "string", "description": "the new look (\"a watercolour painting\", \"16 mm film\")"},
+                                 "keep_sound": {"type": "boolean", "description": "keep the clip's own sound (default true)"},
+                                 "seconds": {"type": "number", "description": "only the first seconds, 2 to 15 (default the whole clip)"},
+                                 "image_model": {"type": "string", "enum": ["qwen", "qwen-full", "flux3k-fast", "flux3k-full"]},
+                                 "seed": {"type": "integer"}}, ("video", "prompt"))},
+    {"name": "extend_clip", "description": "Carry a Library clip on from its last frame and join the two into one file "
+                                           "(renders/<job>-extended.mp4, the job's first output). Over 15 s the new part is a long take.",
+     "inputSchema": text_schema({"video": {"type": "string", "description": "Library path of the clip"},
+                                 "seconds": {"type": "number", "description": "how much longer, 5 to 30 (default 5)"},
+                                 "prompt": {"type": "string", "description": "what happens next (default the clip's own prompt)"},
+                                 "join": {"type": "boolean", "description": "join the new part to the clip (default true)"},
+                                 "seed": {"type": "integer"}}, ("video",))},
+    {"name": "fix_clip", "description": "Change one thing in a Library clip from an instruction, in three steps: its first frame is "
+                                        "redrawn by the picture model (the whole frame, no mask), its motion is read by Motion Previs, "
+                                        "then the clip is made again from its depth layer and that frame. Returns the first job; the "
+                                        "last is queued when the analysis finishes (list_jobs: its title ends \"3/3: the clip\").",
+     "inputSchema": text_schema({"video": {"type": "string", "description": "Library path of the clip"},
+                                 "instruction": {"type": "string", "description": "the change, e.g. change the sky to a stormy sunset"},
+                                 "image_model": {"type": "string", "enum": ["qwen", "qwen-full", "flux3k-fast", "flux3k-full"]},
+                                 "keep_sound": {"type": "boolean", "description": "keep the clip's own sound (default true)"},
+                                 "seed": {"type": "integer"}}, ("video", "instruction"))},
     {"name": "queue_sound", "description": "Queue a sound: kind sfx is a sound effect from words (Stable Audio Open, 1 to 47 s, a .wav); "
                                            "kind foley makes a clip's sound for its picture (MMAudio: a .wav and the clip with it).",
      "inputSchema": text_schema({"kind": {"type": "string", "enum": ["sfx", "foley"]},
@@ -110,6 +140,33 @@ TOOLS = [
      "inputSchema": text_schema({"song": {"type": "string", "description": "the song's job id"},
                                  "video": {"type": "string", "description": "Library path of the clip"},
                                  "music_db": {"type": "number", "description": "the song's level, -30 to 0 dB (default -10)"}}, ("song", "video"))},
+    {"name": "music_beats", "description": "A song's tempo and beats, measured on this machine: bpm, beats and downbeats (seconds), "
+                                           "bars, duration and confidence (0 to 1). The song is a Library path or a song's or voice line's id.",
+     "inputSchema": text_schema({"path": {"type": "string", "description": "Library path of the song, or its take id"}}, ("path",))},
+    {"name": "rough_cut", "description": "Cut a Slate film's best takes (or Library clips, for a trailer) to a song so every cut lands "
+                                         "on the beat; the export is queued with the song under it, and FCPXML, EDL and a zip for "
+                                         "DaVinci Resolve are written when it is done. Returns the project, the export job (or the "
+                                         "foley jobs first) and the tempo. Follow it with rough_cut_status.",
+     "inputSchema": text_schema({"film": {"type": "string", "description": "a Slate film's id (its best take of each shot, in order)"},
+                                 "clips": {"type": "array", "items": {"type": "string"}, "description": "Library paths of clips, instead of a film"},
+                                 "song": {"type": "string", "description": "Library path of the song, or a song's or voice line's id"},
+                                 "cut": {"type": "string", "enum": ["beat", "bar", "two-bars", "natural"], "description": "how long each shot runs: natural (default: each shot near its own length, cut on a beat), bar, two-bars or beat"},
+                                 "order": {"type": "string", "enum": ["given", "shuffle", "energy"], "description": "clip order (default given; energy is calm to busy)"},
+                                 "foley": {"type": "boolean", "description": "make each clip's sound for its picture first (slower)"},
+                                 "title": {"type": "string"}}, ("song",))},
+    {"name": "rough_cut_status", "description": "Where a rough cut is: stage (foley, export, song, files, done, failed), its jobs, and "
+                                                "when done its video and files (fcpxml, edl, zip).",
+     "inputSchema": text_schema({"project": {"type": "string", "description": "the project id rough_cut returned"}}, ("project",))},
+    {"name": "make_graphics", "description": "Queue a motion graphic rendered to .mp4 on this machine (HyperFrames): template title "
+                                             "{title, subtitle?, seconds?, video?}, lower-third {video, name, role?, at?, seconds?}, kinetic "
+                                             "{text, song?, beats? or bpm?}, captions {video} (its speech is transcribed here), slideshow "
+                                             "{pictures[], voice?, song?, seconds_each?}, music-video {clips[], song, beats? or bpm?, every?, "
+                                             "transition?}, explainer {sections[{heading, text, picture?}], voice?}. Paths are Library paths; "
+                                             "a voice or song may be its take id. size: 1080p (default), 720p, vertical, square, or match (the clip's).",
+     "inputSchema": text_schema({"template": {"type": "string", "enum": ["title", "lower-third", "kinetic", "captions", "slideshow", "music-video", "explainer"]},
+                                 "data": {"type": "object", "description": "the template's settings, as listed for it (the words on screen go here, title included)"},
+                                 "size": {"type": "string", "enum": ["1080p", "720p", "vertical", "square", "match"]},
+                                 "title": {"type": "string", "description": "the job's name in the queue"}}, ("template", "data"))},
     {"name": "check_clip", "description": "Run the QA gate on a finished clip: its sound, the people's identity across the clip and its "
                                           "sharpness. Returns a job; its qa holds the report (passed and each check).",
      "inputSchema": text_schema({"path": {"type": "string", "description": "Library path of the clip"},
@@ -136,6 +193,24 @@ TOOLS = [
      "inputSchema": text_schema({"project": {"type": "string", "description": "a project id (default: the newest)"},
                                  "size": {"type": "string", "enum": ["1920x1080", "2560x1440", "2048x1152", "1344x768"],
                                           "description": "default 1920x1080"}})},
+    {"name": "finish_cut", "description": "Finish a timeline (or clips) as the final cut and mix through Tesseract: each clip's own sound "
+                                          "kept, the song under it lowered wherever someone speaks, an optional title scene. Makes an .mp4, "
+                                          "its editable .tsrct project and FCPXML/EDL for DaVinci Resolve. Follow it with job_status; "
+                                          "export_cut makes Premiere or After Effects projects of it.",
+     "inputSchema": text_schema({"project": {"type": "string", "description": "a timeline's project id (default: the newest, unless clips are given)"},
+                                 "clips": {"type": "array", "items": {"type": "string"}, "description": "Library paths of clips, in order, instead of a timeline"},
+                                 "song": {"type": "string", "description": "a queue_song job's id or a Library sound path (default: the timeline's soundtrack); \"none\" for no music"},
+                                 "voice": {"type": "string", "description": "Library path of a narration take, laid from the first shot"},
+                                 "title": {"type": "string", "description": "a title card before the first shot"},
+                                 "subtitle": {"type": "string", "description": "a line under the title"},
+                                 "mix": {"type": "string", "enum": ["dialogue", "balanced", "music"], "description": "default dialogue"},
+                                 "size": {"type": "string", "enum": ["720p", "1080p", "4k"], "description": "default 1080p"},
+                                 "fps": {"type": "integer", "enum": [24, 25, 30, 60], "description": "default 24"},
+                                 "captions": {"type": "boolean", "description": "captions of what is heard (needs speech-to-text on the Studio's computer)"}})},
+    {"name": "export_cut", "description": "A finished cut (a finish_cut job's id) as a Premiere Pro or After Effects project with its media, "
+                                          "zipped. Returns the zip's Library path. DaVinci Resolve needs no export: the finish job's .fcpxml opens there.",
+     "inputSchema": text_schema({"id": {"type": "string", "description": "the finish_cut job's id"},
+                                 "to": {"type": "string", "enum": ["premiere", "aftereffects"]}}, ("id", "to"))},
     {"name": "job_status", "description": "One job: status (queued, running, done, failed, cancelled), progress, outputs, error.",
      "inputSchema": text_schema({"id": {"type": "string"}}, ("id",))},
     {"name": "wait_for_jobs", "description": "Wait until these jobs are done, failed or cancelled, for at most `seconds` (default 50, "
@@ -178,6 +253,56 @@ TOOLS = [
      "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"},
                                  "shot": {"type": "string", "description": "the shot's id or name"},
                                  "first_frame": {"type": "string", "description": "Library path of the opening picture"}}, ("film", "shot"))},
+    {"name": "direct_film", "description": "The Director: from a logline to a checked, cut film. It writes what the film lacks (cast, "
+                                          "places, scenes, shots with their lines), makes each character's reference picture and turnaround "
+                                          "and each place's plate, renders every shot in order, checks each take with the QA gate and "
+                                          "renders a failed one again, and cuts the best takes together. It runs on its own: follow it "
+                                          "with director_status. A film that has a run stopped or cut off continues where it was.",
+     "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name (slate_new_film makes one)"},
+                                 "logline": {"type": "string", "description": "the film in one sentence (default the film's own)"},
+                                 "scenes": {"type": "integer", "description": "scenes to write when the film has none (default 3)"},
+                                 "shotsPerScene": {"type": "integer", "description": "shots in each scene (default 3)"},
+                                 "seconds": {"type": "integer", "description": "each shot's length, 1 to 15 (default 8)"},
+                                 "cut": {"type": "boolean", "description": "cut the best takes together when done (default true)"}}, ("film",))},
+    {"name": "director_status", "description": "Where the Director's run on a film stands: its stage (writing, casting, rendering, "
+                                              "checking, retaking, cutting, done, failed, stopped), shots rendered and checked, retakes, "
+                                              "the latest lines of its log and, when done, the cut's files.",
+     "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"}}, ("film",))},
+    {"name": "suite_imports", "description": "What was brought in from the filmmaker suite (Blockout previs, a screenplay, a board, a Motion Previs pack), "
+                                             "newest first: id, title, app and shot count. With import, that one's shots with their ids and prompts.",
+     "inputSchema": text_schema({"import": {"type": "string", "description": "an import's id or title, to list its shots"}})},
+    {"name": "suite_attach", "description": "Send shots of a suite import into a Slate film: the still becomes the shot's first frame, a previs "
+                                            "clip its motion reference, and the words fill an empty prompt. mapping is a list of {shot, to}: shot is "
+                                            "the import's shot id, to a film shot's id or name, or \"new\" for a new shot (then scene names the scene). "
+                                            "Returns what was changed.",
+     "inputSchema": text_schema({"import": {"type": "string", "description": "the import's id or title"},
+                                 "film": {"type": "string", "description": "the film's id or name"},
+                                 "mapping": {"type": "array", "description": "which import shot goes to which film shot",
+                                             "items": {"type": "object", "properties": {"shot": {"type": "string"}, "to": {"type": "string"}, "scene": {"type": "string"}}}}},
+                                ("import", "film", "mapping"))},
+    {"name": "train_lora", "description": "Train a LoRA on a DGX Spark from Library clips or stills (at least 8; each clip 5 s or "
+                                          "longer): a look (a style) or a character. It runs for hours (about 110 s a step) and the "
+                                          "Spark renders nothing else meanwhile, so do it only when the filmmaker asks. Returns the "
+                                          "job; follow it with training_status. The finished LoRA is in Looks under its name.",
+     "inputSchema": text_schema({"name": {"type": "string", "description": "the LoRA's name"},
+                                 "trigger": {"type": "string", "description": "one word the prompts will use, e.g. wk_noir"},
+                                 "kind": {"type": "string", "enum": ["look", "character"]},
+                                 "items": {"type": "array", "items": {"type": "string"}, "description": "Library paths of the clips and stills"},
+                                 "steps": {"type": "integer", "description": "300 to 3000 (default 1000)"},
+                                 "captions": {"type": "string", "enum": ["auto", "prompts", "none"], "description": "default auto"}},
+                                ("name", "trigger", "items"))},
+    {"name": "training_status", "description": "A LoRA training run, by its job id or the LoRA's id: the job's status and step, the "
+                                               "last checkpoint saved, and whether the LoRA is installed.",
+     "inputSchema": text_schema({"id": {"type": "string"}}, ("id",))},
+    {"name": "night_shift", "description": "Plan a night shift: Slate shots rendered one after another, overnight, then a reel, "
+                                          "the dailies package and notes made, and a notification sent to the filmmaker's phone. With film "
+                                          "and no shots, every shot of the film with a prompt and no good take; shots names some of them. "
+                                          "start is when: idle (when the queue has been idle for 2 minutes, the default), now, or a time "
+                                          "like 23:00.",
+     "inputSchema": text_schema({"film": {"type": "string", "description": "the film's id or name"},
+                                 "shots": {"type": "array", "items": {"type": "string"}, "description": "shot ids or names; all shots without a good take if left out"},
+                                 "start": {"type": "string", "description": "idle, now, or HH:MM"},
+                                 "name": {"type": "string", "description": "a name for the shift"}}, ("film",))},
     {"name": "upload_file", "description": "Copy a file from this machine into the Studio's Library (png, jpg, webp, mp4, mov, wav, mp3...). "
                                            "Returns its Library path.",
      "inputSchema": text_schema({"path": {"type": "string", "description": "absolute path of the file on this machine"}}, ("path",))},
@@ -319,6 +444,9 @@ def run(name: str, args: dict):
     if name == "list_library":
         items = [i for i in call("GET", "/api/library") if not args.get("kind") or i.get("kind") == args["kind"]]
         return items[:int(args.get("limit") or 50)]
+    if name == "search_library":
+        found = call("GET", "/api/library/search?" + urllib.parse.urlencode({"q": args.get("query") or ""}))["items"]
+        return [{k: i.get(k) for k in ("path", "kind", "caption", "tags", "score")} for i in found[:int(args.get("limit") or 10)]]
     if name == "queue_still":
         params = {k: args[k] for k in ("prompt", "count", "preset", "width", "height", "seed", "image_model") if args.get(k) not in (None, "")}
         params.setdefault("count", 1)  # a picture asked of an agent is one picture; the page's scout of four is for browsing
@@ -354,6 +482,11 @@ def run(name: str, args: dict):
         if args.get("first_frame"):
             params["image"] = args["first_frame"]
         return job_summary(call("POST", "/api/jobs", {"kind": "long", "title": args.get("title") or "agent: long take", "params": params}))
+    if name in ("restyle_clip", "extend_clip", "fix_clip"):  # Restyle, Extend, Fix (app/revise.py): the first job and its chain
+        keys = {"restyle_clip": ("video", "prompt", "keep_sound", "seconds", "image_model", "seed"), "extend_clip": ("video", "seconds", "prompt", "join", "seed"),
+                "fix_clip": ("video", "instruction", "image_model", "keep_sound", "seed")}[name]
+        made = call("POST", "/api/revise", {"kind": name.split("_")[0], "params": {k: args[k] for k in keys if args.get(k) not in (None, "")}})
+        return {**job_summary(made), "revise": made.get("revise")}
     if name == "queue_sound":
         kind = args.get("kind")
         if kind not in ("sfx", "foley"):
@@ -361,9 +494,25 @@ def run(name: str, args: dict):
         keys = ("prompt", "seconds", "seed") if kind == "sfx" else ("prompt", "video", "keep_sound", "seed")
         params = {k: args[k] for k in keys if args.get(k) not in (None, "")}
         return job_summary(call("POST", "/api/jobs", {"kind": kind, **({"title": args["title"]} if args.get("title") else {}), "params": params}))
+    if name == "make_graphics":
+        if not isinstance(args.get("data"), dict):
+            raise StudioError("data is an object of the template's settings, e.g. {\"title\": \"The Long Night\"}")
+        params = {**args["data"], "template": args.get("template"), **({"size": args["size"]} if args.get("size") else {})}
+        return job_summary(call("POST", "/api/jobs", {"kind": "graphics", **({"title": args["title"]} if args.get("title") else {}), "params": params}))
     if name == "queue_soundtrack":
         body = {"take": str(args["song"]), "video": str(args["video"]), **({"music_db": args["music_db"]} if args.get("music_db") not in (None, "") else {})}
         return job_summary(call("POST", "/api/music/soundtrack", body))
+    if name == "music_beats":
+        return call("POST", "/api/music/beats", {"path": str(args["path"])})
+    if name == "rough_cut":
+        if bool(args.get("film")) == bool(args.get("clips")):
+            raise StudioError("give film (a Slate film's id) or clips (Library paths), one of the two")
+        body = {k: args[k] for k in ("film", "clips", "song", "cut", "order", "foley", "title") if args.get(k) not in (None, "", [])}
+        made = call("POST", "/api/roughcut", body)
+        return {k: made.get(k) for k in ("project", "job", "foley", "beats", "title", "dropped")} | {"cuts": len(made.get("timeline") or [])}
+    if name == "rough_cut_status":
+        said = call("GET", "/api/roughcut/" + urllib.request.quote(str(args["project"]), safe=""))
+        return {k: said.get(k) for k in ("project", "title", "stage", "error", "job", "foley", "video", "files", "notes")}
     if name == "check_clip":
         body = {k: args[k] for k in ("path", "prompt") if args.get(k) not in (None, "")}
         return job_summary(call("POST", "/api/qa", body))
@@ -410,6 +559,25 @@ def run(name: str, args: dict):
         width, height = (int(n) for n in str(args.get("size") or "1920x1080").split("x"))
         params = {"clips": project["timeline"], "width": width, "height": height, **({"soundtrack": project["soundtrack"]} if project.get("soundtrack") else {})}
         return job_summary(call("POST", "/api/jobs", {"kind": "export", "title": "Export " + str(project.get("name") or project["id"]), "params": params}))
+    if name == "finish_cut":
+        params = {k: args[k] for k in ("voice", "mix", "size", "fps", "captions") if args.get(k) not in (None, "")}
+        if args.get("clips"):
+            params["clips"] = [{"path": str(path)} for path in (args["clips"] if isinstance(args["clips"], list) else [args["clips"]])]
+            name_ = f"{len(params['clips'])} clips"
+        else:
+            project = project_of(args.get("project"))
+            if not project.get("timeline"):
+                raise StudioError(f"the timeline of {project.get('name') or project['id']} is empty: add clips with add_to_timeline first")
+            params["project"], name_ = project["id"], str(project.get("name") or project["id"])
+        if args.get("song") not in (None, ""):
+            params["song"] = None if str(args["song"]).lower() == "none" else str(args["song"])
+        if args.get("title"):
+            params["title"] = {"text": str(args["title"]), "subtitle": str(args.get("subtitle") or "")}
+        return job_summary(call("POST", "/api/jobs", {"kind": "finish", "title": "Finish: " + name_, "params": params}))
+    if name == "export_cut":
+        if args.get("to") not in ("premiere", "aftereffects"):
+            raise StudioError("to is premiere or aftereffects")
+        return call("POST", "/api/finish/" + urllib.request.quote(str(args["id"]), safe="") + "/convert", {"to": args["to"]})
     if name == "job_status":
         return job_summary(job_of(args["id"]))
     if name == "wait_for_jobs":
@@ -475,8 +643,62 @@ def run(name: str, args: dict):
                                                for k in ("preset", "quality", "frames", "seconds", "width", "height") if (job.get("params") or compiled["plan"]).get(k) is not None}})
         save_film(film)
         return {**job_summary(job), "take": output, "warnings": compiled.get("warnings") or []}
+    if name == "night_shift":
+        film = named(call("GET", "/api/slate/projects"), args["film"], "film")
+        body = {"film": film["id"], "start": str(args.get("start") or "idle")}
+        if args.get("shots"):
+            body["shots"] = [str(one) for one in args["shots"]]
+        if args.get("name"):
+            body["name"] = str(args["name"])
+        plan = call("POST", "/api/nightshift", body)
+        return {"shift": plan["id"], "name": plan["name"], "state": plan["state"], "clips": plan["count"], "start": plan["start"],
+                "note": "The shift renders on its own; the reel, dailies and notes land in the dailies folder when it is done."}
+    if name == "direct_film":
+        film = film_of(args["film"])
+        body = {"project": film["id"], **{key: args[key] for key in ("logline", "scenes", "shotsPerScene", "seconds", "cut") if args.get(key) not in (None, "")}}
+        run = call("POST", "/api/slate/direct", body)
+        return {"film": film["id"], "state": run.get("state"), "note": "the Director is at work: follow it with director_status"}
+    if name == "director_status":
+        film = film_of(args["film"])
+        run = call("GET", "/api/slate/direct/" + urllib.request.quote(film["id"], safe=""))
+        return {"film": film["id"], "state": run.get("state"), "running": run.get("running"), "counts": run.get("counts"), "error": run.get("error") or None,
+                "log": [line.get("text") for line in (run.get("log") or [])[-12:]], "cut": run.get("cut")}
     if name == "list_jobs":
         return [job_summary(job) for job in call("GET", "/api/jobs")[:int(args.get("limit") or 20)]]
+    if name == "suite_imports":
+        listed = [{**one, "name": one.get("title")} for one in call("GET", "/api/suite/imports")]
+        if not args.get("import"):
+            return [{key: one.get(key) for key in ("id", "title", "app", "shots")} for one in listed]
+        found = call("GET", "/api/suite/imports/" + urllib.request.quote(named(listed, args["import"], "import")["id"], safe=""))
+        return {"id": found["id"], "title": found.get("title"), "app": found.get("app"),
+                "shots": [{key: one.get(key) for key in ("id", "title", "scene", "action", "camera", "seconds")} | {"still": bool(one.get("image")), "previs_clip": bool(one.get("reference_video"))}
+                          for one in found.get("shots") or []]}
+    if name == "suite_attach":
+        listed = [{**one, "name": one.get("title")} for one in call("GET", "/api/suite/imports")]
+        found = named(listed, args["import"], "import")
+        film = film_of(args["film"])
+        if not isinstance(args.get("mapping"), list) or not args["mapping"]:
+            raise StudioError("mapping is a list of {shot, to}")
+        flat = [shot for scene in film.get("scenes") or [] for shot in scene.get("shots") or []]
+        rows = []
+        for row in args["mapping"]:
+            to = str(row.get("to") or "")
+            if to != "new":
+                to = named(flat, to, "shot")["id"]
+            scene = named(film.get("scenes") or [], row["scene"], "scene")["id"] if to == "new" and row.get("scene") else None
+            rows.append({"shot": str(row.get("shot") or ""), "to": to, **({"scene": scene} if scene else {})})
+        made = call("POST", "/api/suite/imports/" + urllib.request.quote(found["id"], safe="") + "/attach", {"film": film["id"], "mapping": rows})
+        return {"film": made["id"], "name": made.get("name"), "sent": len(rows),
+                "shots": [{"id": s["id"], "name": s.get("name"), "first_frame": (s.get("tf") or {}).get("image"), "previs_clip": (s.get("tf") or {}).get("reference_video")}
+                          for scene in made.get("scenes") or [] for s in scene.get("shots") or []]}
+    if name == "train_lora":
+        items = args["items"] if isinstance(args["items"], list) else [args["items"]]
+        made = call("POST", "/api/train/datasets", {"name": str(args["name"]), "trigger": str(args["trigger"]), "kind": str(args.get("kind") or "look"),
+                                                    "captions": str(args.get("captions") or "auto"), "items": [str(one) for one in items]})
+        job = call("POST", "/api/train/start", {"dataset": made["id"], "name": str(args["name"]), **({"steps": int(args["steps"])} if args.get("steps") else {})})
+        return {**job_summary(job), "dataset": made["id"], "lora": (job.get("params") or {}).get("lora"), "items": made.get("items")}
+    if name == "training_status":
+        return call("GET", "/api/train/status/" + urllib.request.quote(str(args["id"]), safe=""))
     if name == "upload_file":
         source = Path(str(args["path"])).expanduser()
         if not source.is_file():

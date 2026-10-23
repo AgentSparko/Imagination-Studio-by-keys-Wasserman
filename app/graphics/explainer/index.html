@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<title>Explainer</title>
+<!-- Imagination Studio motion graphics: sections of words and pictures timed to a voice-over. data.js
+     (window.STUDIO_DATA) holds each section with its start and end; the studio adds the pictures (#pic0 …) and the voice. -->
+<script src="gsap.min.js"></script>
+<script src="data.js"></script>
+<style>
+  @font-face { font-family: "Instrument Serif"; src: url("fonts/instrument-serif.woff2") format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Geist"; src: url("fonts/geist.woff2") format("woff2"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { margin: 0; overflow: hidden; background: #0a0a0c; }
+  #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: #0a0a0c; color: #efe9df; --u: 1px; }
+  .pic { position: absolute; top: 9%; bottom: 9%; right: 6%; width: 44%; overflow: hidden; border-radius: calc(var(--u) * 14); opacity: 0; }
+  .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .tall .pic { top: 6%; bottom: auto; left: 6%; right: 6%; width: auto; height: 40%; }
+  #eyebrow { position: absolute; top: calc(var(--u) * 64); left: 6%; font-family: "Geist", system-ui, sans-serif; font-size: calc(var(--u) * 22);
+    letter-spacing: 0.3em; text-transform: uppercase; color: #c9a86a; display: block; }
+  .sec { position: absolute; top: 0; bottom: 0; left: 6%; width: 42%; display: flex; flex-direction: column; justify-content: center; opacity: 0; }
+  .sec.wide { width: 88%; }
+  .tall .sec { top: 50%; width: 88%; justify-content: flex-start; }
+  .num { display: block; font-family: "Geist", system-ui, sans-serif; font-size: calc(var(--u) * 22); letter-spacing: 0.2em; color: #8f887d; margin-bottom: calc(var(--u) * 18); }
+  .head { display: block; font-family: "Instrument Serif", Georgia, serif; font-size: calc(var(--u) * 84); line-height: 1.04; margin-bottom: calc(var(--u) * 26); }
+  .body { display: block; font-family: "Geist", system-ui, sans-serif; font-size: calc(var(--u) * 34); line-height: 1.45; color: #cfc8bc; }
+  #track { position: absolute; left: 6%; right: 6%; bottom: calc(var(--u) * 54); height: calc(var(--u) * 3); background: rgba(255, 255, 255, 0.1); }
+  #fill { display: block; width: 100%; height: 100%; background: #c9a86a; transform-origin: 0 50%; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="6" data-width="1920" data-height="1080" data-fps="24">
+  <!-- studio:media -->
+  <span id="eyebrow"></span>
+  <div id="secs"></div>
+  <div id="track"><span id="fill"></span></div>
+</div>
+<script>
+  const D = window.STUDIO_DATA || {}, root = document.getElementById("root");
+  const tall = (Number(D.width) || 1920) < (Number(D.height) || 1080);
+  const u = tall ? (Number(D.width) || 1080) / 1300 : Math.min(Number(D.width) || 1920, (Number(D.height) || 1080) * 16 / 9) / 1920;
+  root.style.setProperty("--u", u + "px");
+  if (tall) root.classList.add("tall");
+  document.getElementById("eyebrow").textContent = D.title || "";
+  const secs = D.sections || [], dur = Number(D.duration) || 6, box = document.getElementById("secs");
+  const tl = gsap.timeline({ paused: true });
+  tl.fromTo("#fill", { scaleX: 0 }, { scaleX: 1, duration: dur, ease: "none" }, 0);
+  secs.forEach((sec, i) => {
+    const node = document.createElement("div"); node.className = "sec" + (sec.picture ? "" : " wide"); node.id = "sec" + i;
+    [["num", String(i + 1).padStart(2, "0")], ["head", sec.heading], ["body", sec.text]].forEach(([cls, words]) => {
+      if (!words) return; const span = document.createElement("span"); span.className = cls; span.textContent = words; node.appendChild(span); });
+    box.appendChild(node);
+    const start = sec.start, end = sec.end, last = i === secs.length - 1;
+    tl.fromTo(node, { opacity: 0, y: 24 * u }, { opacity: 1, y: 0, duration: 0.7, ease: "power3.out" }, start + 0.1);
+    tl.fromTo("#sec" + i + " .body", { opacity: 0 }, { opacity: 1, duration: 0.8, ease: "power1.out" }, start + 0.45);
+    tl.to(node, { opacity: 0, y: -16 * u, duration: 0.45, ease: "power2.in" }, last ? dur - 0.6 : end - 0.45);
+    if (sec.picture) {
+      const pic = "#pic" + i;
+      tl.fromTo(pic, { opacity: 0 }, { opacity: 1, duration: 0.7, ease: "power1.inOut" }, start + 0.05);
+      tl.fromTo(pic + " img", { scale: 1.0 }, { scale: 1.1, duration: end - start + 0.5, ease: "none" }, start);
+      tl.to(pic, { opacity: 0, duration: 0.45, ease: "power1.in" }, last ? dur - 0.6 : end - 0.45);
+    }
+  });
+  window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

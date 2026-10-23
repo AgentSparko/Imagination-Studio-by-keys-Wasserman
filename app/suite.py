@@ -5,6 +5,8 @@
                                            cast and places, its pictures and clips kept under uploads/suite/<id>/
     GET  /api/suite/imports                what was taken in
     POST /api/suite/imports/{id}/slate     a Slate film made from an import
+    POST /api/suite/imports/{id}/attach    shots sent into an existing Slate film (still, previs clip, words)
+    GET  /api/suite/imports/{id}/prompts   one prompt per shot, for the Home composer
     POST /api/suite/imports/{id}/motion    a Blockout export handed to Motion Previs as a production pack
     GET  /api/export/timeline/{project}.fcpxml | .edl   a Production timeline for DaVinci Resolve or any editor
     GET  /api/export/dailies.zip?jobs=a,b  finished clips with their settings, for Circle Take's ingest
@@ -28,6 +30,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 from xml.sax.saxutils import quoteattr
 
+import anyio.from_thread
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 
@@ -802,6 +805,87 @@ def as_slate(found: dict, home: Path, blank) -> dict:
     return project
 
 
+def prompt_of(one: dict) -> str:
+    """One shot's words as a single prompt for the composer: what happens, the camera, and what is said."""
+
+    said = " ".join(f"{line['character']}: \u201c{line['line']}\u201d" if line.get("character") else f"\u201c{line['line']}\u201d" for line in one.get("dialogue") or [])
+    parts = [str(one.get("action") or one.get("title") or "").strip(), f"Camera: {one['camera'].strip()}." if one.get("camera") else "", said]
+    return "\n\n".join(bit for bit in parts if bit)
+
+
+def prompts_of(found: dict, home: Path) -> list[dict]:
+    return [{"title": one.get("title") or one.get("id") or f"Shot {number}", "prompt": prompt_of(one), "seconds": one.get("seconds"),
+             **({"image": one["image"]} if one.get("image") and (home / one["image"]).is_file() else {})}
+            for number, one in enumerate(found.get("shots") or [], 1)]
+
+
+def bring_file(home: Path, path, target: Path, name: str) -> str | None:
+    """A file of the import copied next to the film; its path under the studio folder."""
+
+    if not path or not (home / path).is_file():
+        return None
+    target.mkdir(parents=True, exist_ok=True)
+    out = target / name
+    shutil.copyfile(home / path, out)
+    return str(out.resolve().relative_to(home.resolve()))
+
+
+def attach_shots(film: dict, found: dict, mapping: list, home: Path, pack: str | None = None) -> int:
+    """Each mapped import shot's still, previs clip and words set on the film's shot (or on a new shot in a scene).
+    The prompt and intent are only filled when empty. Returns how many shots were touched."""
+
+    shots = {one.get("id"): one for one in found.get("shots") or []}
+    where = {s.get("id"): (scene, s) for scene in film.get("scenes") or [] for s in scene.get("shots") or []}
+    scenes = {scene.get("id"): scene for scene in film.get("scenes") or []}
+    stamp, defaults = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()), film.get("defaults") or {}
+    folder, done = home / "slate" / film["id"] / "suite", 0
+    for row in mapping:
+        one = shots.get(str(row.get("shot")))
+        if not one:
+            raise HTTPException(400, f"no shot {row.get('shot')} in this import")
+        to = str(row.get("to") or "")
+        if to == "new":
+            scene = scenes.get(row.get("scene")) or (film["scenes"][-1] if film.get("scenes") else None)
+            if scene is None:
+                scene = {"id": slate_id("scene"), "name": one.get("scene") or "Scene 1", "synopsis": "", "shots": []}
+                film.setdefault("scenes", []).append(scene)
+            target = {"id": slate_id("shot"), "name": one.get("title") or f"Shot {len(scene['shots']) + 1}", "intent": "",
+                      "spec": {"durationSec": one.get("seconds") or defaults.get("durationSec") or 8, "fps": defaults.get("fps") or 24,
+                               "aspectRatio": defaults.get("aspectRatio") or "16:9", "lens": None, "movement": None, "size": None, "angle": None},
+                      "prompt": "", "lockedLines": [], "mutedLines": [], "beatSheet": None, "targetModel": "minimax-h3", "maxChars": None,
+                      "variants": [], "history": [], "takes": [], "createdAt": stamp, "updatedAt": stamp,
+                      "tf": {"start": "text", "cast": [], "location": "", "lines": [], "soundscape": "", "music": "N/A", "cue": "", "seed": 1,
+                             "image": None, "h3": "", "h3Auto": True}}
+            scene["shots"].append(target)
+        elif to in where:
+            target = where[to][1]
+        else:
+            raise HTTPException(400, f"no shot {to} in this film")
+        tf = target.setdefault("tf", {})
+        tag = f"{found.get('id')}-{one.get('id')}"
+        image = bring_file(home, one.get("image"), folder, f"{tag}{Path(one['image']).suffix}") if one.get("image") else None
+        clip = bring_file(home, one.get("reference_video"), folder, f"{tag}-reference{Path(one['reference_video']).suffix}") if one.get("reference_video") else None
+        if image:
+            tf["image"], tf["start"] = image, "image"
+        if clip:
+            tf["reference_video"] = clip
+        if pack:
+            tf["motion"] = {"pack": pack, "layer": "reference", "mode": "full-scene"}
+        if not (target.get("prompt") or "").strip():
+            sections = [("Subject", one.get("action") or one.get("title")), ("Camera", one.get("camera"))]
+            target["prompt"] = "\n\n".join(f"# {name}\n{text.strip()}" for name, text in sections if text and text.strip())
+        if not (target.get("intent") or "").strip():
+            target["intent"] = one.get("notes") or ""
+        if not tf.get("lines"):
+            tf["lines"] = [{"characterId": None, "voiceId": None, "text": line["line"], "language": "English", "sung": False}
+                           for line in one.get("dialogue") or []]
+        if one.get("seconds") and not (target.get("spec") or {}).get("durationSec"):
+            target.setdefault("spec", {})["durationSec"] = one["seconds"]
+        target["updatedAt"] = stamp
+        done += 1
+    return done
+
+
 
 # ---------- dailies for Circle Take, an entry for Call Sheet ----------
 
@@ -998,6 +1082,30 @@ def attach(home: Path, jobs: dict, lock: threading.Lock, presets: dict, app=None
         found["motion_pack"] = described["id"]
         (folder / "import.json").write_text(json.dumps(found, indent=1))
         return {"pack": described["id"], "layers": described.get("layers"), "mode": described.get("mode")}
+
+    @router.get("/api/suite/imports/{import_id}/prompts")
+    def import_prompts(import_id: str) -> list[dict]:
+        return prompts_of(json.loads((import_folder(import_id) / "import.json").read_text()), home)
+
+    @router.post("/api/suite/imports/{import_id}/attach")
+    def attach_to_film(import_id: str, request: Request, body: dict) -> dict:  # sync: its file work runs in the thread pool
+        local(request, json_body=True)
+        import slate
+        folder = import_folder(import_id)
+        found = json.loads((folder / "import.json").read_text())
+        mapping = [row for row in body.get("mapping") or [] if isinstance(row, dict) and row.get("shot")]
+        if not mapping:
+            raise HTTPException(400, "pick at least one shot to send")
+        file = slate.project_file(str(body.get("film") or ""))
+        if not file.is_file():
+            raise HTTPException(404, "no such film")
+        film = json.loads(file.read_text())
+        pack = found.get("motion_pack")
+        if found.get("app") == "motion-previs-studio" and not pack and (folder / "motion-pack.zip").is_file():
+            pack = anyio.from_thread.run(to_motion, import_id, request).get("pack")
+        attach_shots(film, found, mapping, home, pack if found.get("app") == "motion-previs-studio" else None)
+        slate.write(film)
+        return film
 
     @router.get("/api/export/timeline/{name}")
     def timeline(name: str, root: str = ""):

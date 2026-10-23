@@ -72,6 +72,8 @@ def link_found(lora_id: str, target: Path) -> bool:
     return target.exists()
 
 PRESETS = Path(__file__).with_name("lora-presets.json")
+# LoRAs the studio no longer offers, though a package's own menu (bundle.json) still lists them: not brought back from it
+WITHDRAWN = {"3d-animation-style"}  # on the DGX Spark's FastH3 it barely changed a clip, even at full strength
 FIELDS = ("name", "author", "url", "page", "sha256", "trigger", "styles", "strength", "range", "base", "licence", "notes")
 LIMIT = 4  # LoRAs on one clip
 # the hub's sections, in the order they are shown (lora-groups.json, which the essential bundle's folders follow)
@@ -150,6 +152,21 @@ def adaln_basis(folder: Path):
         raise RuntimeError(f"the checkpoint's time table does not follow MiniMax H3's time embedder (fit error {error:.1e}): the LoRA is not moved onto it")
     np.save(kept, np.concatenate([basis, offset[None]], axis=0))
     return basis, offset
+
+
+def remember(folder: Path, recipe: dict) -> None:
+    """A recipe written into the hub's own list (folder/hub.json), in the place of one with the same id: what a LoRA
+    trained here (app/train.py) adds. The list is replaced whole, so a reader never sees half of it."""
+
+    book = Path(folder) / "hub.json"
+    try:
+        kept = json.loads(book.read_text())
+    except (OSError, ValueError):
+        kept = []
+    kept = [one for one in kept if isinstance(one, dict) and one.get("id") != recipe["id"]] + [recipe]
+    part = book.with_name("hub.json.part")
+    part.write_text(json.dumps(kept, indent=1))
+    part.replace(book)
 
 
 def bundle() -> str:
@@ -265,7 +282,8 @@ def attach(home: Path, pack: Path, spark: bool):
                 extra = json.loads((Path(where).expanduser() / "bundle.json").read_text()).get("loras", [])
             except (OSError, ValueError, AttributeError):
                 extra = []
-            built += [{"status": "ready", "needs": "text", **r, "builtin": True} for r in extra if r.get("id") and r.get("url") and r["id"] not in taken]
+            built += [{"status": "ready", "needs": "text", **r, "builtin": True} for r in extra
+                      if r.get("id") and r.get("url") and r["id"] not in taken and r["id"] not in WITHDRAWN]
             taken = {r["id"] for r in built}
         return built + [{"status": "ready", "category": ["mine"], "needs": "text", **r, "builtin": False} for r in added() if r.get("id") not in taken]
 
@@ -304,7 +322,9 @@ def attach(home: Path, pack: Path, spark: bool):
         installed = ready(recipe["id"]).is_file() and not state
         here = None if installed else found_here(recipe["id"])
         # usable: its file is here and this machine has what it runs on (a clip, a Library action or Edit a picture)
-        return {**recipe, "installed": installed, "installing": state, "usable": installed and recipe.get("status") != "unsupported",
+        # a cover picture kept beside the LoRA (loras/<id>.webp, .jpg or .png): yours for a LoRA you trained or added
+        cover = next((f"loras/{recipe['id']}{ext}" for ext in (".webp", ".jpg", ".jpeg", ".png") if (folder / f"{recipe['id']}{ext}").is_file()), None)
+        return {**recipe, "installed": installed, "installing": state, "usable": installed and recipe.get("status") != "unsupported", "cover": cover,
                 "flow": lora_flows.public(recipe["id"]) if recipe.get("flow") else None,
                 # found on this machine: Install links that file instead of downloading it
                 "found": {"path": here["shown"], "proof": here.get("proof", "")} if here else None}

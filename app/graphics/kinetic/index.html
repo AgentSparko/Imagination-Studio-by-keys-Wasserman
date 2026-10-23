@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<title>Kinetic type</title>
+<!-- Imagination Studio motion graphics: a sentence word by word on the beat. data.js (window.STUDIO_DATA) holds the
+     words and the time of each; the studio sets the root's size and length and adds the song. -->
+<script src="gsap.min.js"></script>
+<script src="data.js"></script>
+<style>
+  @font-face { font-family: "Instrument Serif"; src: url("fonts/instrument-serif.woff2") format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Instrument Serif"; src: url("fonts/instrument-serif-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; }
+  @font-face { font-family: "Geist"; src: url("fonts/geist.woff2") format("woff2"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { margin: 0; overflow: hidden; background: #07070a; }
+  #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: #07070a; color: #f2ede4; --u: 1px; }
+  .glow { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, rgba(201, 168, 106, 0.14), rgba(7, 7, 10, 0) 62%); }
+  .page { position: absolute; inset: 0; display: flex; flex-wrap: wrap; align-content: center; justify-content: center;
+    gap: calc(var(--u) * 10) calc(var(--u) * 34); padding: 0 calc(var(--u) * 150); opacity: 0; }
+  .w { display: inline-block; font-family: "Geist", system-ui, sans-serif; font-weight: 800; font-size: calc(var(--u) * 116);
+    line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; opacity: 0; }
+  .w.alt { font-family: "Instrument Serif", Georgia, serif; font-style: italic; font-weight: 400; text-transform: none; letter-spacing: 0;
+    font-size: calc(var(--u) * 132); color: #e3c58c; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="6" data-width="1920" data-height="1080" data-fps="24">
+  <!-- studio:media -->
+  <div class="glow" id="glow"></div>
+  <div id="pages"></div>
+</div>
+<script>
+  const D = window.STUDIO_DATA || {}, root = document.getElementById("root");
+  const u = Math.min(Number(D.width) || 1920, (Number(D.height) || 1080) * 16 / 9) / 1920;
+  root.style.setProperty("--u", u + "px");
+  const words = D.words || [], times = D.times || [], dur = Number(D.duration) || 6;
+  // pages of a few words; a page leaves on the beat of the next page's first word
+  const perPage = (Number(D.width) || 1920) < (Number(D.height) || 1080) ? 3 : 5, pages = [];
+  for (let i = 0; i < words.length; i += perPage) pages.push(words.slice(i, i + perPage).map((w, k) => ({ w, i: i + k })));
+  const box = document.getElementById("pages"), tl = gsap.timeline({ paused: true });
+  pages.forEach((page, p) => {
+    const node = document.createElement("div"); node.className = "page"; node.id = "page" + p; box.appendChild(node);
+    const enter = times[page[0].i] || 0, next = pages[p + 1] ? times[pages[p + 1][0].i] : dur;
+    tl.set(node, { opacity: 1 }, Math.max(0, enter - 0.01));
+    page.forEach(({ w, i }) => {
+      const span = document.createElement("span"); span.className = "w" + (w.length > 6 && i % 3 === 1 ? " alt" : ""); span.id = "w" + i;
+      span.textContent = w; node.appendChild(span);
+      const at = times[i] || 0;
+      tl.fromTo(span, { opacity: 0, scale: 1.35, y: 20 * u, filter: "blur(10px)" }, { opacity: 1, scale: 1, y: 0, filter: "blur(0px)", duration: 0.28, ease: "power3.out" }, at);
+    });
+    const leave = p + 1 < pages.length ? next - 0.12 : dur - 0.6;
+    tl.to(node, { opacity: 0, scale: 0.96, duration: p + 1 < pages.length ? 0.12 : 0.6, ease: "power2.in" }, Math.max(enter + 0.2, leave));
+  });
+  times.forEach(t => tl.fromTo("#glow", { opacity: 1 }, { opacity: 0.55, duration: 0.35, ease: "power2.out", immediateRender: false }, t));
+  window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

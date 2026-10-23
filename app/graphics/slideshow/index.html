@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<title>Slideshow</title>
+<!-- Imagination Studio motion graphics: pictures with a slow push-in (Ken Burns), a voice line or a song under them.
+     The studio adds the pictures (#slide0 …) and the sound, and writes data.js (window.STUDIO_DATA). -->
+<script src="gsap.min.js"></script>
+<script src="data.js"></script>
+<style>
+  @font-face { font-family: "Instrument Serif"; src: url("fonts/instrument-serif.woff2") format("woff2"); font-weight: 400; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { margin: 0; overflow: hidden; background: #050506; }
+  #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: #050506; --u: 1px; }
+  .slide { position: absolute; inset: 0; opacity: 0; overflow: hidden; }
+  .slide img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.55) 100%); }
+  .titlebox { position: absolute; left: 0; right: 0; bottom: 12%; display: flex; justify-content: center; padding: 0 8%; }
+  #title { display: block; font-family: "Instrument Serif", Georgia, serif; font-size: calc(var(--u) * 92); color: #f4efe6; text-align: center;
+    text-shadow: 0 calc(var(--u) * 3) calc(var(--u) * 24) rgba(0, 0, 0, 0.7); opacity: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="6" data-width="1920" data-height="1080" data-fps="24">
+  <!-- studio:media -->
+  <div class="vignette"></div>
+  <div class="titlebox"><span id="title"></span></div>
+</div>
+<script>
+  const D = window.STUDIO_DATA || {}, root = document.getElementById("root");
+  const u = Math.min(Number(D.width) || 1920, (Number(D.height) || 1080) * 16 / 9) / 1920;
+  root.style.setProperty("--u", u + "px");
+  const n = (D.pictures || []).length, each = Number(D.each) || 4, dur = Number(D.duration) || 6, fade = Math.min(0.9, each * 0.25);
+  // a seeded walk: each picture drifts its own way, the same way at every render
+  let s = (Number(D.seed) || 1) >>> 0; const rand = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  const tl = gsap.timeline({ paused: true });
+  for (let i = 0; i < n; i++) {
+    const slide = "#slide" + i, start = i * each, inward = i % 2 === 0;
+    const dx = (rand() - 0.5) * 6, dy = (rand() - 0.5) * 4;
+    tl.fromTo(slide, { opacity: 0 }, { opacity: 1, duration: i ? fade : 0.6, ease: "power1.inOut" }, Math.max(0, start - (i ? fade / 2 : 0)));
+    tl.fromTo(slide, { scale: inward ? 1.0 : 1.12, xPercent: inward ? 0 : dx, yPercent: inward ? 0 : dy },
+      { scale: inward ? 1.12 : 1.0, xPercent: inward ? dx : 0, yPercent: inward ? dy : 0, duration: each + fade, ease: "none" }, Math.max(0, start - fade / 2));
+    if (i === n - 1) tl.to(slide, { opacity: 0, duration: 0.8, ease: "power1.in" }, dur - 0.8);
+  }
+  if (D.title) {
+    document.getElementById("title").textContent = D.title;
+    tl.fromTo("#title", { opacity: 0, y: 16 * u }, { opacity: 1, y: 0, duration: 1.2, ease: "power2.out" }, 0.5);
+    tl.to("#title", { opacity: 0, duration: 0.8, ease: "power1.in" }, Math.min(dur - 0.8, Math.max(2.5, each - 0.6)));
+  }
+  window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

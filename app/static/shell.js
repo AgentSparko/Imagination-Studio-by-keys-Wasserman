@@ -5,12 +5,17 @@
 // layout hides and orders the rooms (settings.js roomsShown); a hidden room stays in ⌘K.
 const GROUPS = [{ id: "engines", name: "Creative Engines" }, { id: "agent", name: "" }, { id: "vaults", name: "Studio Vaults" }];
 const ROOMS = [
-  { id: "story", group: "engines", name: "Story", key: "1", tabs: ["Story", "Production"], says: "the film: board, Wasserman Slate, First AD" },
+  { id: "video", group: "engines", name: "Video", key: "1", tabs: ["Video", "Create"], says: "clips with sound, long takes, references" },
   { id: "image", group: "engines", name: "Image", key: "2", tabs: ["Image", "Create"], says: "stills, scouts, edit a picture" },
-  { id: "video", group: "engines", name: "Video", key: "3", tabs: ["Video", "Create"], says: "clips with sound, long takes, references" },
-  { id: "previs", group: "engines", name: "Previs", key: "4", tabs: ["Previs", "Motion Previs"], says: "motion from a clip, previs to guide a shot" },
-  { id: "sound", group: "engines", name: "Sound", key: "5", tabs: ["Sound", "Voice", "Music", "Foley"], says: "voices, score and sound effects" },
-  { id: "edit", group: "engines", name: "Edit", key: "6", tabs: ["Edit", "Editor"], says: "the timeline and what goes to Resolve" },
+  { id: "sound", group: "engines", name: "Sound", key: "3", tabs: ["Sound", "Voice", "Music", "Foley"], says: "voices, score and sound effects" },
+  { id: "story", group: "engines", name: "Story", key: "4", tabs: ["Story", "Production"], says: "the film: board, Wasserman Slate, First AD" },
+  // a room of its own for a part that also sits inside a bigger page; `fold`: in the More sheet on a phone, not the bar
+  { id: "cast", group: "engines", name: "Cast & Places", key: "", tabs: ["Cast & Places"], says: "a film's characters and locations, their pictures and LoRAs", fold: true },
+  { id: "director", group: "engines", name: "Director", key: "", tabs: ["Director"], says: "a logline to a written, rendered, checked and cut film", fold: true },
+  { id: "previs", group: "engines", name: "Previs", key: "5", tabs: ["Previs", "Motion Previs"], says: "motion from a clip, previs to guide a shot" },
+  { id: "graphics", group: "engines", name: "Motion graphics", key: "", tabs: ["Motion graphics"], says: "titles, lower thirds, captions, slideshows and music videos", fold: true },
+  { id: "edit", group: "engines", name: "Edit", key: "6", tabs: ["Edit", "Editor", "Graphics", "Finish"], says: "the timeline, motion graphics, the final mix and what goes to Resolve" },
+  { id: "night", group: "engines", name: "Night shift", key: "", tabs: ["Night shift"], says: "a batch rendered overnight, dailies in the morning", fold: true },
   { id: "agent", group: "agent", name: "Agent", key: "", tabs: ["Agent"], says: "ask your agent; it makes it with the studio" },
   { id: "library", group: "vaults", name: "Library", key: "7", tabs: ["Library"], says: "every take" },
   { id: "looks", group: "vaults", name: "Looks", key: "8", tabs: ["Looks"], says: "LoRA styles for pictures and clips" },
@@ -21,7 +26,8 @@ const ROOMS = [
   { id: "settings", group: "vaults", name: "Settings", key: ",", tabs: ["Settings"], says: "looks, layout, presets and connections" },
 ];
 const TAB_NAMES = { Home: "Home", Story: "Overview", Production: "Film", Image: "Overview", Video: "Overview", Create: "Create", Previs: "Overview", "Motion Previs": "Motion Previs",
-  Agent: "Ask your agent", Sound: "Overview", Voice: "Voice", Music: "Music", Foley: "Sound effects", Edit: "Overview", Editor: "Timeline", Library: "Library", Looks: "Looks", Import: "Bring in & send out",
+  Agent: "Ask your agent", Sound: "Overview", Voice: "Voice", Music: "Music", Foley: "Sound effects", Edit: "Overview", Editor: "Timeline", Graphics: "Graphics", Finish: "Finish",
+  "Cast & Places": "Cast & Places", Director: "Director", "Motion graphics": "Motion graphics", "Night shift": "Night shift", Library: "Library", Looks: "Looks", Import: "Bring in & send out",
   Machine: "Telemetry", Models: "Models & weights", Sparks: "Sparks", Brains: "Brains & tools", Updates: "Updates", Tutorial: "Learn", Nodes: "Nodes", Settings: "Settings" };
 // Create is shared by Image and Video: it sits in the room of what the prompt goes to
 const roomOf = t => t === "Create" ? ROOMS.find(r => r.id === (typeof C !== "undefined" && C.goes === "video" ? "video" : "image"))
@@ -54,6 +60,13 @@ const ICON = {
   chev: SVG('<path d="M6 15l6-6 6 6"/>'),
   go: SVG('<path d="M9 6l6 6-6 6"/>'),
   back: SVG('<path d="M15 6l-6 6 6 6"/>'),
+  // the rooms of their own (rooms.js), on the kit's box and stroke: a person and a pin, a clapper, the titles' T with
+  // its motion, a moon, and the sparkles of a LoRA being made
+  cast: KIT("M26 18A6 6 0 1 1 14 18A6 6 0 1 1 26 18Z M8 44C8 34 13 29 20 29C27 29 32 34 32 44 M42 46C42 46 50 37 50 31A8 8 0 1 0 34 31C34 37 42 46 42 46Z M42 31H42.1"),
+  director: KIT("M8 24H48V46H8Z M8 24V16L46 8L48 16Z M20 13.5L24 20.6 M32 11L36 18"),
+  graphics: KIT("M18 12H46 M32 12V44 M8 22H20 M8 30H24 M8 38H20"),
+  night: KIT("M44 33A18 18 0 1 1 23 12A14 14 0 0 0 44 33Z"),
+  train: KIT("M24 8L28 20L40 24L28 28L24 40L20 28L8 24L20 20Z M42 34L44 40L50 42L44 44L42 50L40 44L34 42L40 40Z"),
   more: SVG('<circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/>'),
 };
 const icon = (name, cls) => { const n = el("span", { class: cls || "ico" }); n.innerHTML = ICON[name] || ICON.home; return n; };
@@ -91,7 +104,7 @@ function renderShell() {
     "aria-current": tab === "Home" ? "page" : false, onclick: () => go("Home") }, icon("home", "ic"), el("span", { class: "lbl" }, "Home"))];
   for (const g of GROUPS) { const rooms = shown(ROOMS.filter(x => x.group === g.id)); if (!rooms.length) continue;
     if (g.name) nav.push(el("div", { class: "grp g-" + g.id, role: "presentation" }, g.name));
-    for (const r of rooms) { const b = el("button", { class: now === r && !(r.id === "settings" && aboutOn()) ? "on" : "", "data-room": r.id, "data-group": r.group, title: r.name + ": " + r.says + (r.key ? " (⌥" + r.key + ")" : ""), "aria-current": now === r ? "page" : false, onclick: () => goRoom(r.id) },
+    for (const r of rooms) { const b = el("button", { class: now === r && !(r.id === "settings" && aboutOn()) ? "on" : "", "data-room": r.id, "data-group": r.group, "data-fold": r.fold ? "more" : false, title: r.name + ": " + r.says + (r.key ? " (⌥" + r.key + ")" : ""), "aria-current": now === r ? "page" : false, onclick: () => goRoom(r.id) },
       icon(r.id, "ic"), el("span", { class: "lbl" + (r.name.length > 18 ? " long" : "") }, r.name), r.key ? el("span", { class: "kbd" }, "⌥" + r.key) : null);
       if (r.id === "video" && live && now !== r) b.prepend(el("span", { class: "live", "aria-label": "rendering" }));
       nav.push(b);
@@ -99,7 +112,7 @@ function renderShell() {
       if (r.id === "settings") nav.push(el("button", { class: aboutOn() ? "on" : "", "data-room": "about", "data-group": "vaults", type: "button", title: "About: credits, licences and links",
         "aria-current": aboutOn() ? "page" : false, onclick: () => { if (typeof goSettings === "function") goSettings("about"); else go("Settings"); } }, icon("about", "ic"), el("span", { class: "lbl" }, "About"))); } }
   // phones only (studio.css): the bar keeps the engines and folds the vaults, search and updates into More
-  nav.push(el("button", { class: "more" + (now && now.group !== "engines" ? " on" : ""), "data-room": "more", type: "button", title: "More: the Agent, the Studio Vaults, search and updates", "aria-haspopup": "dialog", onclick: moreOpen },
+  nav.push(el("button", { class: "more" + (now && (now.group !== "engines" || now.fold) ? " on" : ""), "data-room": "more", type: "button", title: "More: the Agent, the Studio Vaults, search and updates", "aria-haspopup": "dialog", onclick: moreOpen },
     icon("more", "ic"), el("span", { class: "lbl" }, "More")));
   $("#rooms").replaceChildren(...nav);
   $("#roomname").textContent = now ? now.name : "Home";
@@ -118,6 +131,9 @@ function moreOpen() { if ($("#moresheet")) return moreClose(); const now = tab =
   const sheet = el("div", { id: "moresheet", onclick: e => { if (e.target.id === "moresheet") moreClose(); } },
     el("div", { class: "box", role: "dialog", "aria-label": "More" },
       shown(ROOMS.filter(r => r.group === "agent")).map(r => row(r.id, r.name, r.says, () => goRoom(r.id), now === r)),
+      // the engines' rooms of their own, which the bar has no room for
+      shown(ROOMS.filter(r => r.fold)).length ? el("div", { class: "grp" }, "Creative Engines") : null,
+      shown(ROOMS.filter(r => r.fold)).map(r => row(r.id, r.name, r.says, () => goRoom(r.id), now === r)),
       el("div", { class: "grp" }, "Studio Vaults"),
       shown(ROOMS.filter(r => r.group === "vaults")).map(r => row(r.id, r.name, r.says, () => goRoom(r.id), now === r, r.key ? "⌥" + r.key : null)),
       el("div", { class: "grp" }, "Studio"), row("search", "Search", "takes, settings and actions", palOpen, false, "⌘K"),
@@ -225,6 +241,14 @@ function palActions() { const a = (ico, label, hint, run, words = "") => ({ ico,
     a("sound", "Record a voice line", "Sound · Fish Audio Drama 3", () => go("Voice"), "fish drama speech"),
     a("sound", "Write a song", "Sound · MiniMax-Music3", () => go("Music"), "minimax music score"),
     a("story", "Plan a film", "Story", () => go("Production"), "slate bible shots first ad"),
+    a("cast", "Cast & Places", "Creative Engines · characters and locations", () => go("Cast & Places"), "bible characters cast locations places faces sheets dialogue"),
+    a("director", "Director", "Creative Engines · a logline to a cut film", () => go("Director"), "direct logline whole film automatic"),
+    a("night", "Night shift", "Creative Engines · render overnight", () => go("Night shift"), "overnight tonight batch dailies sleep render the rest"),
+    a("graphics", "Motion graphics", "Creative Engines · titles, captions, slideshows", () => go("Motion graphics"), "titles lower third captions slideshow music video kinetic type hyperframes"),
+    a("edit", "Finish", "Edit · the final cut and mix", () => go("Finish"), "final mix tesseract premiere after effects resolve"),
+    a("story", "Rough cut", "Production · a film cut to a song", () => { if (typeof slateMode === "function") slateMode("slate", "rough"); else go("Production"); }, "rough cut beat song trailer resolve"),
+    a("train", "Train a LoRA", "Looks · from your own clips", () => { if (typeof LK !== "undefined") LK.train = true; go("Looks"); }, "train lora training character look"),
+    a("library", "Restyle, extend or fix a clip", "Library · under every clip", () => go("Library"), "restyle extend fix revise"),
     a("suite", "Wasserman's Filmmaker Suite", "ScriptBreak · Cork Board · Blockout … built in", () => go("Import"), "import storyboard master canvas fountain suite send out"),
     a("library", "Library", "Studio Vaults", () => go("Library"), "files renders takes"),
     a("looks", "Looks", "LoRA styles", () => go("Looks"), "lora hub style horror"),

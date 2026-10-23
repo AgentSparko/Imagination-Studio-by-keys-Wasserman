@@ -51,7 +51,7 @@ const startShown = (look, id) => (look.start_cards || []).includes(id) || (START
 const homePrefs = () => typeof prefs === "function" ? prefs() : { appearance: { start_cards: ["clip", "scout", "still", "sharp", "long", "voice"], poster: true }, presets: { recipe: "quick", mode: "clip", seconds: 5, seed: "fixed", qa_gate: true, image_model: "qwen" } };
 
 /* ---------- the composer: one box, four kinds of take, one Generate ---------- */
-const HC = { text: "", mode: null, recipe: null, seconds: null, est: {}, made: [], busy: false };
+const HC = { text: "", mode: null, recipe: null, seconds: null, est: {}, made: [], busy: false, image: null };
 const hcSpan = sec => sec == null ? "" : sec < 90 ? Math.round(sec) + " s" : sec < 5400 ? Math.round(sec / 60) + " min" : Math.floor(sec / 3600) + " h " + Math.round(sec % 3600 / 60) + " min";
 const HC_MODES = { clip: ["Clip with sound", "minimax", "MiniMax H3", "Describe the shot: who is there, what happens, what is heard."],
   picture: ["Picture", "qwen", "Qwen 2.1", "Describe the picture: the subject, the place, the light, the lens."],
@@ -84,8 +84,9 @@ async function hcRequest(mode, text, seed, retake) {
   const p = homePrefs().presets;
   if (mode === "clip") { const r = typeof recipeParams === "function" ? recipeParams(hcRecipe()) : { preset: "small", quality: "fh4" };
     const seconds = hcSeconds(), long = hcLongs()[seconds];
-    const composed = await api("/api/compose", { fields: { scene: text, action: "", camera: "", dialogue: [], soundscape: "", music: "N/A" }, first_frame: false, last_frame: false, seconds: long ? 15 : seconds });
-    const params = { prompt: composed.prompt, image: null, preset: r.preset, quality: r.quality, seed: r.seed && !retake ? r.seed : seed, ...(p.qa_gate ? {} : { qa: false }) };
+    const still = !long && HC.image || null;
+    const composed = await api("/api/compose", { fields: { scene: text, action: "", camera: "", dialogue: [], soundscape: "", music: "N/A" }, first_frame: !!still, last_frame: false, seconds: long ? 15 : seconds });
+    const params = { prompt: composed.prompt, image: still, preset: r.preset, quality: r.quality, seed: r.seed && !retake ? r.seed : seed, ...(p.qa_gate ? {} : { qa: false }) };
     return long ? ["/api/jobs", { kind: "long", title: long + ": " + hcTitle(text).slice(0, 40), params: { ...params, total_seconds: seconds, beats: [] } }]
       : ["/api/jobs", { kind: "video", title: hcTitle(text), params: { ...params, seconds } }]; }
   if (mode === "picture") return ["/api/jobs", { kind: "scout", title: "Still: " + hcTitle(text).slice(0, 40), params: { prompt: text, count: 1, seed, preset: "2k", image_model: hcPictureModel() } }];
@@ -99,7 +100,7 @@ async function hcGenerate(again) {
   try { const [path, body] = await hcRequest(mode, text, again ? again.seed + 1 : hcSeed(), !!again);
     const job = await api(path, body), seed = (body.params ? body.params.seed : body.seed) || 1;
     HC.made.unshift({ id: job.id, mode, text, seed, title: job.title || hcTitle(text) }); HC.made = HC.made.slice(0, 12);
-    toast("Queued: " + (job.title || hcTitle(text))); if (typeof poll === "function") await poll(); }
+    HC.image = null; toast("Queued: " + (job.title || hcTitle(text))); if (typeof poll === "function") await poll(); }
   catch (e) { toast(e.message, 6000); }
   HC.busy = false; render(); }
 // the full form for this kind of take, with the words carried over
@@ -107,6 +108,10 @@ function hcMore() { const mode = hcMode(), text = HC.text.trim();
   if (mode === "voice") { if (typeof VO !== "undefined") VO.text = text; return go("Voice"); }
   if (mode === "song") { if (typeof MU !== "undefined") { if (/\[[A-Za-z-]+\]/.test(text)) MU.lyrics = text; else MU.caption = text; } return go("Music"); }
   Object.assign(C, mode === "clip" ? { goes: "video", start: "text", ...(HC.seconds ? { seconds: HC.seconds } : {}) } : { goes: "image", imageModel: hcPictureModel() }); C.step = 0; C.scene = text; sync(); C.prompt = text; go("Create"); }
+// a shot from the suite fills the box: its words, its length (the nearest the model makes) and its still as the first frame
+function hcFromSuite(p) { HC.text = p.prompt || ""; HC.mode = "clip"; HC.image = p.image || null;
+  if (p.seconds) { const have = Object.keys((S && S.durations) || {}).map(Number); HC.seconds = have.length ? have.reduce((a, b) => Math.abs(b - p.seconds) < Math.abs(a - p.seconds) ? b : a) : Math.round(p.seconds); }
+  render(); }
 function hcAgent() { const text = HC.text.trim(); if (typeof AG !== "undefined") { AG.prompt = text; AG.draft = text; } if (typeof window !== "undefined") window.AGENT_DRAFT = text; go("Agent"); }
 function hcMade() { if (!HC.made.length) return null;
   return el("div", { class: "cmp-made" }, el("span", { class: "eyebrow" }, "Just made"), el("div", { class: "strip2" }, HC.made.map(m => { const j = jobs.find(x => x.id === m.id) || { status: "queued" };
@@ -133,6 +138,8 @@ function homeComposer() {
         onclick: () => { HC.recipe = ids[(ids.indexOf(rec) + 1) % ids.length]; render(); } }, el("span", { class: "eyebrow" }, "Recipe"), recipes[rec]) : null,
       mode === "clip" ? hcLength() : null,
       el("button", { type: "button", class: "ghost cmp-agent", onclick: hcAgent }, "Ask your agent instead"),
+      typeof suitePromptPicker === "function" ? el("button", { type: "button", class: "ghost cmp-suite", onclick: () => suitePromptPicker(hcFromSuite) }, "From the suite") : null,
+      mode === "clip" && HC.image ? el("span", { class: "tag2", title: HC.image }, "First frame: " + HC.image.split("/").pop(), el("button", { type: "button", class: "small ghost", "aria-label": "Take the first frame off", onclick: () => { HC.image = null; render(); } }, "Remove")) : null,
       el("span", { class: "su-grow" }),
       el("a", { href: "#Create", class: "cmp-more", onclick: e => { if (e.preventDefault) e.preventDefault(); hcMore(); } }, "More options →")),
     hcMade()); }
@@ -161,6 +168,7 @@ function viewHome() {
       el("div", { class: "cap" }, el("span", {}, m.path.split("/").pop()), m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline")
         : el("button", { class: "small", onclick: () => startCreate({ image: m.path, goes: "video", start: "own" }, 1) }, "animate"))))
       : [el("div", { class: "note" }, "Nothing rendered yet. Your takes will line up here.")])); }).catch(() => recent.replaceChildren(el("div", { class: "note" }, "The Library could not be read.")));
+  if (typeof nightPanel === "function") put(wrap, el("div", { class: "sectionhead" }, el("h2", {}, "Night shift"), el("span", { class: "note" }, "A batch rendered while you sleep, with dailies in the morning.")), nightPanel());
   put(wrap, el("div", { class: "sectionhead" }, el("h2", {}, "Machine")), machineStrip());
   put(wrap, el("div", { class: "sectionhead" }, el("h2", {}, "Wasserman's Filmmaker Suite"), el("button", { class: "small", onclick: () => go("Import") }, "The whole suite, built in →")),
     el("div", { class: "suiteRow" }, SUITE_APPS.map(([n, s]) => el("button", { class: "app", type: "button", title: s, onclick: () => go("Import") },

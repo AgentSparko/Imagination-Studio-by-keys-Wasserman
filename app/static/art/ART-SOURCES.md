@@ -61,7 +61,6 @@ Rendered for this app on 2026-10-18 with the studio's own Image Engine (FLUX3-K 
 - art/act-story-slate.webp
 - art/act-video-own.webp
 - art/act-video-refs.webp
-- art/look-3d-animation-style.webp
 - art/look-anime-slider.webp
 - art/look-camera-motion.webp
 - art/look-character-swap.webp
@@ -90,3 +89,5 @@ Sam Wasserman's own custom artwork for the engines, the start and action cards a
 ## Vault covers (2026-10-18)
 
 Sam Wasserman's own art: art/vault-library.webp, art/vault-looks.webp, art/vault-suite.webp, art/vault-nodes.webp, art/vault-agent.webp.
+Sam Wasserman's own art: art/engine-cast.webp (Cast & Places), art/engine-director.webp (Director), art/engine-night.webp
+(Night shift) and art/looks/realism-people.webp (the Realism People card in Looks).

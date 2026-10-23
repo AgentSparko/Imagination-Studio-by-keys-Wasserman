@@ -231,3 +231,114 @@ runs nothing of the container.
 
 On a Mac, with `BOLT_BACKEND=llamacpp`, Bolt runs in llama.cpp's `llama-server` (MIT, Georgi Gerganov and the ggml
 contributors), which the person builds; none of its code is in this pack.
+
+# Third-party notices: Graphics, Finish, LoRA training and the Night shift
+
+The Graphics tab (`app/graphics.py`, `app/graphics/`, `scripts/setup-graphics.sh`), Finish (`app/finish.py`,
+`scripts/setup-finish.sh`), Looks → Train a LoRA (`app/train.py`, `spark/setup-train.sh`) and the Night shift's phone
+notifications (`app/push.py`) run the programs below. None of it is in this repository except the two typefaces; each
+installer downloads its pieces from the author's own page, at the version named here, into `$PREFIX`.
+
+## HyperFrames (HeyGen)
+
+- The `hyperframes` npm package 0.8.186, <https://github.com/heygen-com/hyperframes>. Apache License 2.0 (the
+  package's `license` field).
+- Renders the Graphics tab: a web page seeked frame by frame in a headless browser and encoded with FFmpeg. Installed
+  at this pinned version into `$PREFIX/graphics/node_modules` by `scripts/setup-graphics.sh`; used unmodified.
+
+## GSAP (GreenSock, part of Webflow)
+
+- The `gsap` npm package 3.14.2, <https://gsap.com>, <https://github.com/greensock/GSAP>. Licence: the GSAP Standard
+  "no charge" License, <https://gsap.com/standard-license>. It is not an open-source licence.
+- Writes the motion of every Graphics template. Free of charge to use, commercial use included; the licence keeps GSAP's
+  and Webflow's rights, and does not allow using GSAP to build a product that competes with Webflow's visual animation
+  tools. It is installed from npm, not redistributed by this pack. Read the licence on gsap.com before building on it.
+
+## Playwright and Chromium (Microsoft, Google)
+
+- `playwright` 1.64.1, <https://github.com/microsoft/playwright>. Apache License 2.0.
+- On a machine with no Chromium of its own, notably a DGX Spark (Linux arm64), `scripts/setup-graphics.sh` runs
+  `npx playwright install chromium-headless-shell` to fetch the Chromium headless shell that HyperFrames renders in.
+  Chromium (The Chromium Authors) is BSD-3-Clause, with third-party components under their own licences listed in the
+  browser's `about:credits`. It runs as a separate program; none of it is bundled here.
+
+## Node.js (OpenJS Foundation)
+
+- Node.js 22.23.4, <https://nodejs.org>. MIT License, with the licences of the libraries it bundles at
+  <https://github.com/nodejs/node/blob/main/LICENSE>.
+- When the machine's own Node is older than 22, `scripts/setup-graphics.sh` unpacks the official tarball (SHA-256
+  checked against nodejs.org) into `$PREFIX/graphics/node`, for HyperFrames only. Nothing is installed system-wide.
+
+## Geist and Instrument Serif
+
+- **Geist** and **Geist Mono**, Copyright 2024 The Geist Project Authors, <https://github.com/vercel/geist-font>.
+  **Instrument Serif**, Copyright 2022 The Instrument Serif Project Authors, <https://github.com/Instrument/instrument-serif>.
+- SIL Open Font License, Version 1.1, <https://openfontlicense.org>. The full text is beside each font:
+  `app/static/fonts/OFL-geist.txt` and `app/static/fonts/OFL-instrument-serif.txt`, and the Graphics tab copies both with
+  the font files into every project it renders. The fonts are used unmodified; they may be used, copied and bundled
+  with software, but not sold on their own, and the licence text and copyright lines travel with them. Finish's title
+  card and captions use the same two fonts.
+
+## DejaVu Sans and Serif
+
+- Bitstream Vera Fonts Copyright 2003 Bitstream, Inc.; changes by the DejaVu authors are in the public domain.
+  Licence: <https://dejavu-fonts.github.io/License.html> (free to use, copy and bundle, not to be sold alone; a renamed
+  modification may not carry the Bitstream or Vera name).
+- Not bundled. Finish's title cards and the Night shift's title slates in the dailies reel draw with the DejaVu fonts
+  already on the machine, when they are installed (fontconfig's sans, then `DejaVuSans.ttf`), else Helvetica.
+
+## Mirage's Tesseract and Tesseract Converter
+
+- **Tesseract** (`tsrct`) 0.4.0 by Mirage US LLC, <https://github.com/mirage-hq/tesseract>. Licence: Mirage's own terms,
+  `TERMS.md` in the download and at <https://github.com/mirage-hq/tesseract/blob/main/TERMS.md>. It is free to download and
+  use but is **not open source**. Renders Finish's final cut and mix on the person's own computer. What to know:
+  - commercial use by a business whose yearly revenue is US$1,000,000 or more needs a separate written agreement with
+    Mirage; personal, non-profit, educational and governmental use does not (the terms' revenue threshold, section 2.2.3);
+  - the program may not be redistributed, sold, offered as a service, or used to build a product that competes with it
+    (section 2.2.2), so this pack does not ship it: `scripts/setup-finish.sh` downloads Mirage's own release, checks its
+    SHA-256, and installs it on the person's machine;
+  - its releases send basic usage counts for some commands (no file names, paths or contents) unless
+    `tsrct telemetry disable` is run. The studio never changes that setting.
+- **Tesseract Converter** (`tsrct-conv`) 0.3.0, <https://github.com/mirage-hq/Tesseract-Converter>. MIT License, Copyright
+  (c) tesseract-conv contributors. Turns the cut into a Premiere Pro or After Effects project; downloaded and checked the
+  same way.
+
+## kohya-ss's musubi-tuner
+
+- <https://github.com/kohya-ss/musubi-tuner> at commit `f8a1b03794a49239a3539015075f5123d6c07d66` (version 0.3.6),
+  Apache License 2.0. At that commit the repository has no separate LICENSE file; its README says "Other code is under
+  the Apache License 2.0", and names directories modified from other projects that keep those projects' licences
+  (HunyuanVideo's own licence for `hunyuan_model`; Apache-2.0 for Wan2.1, FramePack and comfy-kitchen).
+- Trains the LoRA in Looks → Train a LoRA. Cloned unmodified into `$PREFIX/train/musubi-tuner` by `spark/setup-train.sh`.
+  Licence text: the README's License section at that commit.
+
+## bitsandbytes
+
+- Tim Dettmers and the bitsandbytes Foundation contributors, <https://github.com/bitsandbytes-foundation/bitsandbytes>.
+  MIT License.
+- Gives the trainer its 8-bit AdamW optimizer, installed from PyPI into the training environment. Where it does not run
+  on the GPU, the plain AdamW is used instead.
+
+## Training files for MiniMax H3 (Comfy Org, ostris)
+
+- `vae/minimax_h3_video_vae_fp16.safetensors` from Comfy-Org/MiniMax-H3 on Hugging Face: MiniMax H3's video encoder in
+  fp16, which musubi-tuner reads. MiniMax H3 Community License Agreement, Copyright 2026 MiniMax, which limits the
+  territories in which MiniMax H3 may be used: <https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE>.
+- `ostris/minimax_h3_training_adapter` on Hugging Face, file `minimax_h3_training_adapter_v2.safetensors`: ostris's
+  de-distillation adapter, merged under a LoRA while it trains and not used when it renders. The repository states no
+  licence of its own. It is made from MiniMax H3 and is used under the MiniMax H3 Community License Agreement, above.
+- Neither file is in this pack; the installer downloads each from its page and checks its SHA-256.
+
+## pywebpush and cryptography
+
+- **pywebpush**, the web-push-libs contributors, <https://github.com/web-push-libs/pywebpush>. Mozilla Public License
+  2.0: its source files stay under that licence if changed and redistributed; this pack uses it unmodified from PyPI.
+- **cryptography**, the Python Cryptographic Authority, <https://github.com/pyca/cryptography>. Apache License 2.0 or BSD
+  3-Clause, at the user's choice.
+- Sign and send the Night shift's Web Push notifications to a phone; installed by `oneshot-setup.sh` when they can be.
+
+## faster-whisper (SYSTRAN)
+
+- <https://github.com/SYSTRAN/faster-whisper>. MIT License. With the CTranslate2 conversion `faster-whisper-large-v3-turbo`
+  by Mobius Labs (MIT), it hears the spoken words for the QA gate's and Voice's checks. Installed from PyPI; if it is
+  not there that check is skipped.

@@ -103,3 +103,15 @@ def test_install_of_a_gated_lora_answers_with_the_gate_and_starts_nothing(hub):
 
 def test_the_token_is_only_saved_from_this_computer(hub):
     assert client.post("/api/hf/token", json={"token": GOOD}, headers={"host": "192.168.1.20:7870"}).status_code == 403
+
+
+def test_a_withdrawn_lora_is_not_brought_back_by_a_bundles_menu(tmp_path, monkeypatch):
+    """A package's bundle.json may still list a LoRA the studio withdrew; a new one it brings is still shown."""
+    folder = tmp_path / "bundle"
+    folder.mkdir()
+    (folder / "bundle.json").write_text(json.dumps({"loras": [
+        {"id": "3d-animation-style", "name": "3D Animation Style", "url": "https://example.com/a.safetensors"},
+        {"id": "brand-new-look", "name": "Brand New Look", "url": "https://example.com/b.safetensors"}]}))
+    monkeypatch.setenv("LORA_BUNDLE", str(folder))
+    ids = {r["id"] for r in client.get("/api/loras").json()}
+    assert "brand-new-look" in ids and "3d-animation-style" not in ids

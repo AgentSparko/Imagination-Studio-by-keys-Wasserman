@@ -542,33 +542,6 @@
   "tested": "Mac, DGX Spark"
  },
  {
-  "id": "3d-animation-style",
-  "name": "3D Animation Style",
-  "author": "SOLRICKS",
-  "url": "https://huggingface.co/SOLRICKS/3D-Animation-Style-MiniMax-H3/resolve/main/3dsrx_minimax_h3_rank16-step00001250.safetensors",
-  "page": "huggingface.co/SOLRICKS/3D-Animation-Style-MiniMax-H3",
-  "sha256": "28b56d2240990436fba8d9a1fa06310c971a7ef95d3046059118445e0c0a4ef0",
-  "size": 298260424,
-  "trigger": "3dsrx",
-  "styles": {},
-  "strength": 0.8,
-  "range": [
-   0.4,
-   1.0
-  ],
-  "base": "MiniMax H3",
-  "licence": "The weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement, with its territory limits, commercial terms and Acceptable Use Policy. Read the licence on the LoRA's page before downloading.",
-  "licence_tag": "H3 Community, gated",
-  "category": [
-   "style"
-  ],
-  "needs": "text",
-  "what": "The look of a 3D animated feature.",
-  "status": "ready",
-  "notes": "Start the prompt with 3dsrx. The author's settings: 0.8 for people from text, 1.0 for animals, fantasy characters and places, 0.4 from a first frame. Tested on a DGX Spark at 1.0 (same seed with and without: the clip turns into a 3D animated film). On a Mac the file is rewritten for the engine, but no clip has been rendered with it yet. The author approves each download by hand: ask on the LoRA's page with your Hugging Face account, then Install fetches it with that account's token.",
-  "tested": "DGX Spark"
- },
- {
   "id": "video-upscaler",
   "name": "Video Upscaler LoRA",
   "author": "dntpi",
@@ -689,5 +662,33 @@
   "notes": "Prompt shape: '<mva> front-right quarter view, eye-level shot'; the camera ring writes it. v2, step 1500, is the file the author recommends. Trained on single objects and characters: side and back views often come back on a plain background. Lower the strength towards 0.8 if a result copies your picture. A picture of a whole scene is often reduced to one thing in it on a plain background (measured on both machines). Measured here on Turbo's 8 steps: the quarter views turn the way asked, but a straight left side view and a straight right side view can come out facing the same way. The author's own setting is 40 steps on the base model (the installers' --image-edit adds it; not measured here).",
   "target": "image",
   "tested": "Mac, DGX Spark"
+ },
+ {
+  "id": "realism-people",
+  "name": "Realism People",
+  "author": "fal",
+  "url": "https://huggingface.co/fal/MiniMax-H3-Realism-People-LoRA/resolve/main/h3-realism-people-t2v-i2v-r2v.safetensors",
+  "page": "huggingface.co/fal/MiniMax-H3-Realism-People-LoRA",
+  "sha256": "acc529601d2da117fb81179e76c56e488a3beab1171659d305f04fa3655b787e",
+  "size": 131229656,
+  "trigger": "r34l1sm",
+  "styles": {},
+  "comma": true,
+  "strength": 1.0,
+  "range": [
+   0.6,
+   1.2
+  ],
+  "base": "MiniMax H3",
+  "licence": "The weights are a Model Derivative of MiniMax H3 under the MiniMax H3 Community License Agreement, with its territory limits, commercial terms and Acceptable Use Policy. Read the licence on the LoRA's page before downloading.",
+  "licence_tag": "H3 Community",
+  "category": [
+   "style"
+  ],
+  "needs": "text",
+  "status": "ready",
+  "why": "",
+  "what": "Realistic people: faces that hold up in close-up, natural skin texture, believable expressions and film-style light.",
+  "notes": "The author's settings: strength 1.0 as intended, 0.6 to 0.8 for a lighter touch; the trigger word opens the prompt. Works for text to video, a first frame and reference pictures (Ref2VA), and keeps the clip's own sound."
  }
 ]

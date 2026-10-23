@@ -114,6 +114,24 @@ def test_an_imported_take_joins_the_shots_takes():
     assert got["line"] == "seed 43 · sharp · 124 frames · fh8 · LoRA camera-motion · imported from 10.0.10.5:7870 · 2026-10-13 17:00"
 
 
+def test_a_save_of_a_film_the_server_changed_reloads_it():
+    got = run("""
+      const mine = film(); mine.updatedAt = "2026-10-13T17:00:00.000Z"; SL.p = mine;
+      const theirs = { ...film(), name: "Written by the Director", updatedAt: "2026-10-13T17:05:00.000Z" };
+      globalThis.api = async (path, body, method) => { calls.push([path, method || (body ? "POST" : "GET")]);
+        if (method === "PUT") { if (body.updatedAt < theirs.updatedAt) throw new Error("the film changed on the server since it was loaded"); return { updatedAt: "2026-10-13T17:06:00.000Z" }; }
+        return theirs; };
+      slSave(); await new Promise(done => setTimeout(done, 600));
+      out.calls = calls.slice(); out.name = SL.p.name; out.toast = toasts.pop();
+      SL.p.name = "Renamed"; await slPut(); out.after = SL.p.updatedAt;  // a save of the reloaded film goes through, and keeps the new stamp
+    """)
+    if got is None:
+        return
+    assert got["calls"] == [["/api/slate/projects/p-test", "PUT"], ["/api/slate/projects/p-test", "GET"]]
+    assert got["name"] == "Written by the Director" and got["toast"] == "The film changed on the server (a render or the Director): reloaded."
+    assert got["after"] == "2026-10-13T17:06:00.000Z"
+
+
 def test_the_first_ad_sets_the_song_a_shots_bars_and_its_lora():
     got = run("""
       SL.p = film(); LORAS[0].styles = { Orbit: "orbit shot" }; LORAS[0].strength = 0.9; LORAS[0].needs = "text"; LORAS[0].status = "ready";
@@ -171,6 +189,62 @@ def test_the_views_draw_with_a_song_a_shot_lora_and_an_imported_take():
     assert "a note for people, kept out of the prompt" in got["shots"]
     assert "1 of 1 shots have a finished take" in got["deliver"] and "2 bars" in got["deliver"]
     assert "The tempo is yours to give" in got["no_song"] and "Slot, in bars" not in got["shots_no_song"]
+
+
+def test_the_bible_tab_sheets_and_takes_offer_faces_places_and_voices():
+    """The Bible tab's choices (the bible used automatically, who speaks the dialogue), a character sheet's turnaround,
+    a location sheet's plate and pinned pictures, the LoRA on both, the shot's own dialogue choice, and a take's
+    "Keep this voice" buttons, each drawn and clicked without the browser."""
+
+    got = run("""
+      const find = (node, test) => !node || typeof node !== "object" ? null : Array.isArray(node) ? node.map(n => find(n, test)).find(Boolean) || null : test(node) ? node : find(node.kids, test);
+      const button = (root, words) => find(root, n => n.tag === "button" && text(n).includes(words));
+      SL.data = { categories: [{ id: "c", label: "Light", setups: [] }], plans: [], profiles: [] }; S.sharp = null; S.ref2va = true; S.presets = { small: { size: [864, 480] } };
+      // a film made before the settings: shown (and kept) as it renders; a new one gets the bible and the video model's dialogue
+      const before = film(); before.voices = [{ id: "v0", drama: { path: "voice/o.wav", seconds: 3, use: true } }]; SL.p = before; slBible(); out.old = { bible: SL.p.tf.bible, dialogue: SL.p.tf.dialogue };
+      answers["/api/slate/projects"] = film(); const home = slHome(); find(home, n => n.tag === "input").value = "New";
+      await find(home, n => n.tag === "button" && text(n) === "Create").attrs.onclick(); answers["/api/slate/projects"] = undefined; out.made = SL.p !== before;
+      SL.p.characters.push({ id: "char-leo", name: "Leo", images: ["casting/leo.png"] });
+      SL.p.locations.push({ id: "loc-1", name: "Walkway", description: "a paved walkway under old trees", images: [] });
+      out.bible = text(slBible()); out.film = { ...SL.p.tf };
+      // a character sheet: its turnaround, queued from the reference still and pinned when done
+      SL.sheet.cast = "char-leo"; const cast = slSheets("cast"); out.cast = text(cast);
+      answers["/api/jobs"] = { id: "j-turn" }; await button(cast, "Make a turnaround").attrs.onclick();
+      out.turnJob = calls.filter(c => c[0] === "/api/jobs").pop()[1];
+      jobs.push({ id: "j-turn", status: "done", outputs: ["scouts/j-turn/turn_sheet.png", "scouts/j-turn/turn_view1.png", "scouts/j-turn/turn_view2.png"] });
+      slSheets("cast"); slSheets("cast"); out.pinned = SL.p.characters[0].images;
+      // a location sheet: a plate from its description, pinned when done; a LoRA with a strength
+      SL.studio = "locations"; const place = slSheets("locations"); out.place = text(place);
+      answers["/api/jobs"] = { id: "j-plate" }; await button(place, "Make a plate").attrs.onclick();
+      out.plateJob = calls.filter(c => c[0] === "/api/jobs").pop()[1];
+      jobs.push({ id: "j-plate", status: "done", outputs: ["scouts/j-plate/scout_s1.png", "scouts/j-plate/sheet.jpg"] });
+      slSheets("locations"); out.plates = SL.p.locations[0].images;
+      SL.p.locations[0].lora = { id: "camera-motion", strength: 0.7 }; out.placeLora = text(slSheets("locations"));
+      // a shot with a line: the shot's own dialogue choice, and on its take a button per speaker
+      slApply([{ type: "create_scene", name: "Scene 1" }, { type: "create_shot", scene: "Scene 1", name: "1.1", cast: ["Leo"], prompt: "# Subject\\nLeo waves." }]);
+      const scene = SL.p.scenes[0], shot = scene.shots[0]; slTf(shot).lines = [{ characterId: "char-leo", voiceId: null, text: "Over here.", language: "English", sung: false }];
+      shot.takes.push({ id: "take-1", loggedAt: "2026-10-13T17:00:00.000Z", mediaPath: "slate/p/takes/x.mp4", seed: 3, rating: "good", notes: "" }); SL.have["slate/p/takes/x.mp4"] = true;
+      SL.plan[shot.id] = { prompt: "p", mode: "references", chars: 1, warnings: [], plan: { seconds: 5, frames: 124, quality: "fh8", preset: "small", references: ["casting/leo.png"] } };
+      const roll = slRoll(scene, shot); out.roll = text(roll);
+      const kept = film(); kept.voices = [{ id: "v1", characterId: "char-leo", drama: { path: "voice/k.wav", seconds: 4.2, use: true } }]; kept.characters = SL.p.characters; answers["/api/slate/voice-from-take"] = kept;
+      await button(roll, "Keep this voice for Leo").attrs.onclick(); out.keep = calls.filter(c => c[0] === "/api/slate/voice-from-take").pop()[1]; out.kept = SL.p.voices[0].drama; out.toast = toasts.pop();
+    """)
+    if got is None:
+        return
+    assert "Faces, places and voices" in got["bible"] and "Used automatically" in got["bible"]
+    assert "Dialogue spoken by the video model" in got["bible"] and "Dialogue voiced by Drama 3 and matched" in got["bible"]
+    assert got["film"]["bible"] == "auto" and got["film"]["dialogue"] == "h3"
+    assert got["old"] == {"bible": "off", "dialogue": "drama3"} and got["made"]  # a film made before the settings shows what it renders
+    assert "Continuity stills" in got["cast"] and "Make a turnaround" in got["cast"] and "Make reference pictures from the sheet" in got["cast"]
+    assert got["turnJob"] == {"kind": "turnaround", "title": "Turnaround: Leo", "params": {"image": "casting/leo.png", "size": 1024, "strength": 1, "seed": 0}}
+    assert got["pinned"] == ["casting/leo.png", "scouts/j-turn/turn_sheet.png", "scouts/j-turn/turn_view1.png", "scouts/j-turn/turn_view2.png"]
+    assert "Plates" in got["place"] and "Make a plate" in got["place"] and "LoRA" in got["place"] and "Camera Motion" in got["place"]
+    assert got["plateJob"]["kind"] == "scout" and got["plateJob"]["params"]["count"] == 1 and got["plateJob"]["params"]["prompt"].startswith("Walkway: a paved walkway under old trees")
+    assert got["plates"] == ["scouts/j-plate/scout_s1.png"]
+    assert "Strength" in got["placeLora"]
+    assert "Dialogue: the film's (spoken by the video model)" in got["roll"] and "Dialogue voiced by Drama 3 and matched" in got["roll"] and "BIBLE PICTURES" in got["roll"]
+    assert got["keep"] == {"project": "p-test", "shot": got["keep"]["shot"], "take": "take-1", "character": "char-leo"}
+    assert got["kept"]["path"] == "voice/k.wav" and got["toast"].startswith("Kept as the voice of Leo, 4.2 s")
 
 
 if __name__ == "__main__":

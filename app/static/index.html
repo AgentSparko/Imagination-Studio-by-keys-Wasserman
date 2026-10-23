@@ -57,18 +57,29 @@ try { const a = JSON.parse(localStorage.getItem("studio-look") || "null"), c = d
 <script src="machine.js"></script>
 <script src="agent.js"></script>
 <script src="suite.js"></script>
+<script src="suitelinks.js"></script>
 <script src="slate.js"></script>
+<script src="director.js"></script>
 <script src="motion.js"></script>
 <script src="actions.js"></script>
+<script src="captions.js"></script>
+<script src="revise.js"></script>
+<script src="train.js"></script>
+<script src="finish.js"></script>
 <script src="edit.js"></script>
 <script src="sparks.js"></script>
 <script src="voice.js"></script>
 <script src="music.js"></script>
+<script src="roughcut.js"></script>
 <script src="sound.js"></script>
+<script src="graphics.js"></script>
 <script src="updates.js"></script>
 <script src="settings.js"></script>
 <script src="nodes.js"></script>
 <script src="discover.js"></script>
+<script src="nightshift.js"></script>
+<script src="rooms.js"></script>
+<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});  // notifications (sw.js)</script>
 <script>
 "use strict";
 if (location.search.includes("shot")) document.write('<img src="/api/wait?ms=4000" style="display:none">');
@@ -135,7 +146,7 @@ async function clearOut(body, ask) { if (ask && !confirm(ask + "\nFiles are move
   } catch (e) { toast(e.message); } await poll(); render(); }
 
 let S = null, jobs = [], tab = "Home", project = null;
-const TABS = ["Home", "Story", "Image", "Video", "Previs", "Sound", "Edit", "Create", "Production", "Import", "Motion Previs", "Agent", "Voice", "Music", "Foley", "Editor", "Library", "Looks", "Machine", "Models", "Sparks", "Brains", "Updates", "Tutorial", "Nodes", "Settings"];
+const TABS = ["Home", "Story", "Image", "Video", "Previs", "Sound", "Edit", "Create", "Production", "Import", "Motion Previs", "Agent", "Voice", "Music", "Foley", "Editor", "Graphics", "Finish", "Cast & Places", "Director", "Motion graphics", "Night shift", "Library", "Looks", "Machine", "Models", "Sparks", "Brains", "Updates", "Tutorial", "Nodes", "Settings"];
 const C = { step: 0, mode: "scout", preset: "draft", quality: "standard", seconds: 5, seed: 1, scene: "", action: "", camera: "",
   dialogue: [], soundscape: "", music: "N/A", imagePrompt: "", image: null, scoutJob: null, prompt: "", job: null, count: 4, imageSize: "1344x768", imageJob: null, imageModel: "qwen", beats: "", cw: 864, ch: 480, steps: "", loras: [], textEncoder: "", lastImage: null, frames: null, retake: false, negations: [], negFor: null };
 let LORAS = [];  // the LoRA hub's recipes, with whether each is installed here
@@ -855,7 +866,8 @@ function viewEditor() {
         el("div", { class: "cap" }, m.path.split("/").pop().slice(0, 20), el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline"))))));
     if (tl.length) load(0, false);
   }).catch(e => put(box, el("div", { class: "note" }, e.message)));
-  return box;
+  // the Finish engine (finish.js): the final cut and mix of this timeline, to Resolve, Premiere or After Effects
+  return typeof finishPanel === "function" ? el("div", {}, box, finishPanel(project)) : box;
 }
 
 /* ---------- Library ---------- */
@@ -876,24 +888,26 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
     // a kind is a clip, a still, or one of the sounds: a voice line, a song, a sound effect
     const kindOf = m => m.kind === "audio" ? (m.sound || "sfx") : m.kind, kindList = all_.filter(m => LIBF.kind === "all" || kindOf(m) === LIBF.kind);
     const hits = () => { const words = LIBF.q.trim().toLowerCase().split(/\s+/).filter(Boolean); return kindList.filter(m => words.every(w => (m.path + " " + (m.spark || "")).toLowerCase().includes(w))); };
-    let list = hits();
+    let list = hits(); const capBar = capSearch(() => grid, () => show()); if (!CAP.map) capLoad().then(() => { if (tab === "Library") render(); });
     const kinds = { all: "Everything", video: "Clips", image: "Stills", voice: "Voice", music: "Music", sfx: "Sound effects" }, n = k => k === "all" ? all_.length : all_.filter(m => kindOf(m) === k).length;
     const find = el("input", { type: "search", placeholder: "Find by name, folder or Spark", value: LIBF.q, style: "max-width:320px", "aria-label": "Find in the Library" });
     let wait = null; const apply = () => { clearTimeout(wait); if (LIBF.q === find.value) return; LIBF.q = find.value; list = hits(); const on = new Set(list.map(m => m.path));
       for (const t of grid.children) t.style.display = on.has(t.dataset.path) ? "" : "none"; tally.textContent = list.length + (list.length === all_.length ? "" : " of " + all_.length); show(); };
     find.addEventListener("input", () => { clearTimeout(wait); wait = setTimeout(apply, 150); }); find.addEventListener("change", apply);
     find.addEventListener("keydown", e => { if (e.key === "Enter") apply(); });
-    put(box, el("div", { class: "row", style: "align-items:center;margin-bottom:6px" }, el("div", { class: "chips fit" }, Object.entries(kinds).map(([k, t]) => el("button", { class: "small" + (LIBF.kind === k ? " on" : ""), onclick: () => { LIBF.kind = k; render(); } }, t + " · " + n(k)))), el("span"), el("div", { class: "fit" }, find)));
+    put(box, el("div", { class: "row", style: "align-items:center;margin-bottom:6px" }, el("div", { class: "chips fit" }, Object.entries(kinds).map(([k, t]) => el("button", { class: "small" + (LIBF.kind === k ? " on" : ""), onclick: () => { LIBF.kind = k; render(); } }, t + " · " + n(k)))), el("span"), el("div", { class: "fit" }, find), capBar.box));
     const many = el("button", { class: "fit", onclick: () => clearOut({ paths: [...LIBPICK], films: true }, "Delete the " + count(LIBPICK.size, "selected file") + "?") });
-    const all = el("button", { class: "fit", onclick: () => { const every = LIBPICK.size === list.length; LIBPICK.clear(); if (!every) for (const m of list) if (m.kind !== "audio") LIBPICK.add(m.path); render(); } }, LIBPICK.size && LIBPICK.size === list.length ? "Select none" : "Select all");
-    const show = () => { many.textContent = "Delete selected (" + LIBPICK.size + ")"; many.disabled = !LIBPICK.size; all.textContent = LIBPICK.size && LIBPICK.size === list.length ? "Select none" : "Select all"; }; show();
+    // Select all takes what is shown: the search's matches while searching, else the listing
+    const pool = () => { const f = capBar.found ? capBar.found() : []; return f.length ? f : list.filter(m => m.kind !== "audio").map(m => m.path); };
+    const all = el("button", { class: "fit", onclick: () => { const them = pool(), every = them.length && them.every(p => LIBPICK.has(p)); LIBPICK.clear(); if (!every) for (const p of them) LIBPICK.add(p); render(); } }, "Select all");
+    const show = () => { const them = pool(); many.textContent = "Delete selected (" + LIBPICK.size + ")"; many.disabled = !LIBPICK.size; all.textContent = them.length && them.every(p => LIBPICK.has(p)) ? "Select none" : "Select all"; }; show();
     const tally = el("span", {}, list.length + (list.length === all_.length ? "" : " of " + all_.length));
     const shown = new Set(list.map(m => m.path)), grid = el("div", { class: "grid", style: "margin-top:10px" }, kindList.map(m => m.kind === "audio" ? libSoundTile(m, shown.has(m.path)) :
-    el("div", { class: "tile", "data-path": m.path, style: shown.has(m.path) ? null : "display:none" }, media(m.path), el("div", { class: "cap" }, el("input", { type: "checkbox", title: "Select " + m.path, "aria-label": "Select " + m.path, checked: LIBPICK.has(m.path), style: "width:auto;flex:none", onchange: e => { if (e.target.checked) LIBPICK.add(m.path); else LIBPICK.delete(m.path); show(); } }),
+    el("div", { class: "tile", "data-path": m.path, title: capText(m.path), style: shown.has(m.path) ? null : "display:none" }, media(m.path), el("div", { class: "cap" }, el("input", { type: "checkbox", title: "Select " + m.path, "aria-label": "Select " + m.path, checked: LIBPICK.has(m.path), style: "width:auto;flex:none", onchange: e => { if (e.target.checked) LIBPICK.add(m.path); else LIBPICK.delete(m.path); show(); } }),
       el("span", { style: "cursor:pointer;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: m.path + (m.spark ? " · rendered on " + m.spark + (m.seed != null ? ", seed " + m.seed : "") : ""), onclick: () => { navigator.clipboard?.writeText(m.path); toast("Copied " + m.path); } }, m.path.split("/").pop()),
       m.spark ? el("span", { class: "note fit", style: "margin:0", title: "The Spark that rendered this clip" + (m.seed != null ? ", and its seed" : "") }, m.spark + (m.seed != null ? " · s" + m.seed : "")) : null),
       // the buttons on a row of their own: a long file name no longer pushes them out of the tile
-      el("div", { class: "cap", style: "padding-top:0;justify-content:flex-end;flex-wrap:wrap" }, actButtons(m),
+      el("div", { class: "cap", style: "padding-top:0;justify-content:flex-end;flex-wrap:wrap" }, actButtons(m), capButton(m),
       m.kind === "video" ? el("button", { class: "small", title: "Start a new clip on this clip's last frame", onclick: async () => { try { const r = await api("/api/frame", { path: m.path, at: "last" }); C.image = r.path; C.prompt = ""; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } catch (e) { toast(e.message); } } }, "continue") : el("button", { class: "small", title: "End a new clip on this picture", onclick: () => { C.lastImage = m.path; C.prompt = ""; C.goes = "video"; if (C.start === "refs") C.start = "text"; C.step = 1; tab = "Create"; render(); } }, "last frame"),
       m.kind === "video" ? el("button", { class: "small", onclick: () => addToTimeline(m.path) }, "+ timeline") : el("button", { class: "small", onclick: () => { C.image = m.path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); } }, "use"),
       m.kind === "video" ? null : el("button", { class: "small", title: "Re-draw this picture: say in words what changes", onclick: () => edOpen(m.path) }, "edit"),
@@ -901,13 +915,14 @@ function viewLibrary() { const box = el("section", { class: "card" }, el("h2", {
       // out of the library: the server moves the file to the studio's trash folder
       el("button", { class: "small", title: "Delete: moves the file to the trash folder", "aria-label": "Delete " + m.path, onclick: () => clearOut({ paths: [m.path], films: true }, "Delete " + m.path.split("/").pop() + "?") }, "🗑")))));
     if (!ACT.state) actLoad().then(() => { if (tab === "Library") render(); });
-    put(box, el("div", { class: "note" }, tally, " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale and Remove a person. Under a picture: Turnaround."), actPanel(),
-      el("div", { class: "row", style: "margin-top:10px" }, all, many, el("span"),
+    put(box, el("div", { class: "note" }, tally, " files. Click a path to copy it. Tick files to delete several at once; 🗑 deletes one. A deleted file is moved to the trash folder, not erased. Under a clip: Upscale, Remove a person, Restyle, Extend, Fix, Add a title and Caption this clip. Under a picture: Turnaround."), actPanel(),
+      typeof rcLibrary === "function" ? rcLibrary() : null, typeof finLibPanel === "function" ? finLibPanel() : null,  // Trailer from these (roughcut.js), Finish these (finish.js)
+      el("div", { class: "row", style: "margin-top:10px" }, all, many, typeof finLibButton === "function" ? finLibButton() : null, el("span"),
         bin ? el("span", { class: "note fit", id: "trashline" }, "Trash: " + (bin.files ? count(bin.files, "file") + " · " + sizeText(bin.bytes) : "empty")) : null,
         bin && bin.last ? el("button", { class: "fit", title: "Puts the files of the last deletion back where they were, and its job cards back in the queue", onclick: restoreLast }, "Restore last deletion (" + count(bin.last.files, "file") + ")") : null,
         bin && bin.files ? el("button", { class: "fit", title: "Erases the files in the trash folder for good", onclick: async () => { if (!confirm("Erase the " + count(bin.files, "file") + " (" + sizeText(bin.bytes) + ") in the trash folder for good?\n" + relHome(bin.folder) + "\nThis cannot be undone.")) return;
           try { const r = await api("/api/trash?confirm=erase", undefined, "DELETE"); toast("Erased " + count(r.files, "file") + ", " + sizeText(r.bytes) + " freed"); } catch (e) { toast(e.message); } render(); } }, "Empty trash") : null),
-      grid); })
+      capBar.results, grid); })
   .catch(e => put(box, el("div", { class: "note" }, e.message)));
   return head ? el("div", {}, head, box) : box; }
 
@@ -1215,7 +1230,7 @@ async function poll() { try { jobs = await api("/api/jobs"); } catch { return; }
 function keepScroll() { const at = [window.scrollX, window.scrollY], strips = [...document.querySelectorAll("[data-keep-scroll]")].map(n => [n.dataset.keepScroll, n.scrollLeft, n.scrollTop]);
   return () => { for (const [key, left, top] of strips) { const n = document.querySelector(`[data-keep-scroll="${key}"]`); if (n) { n.scrollLeft = left; n.scrollTop = top; } } window.scrollTo(...at); }; }
 function render() { const back = keepScroll(); renderShell(); releaseMedia($("#view"));
-  $("#view").replaceChildren({ Home: viewHome, Story: viewStory, Image: viewImage, Video: viewVideo, Previs: viewPrevis, Sound: viewSound, Edit: viewEditHub, Looks: viewLooks, Updates: viewUpdates, Create: () => createLayout(viewCreate()), Production: viewProduction, Import: viewImport, "Motion Previs": viewMotion, Agent: viewAgent, Voice: viewVoice, Music: viewMusic, Foley: viewFoley, Editor: viewEditor, Library: viewLibrary,
+  $("#view").replaceChildren({ Home: viewHome, Story: viewStory, Image: viewImage, Video: viewVideo, Previs: viewPrevis, Sound: viewSound, Edit: viewEditHub, Looks: viewLooks, Updates: viewUpdates, Create: () => createLayout(viewCreate()), Production: viewProduction, Import: viewImport, "Motion Previs": viewMotion, Agent: viewAgent, Voice: viewVoice, Music: viewMusic, Foley: viewFoley, Editor: viewEditor, Graphics: viewGraphics, Finish: viewFinish, "Cast & Places": viewCast, Director: viewDirector, "Motion graphics": viewGraphics, "Night shift": viewNight, Library: viewLibrary,
     Machine: viewMachine, Models: () => typeof viewDiscover === "function" ? viewDiscover() : el("div", { class: "note" }, "Models & weights is not in this build."), Sparks: viewSparks, Brains: viewBrains, Tutorial: viewTutorial, Settings: viewSettings,
     // Nodes is its own module (nodes.js): a page without it says so quietly
     Nodes: typeof viewNodes === "function" ? viewNodes : () => el("div", { class: "panel" }, el("h2", {}, "Nodes"), el("div", { class: "note m-flat" }, "The node canvas is not part of this install yet.")) }[tab]()); coach(); bayUpdate();

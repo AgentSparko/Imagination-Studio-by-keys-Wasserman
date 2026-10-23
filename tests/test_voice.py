@@ -355,7 +355,7 @@ def test_a_cast_voice_goes_into_a_shot_on_cast_stills_as_reference_audio():
     (home / "voice").mkdir(exist_ok=True)
     (home / "voice" / "tom.wav").write_bytes(b"wav")
     (home / "voice" / "long.wav").write_bytes(b"wav")
-    project = {"id": "p-v", "name": "V", "defaults": {"durationSec": 8}, "tf": {"res": "480p", "quality": "fh8"},
+    project = {"id": "p-v", "name": "V", "defaults": {"durationSec": 8}, "tf": {"res": "480p", "quality": "fh8", "dialogue": "drama3"},
                "characters": [{"id": "c1", "name": "Leo", "images": ["uploads/leo.png"]}, {"id": "c2", "name": "Mia", "images": ["uploads/mia.png"]}],
                "voices": [{"id": "v1", "name": "Leo voice", "characterId": "c1", "ageGender": "a young man", "timbre": "warm",
                            "drama": {"path": "voice/tom.wav", "seconds": 6.2, "use": True}},
@@ -372,9 +372,18 @@ def test_a_cast_voice_goes_into_a_shot_on_cast_stills_as_reference_audio():
         assert "references the delivery from <Audio 1>" in made["prompt"]
         project["voices"][0]["drama"]["use"] = False  # unticked: no reference audio
         assert "reference_audios" not in slate.compile_shot(project, "sh")["plan"]
-        project["scenes"][0]["shots"][0]["tf"]["start"] = "text"  # not on cast stills: never audio alone
+        project["scenes"][0]["shots"][0]["tf"]["start"] = "text"  # not on reference pictures (the bible off): never audio alone
+        project["tf"]["bible"] = "off"
         project["voices"][0]["drama"]["use"] = True
         assert "reference_audios" not in slate.compile_shot(project, "sh")["plan"]
+        project["tf"]["bible"] = "auto"  # from text, the bible's pictures are references: the cast voice goes in
+        assert slate.compile_shot(project, "sh")["plan"]["reference_audios"] == ["voice/tom.wav"]
+        project["tf"]["dialogue"] = "h3"  # dialogue spoken by the video model: no voice reference
+        assert "reference_audios" not in slate.compile_shot(project, "sh")["plan"]
+        # a film made before the settings: shots on cast stills take the cast voices, as they did
+        del project["tf"]["dialogue"], project["tf"]["bible"]
+        project["scenes"][0]["shots"][0]["tf"]["start"] = "cast"
+        assert slate.compile_shot(project, "sh")["plan"]["reference_audios"] == ["voice/tom.wav"]
     finally:
         slate.ready = had
 

@@ -1537,6 +1537,12 @@ def build(kind: str, params: dict, job_id: str, room: bool = True) -> tuple[list
         return built
     if kind in sound.KINDS:  # a sound effect or a clip's foley (sound.py)
         return sound_build(kind, params, job_id)
+    if kind in train.KINDS:  # a LoRA trained on this Spark (train.py: spark/train_lora.py)
+        return train_build(params, job_id)
+    if kind in finish.KINDS:  # the final cut and mix through Tesseract (finish.py)
+        return finish.build(params, job_id)
+    if kind in graphics.KINDS:  # a title, captions, a slideshow or a music video, rendered with HyperFrames (graphics.py)
+        return graphics_build(params, job_id)
     seed = str(int(params.get("seed", 0)))
     if kind == "scout":
         folder = HOME / "scouts" / job_id
@@ -1703,8 +1709,8 @@ def export(job: dict) -> None:
         job["progress"] = None
 
 
-STEP = re.compile(r"\[tensorfold\] (step|voice|ar|dit) (\d+)/(\d+)")
-STEP_WORDS = {"step": "picture", "voice": "sound", "ar": "the model writes the song", "dit": "the sound"}  # MiniMax Music 3: ar, dit
+STEP = re.compile(r"\[tensorfold\] (step|voice|ar|dit|train) (\d+)/(\d+)")
+STEP_WORDS = {"step": "picture", "voice": "sound", "ar": "the model writes the song", "dit": "the sound", "train": "training step"}  # MiniMax Music 3: ar, dit
 RAN_ON = re.compile(r"\[tensorfold\] engine: (\w+)")
 
 
@@ -1912,16 +1918,18 @@ def perform(job: dict, worker: dict | None = None) -> None:
     try:
         # a Drama 3 server kept loaded after a voice take (voice.py) never stands beside a render here, nor MiniMax Music 3
         # kept loaded after a song (music.py): each is unloaded before any other job of this machine's queue
-        if job["kind"] not in ("voice", "export", "soundtrack") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("voice", "export", "soundtrack", "finish", "graphics") and worker is None and not job.get("remote"):
             if voice.release(f"a {job['kind']} job needs the GPU"):
                 job["log"] += "[tensorfold] Drama 3 was unloaded to give this job its memory\n"
-        if job["kind"] not in ("music", "export", "soundtrack") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("music", "export", "soundtrack", "finish", "graphics") and worker is None and not job.get("remote"):
             if music.release(f"a {job['kind']} job needs the GPU"):
                 job["log"] += "[tensorfold] MiniMax Music 3 was unloaded to give this job its memory\n"
         # NVIDIA Nemotron 3.5 Bolt (bolt.py), the Studio's brain engine: unloaded before this job when the job's measured
         # peak does not fit beside it (bolt_need), after the answers in flight; held until the queue is empty
-        if job["kind"] not in ("export", "soundtrack") and worker is None and not job.get("remote"):
+        if job["kind"] not in ("export", "soundtrack", "finish", "graphics") and worker is None and not job.get("remote"):
             job["log"] += bolt.admit(job, lambda resident: bolt_need(job, resident))
+        if job["kind"] in train.KINDS and worker is None:  # a LoRA run holds about 55 GB for hours: ComfyUI's models go first
+            job["log"] += train_free(job)
         if params.get("first_frame_from"):  # continuity: open on the last frame of an earlier clip
             source = inside(params["first_frame_from"])
             if not source.is_file():
@@ -1973,6 +1981,8 @@ def perform(job: dict, worker: dict | None = None) -> None:
                 except Exception as error:  # noqa: BLE001
                     job["pace"] = {"verdict": "not measured", "note": str(error)[-200:]}
         hub.record(job)  # the clip, its seed and settings, and the Spark that rendered it (sparks/takes.jsonl)
+        if params.get("then") and job["status"] != "cancelled":  # the next step of Extend or Fix (revise.py)
+            revise_then(job)
         if job["status"] != "cancelled":
             job["status"] = "done"
     except sparks.Moved:  # the Spark it was on refused it, failed it or stopped answering: it is in the queue again
@@ -2164,6 +2174,8 @@ def export_clips(params: dict) -> None:
 @app.post("/api/jobs")
 def submit(body: dict) -> dict:
     try:
+        if body.get("kind") in revise.KINDS:  # Restyle, Extend, Fix (revise.py): a clip's job and what follows it
+            return revise_queue(body)
         return queue_job(body)
     except (TypeError, ValueError, AttributeError, KeyError) as error:
         # a setting sent as the wrong type (text for a number, a list for an object): said plainly, not a 500
@@ -2178,7 +2190,7 @@ def queue_job(body: dict) -> dict:
     if body.get("title") is not None and not isinstance(body.get("title"), str):
         raise HTTPException(400, "title is text")
     params = dict(body.get("params") or {})
-    if kind not in ("scout", "video", "studio", "export", "long", "edit") + actions.KINDS + sound.KINDS:
+    if kind not in ("scout", "video", "studio", "export", "long", "edit") + actions.KINDS + sound.KINDS + finish.KINDS + graphics.KINDS:
         raise HTTPException(400, "unknown job kind")
     if kind == "long" and (params.get("last_image") or params.get("last_same") or params.get("last_frame_from")):
         raise HTTPException(400, "a last frame is for single clips: a long video is a chain of clips")
@@ -2188,7 +2200,7 @@ def queue_job(body: dict) -> dict:
             raise HTTPException(400, f"a long video is over {LONGEST} seconds and at most {max(LONG) // 60} minutes")
         pieces = plan(total, int(params.get("segment_seconds", LONGEST)))
         build("video", {**params, "seconds": pieces[0], "output": None}, "check")
-    if kind not in ("export", "edit", "foley") + actions.KINDS and not (params.get("prompt") or "").strip():
+    if kind not in ("export", "edit", "foley") + actions.KINDS + finish.KINDS + graphics.KINDS and not (params.get("prompt") or "").strip():
         raise HTTPException(400, "a prompt is needed")
     if kind != "video" and params.get("references"):
         raise HTTPException(400, "reference pictures are for single clips")
@@ -2227,7 +2239,10 @@ def queue_job(body: dict) -> dict:
     if kind not in ("export", "long"):
         # reject bad settings now, not when the job's turn comes; a clip other Sparks may take is held to their memory
         # guards (asked before it is handed over), not to this one's
-        build(kind, params, job_id, room=not (kind in ("video", "studio") and said["used"] > 1))
+        build(kind, params, "check" if kind in finish.KINDS + graphics.KINDS else job_id,  # these write their folder when built
+              room=not (kind in ("video", "studio") and said["used"] > 1))
+    if kind in graphics.KINDS and not body.get("title"):
+        body = {**body, "title": graphics_title(params)}
     job = {"id": job_id, "kind": kind, "status": "queued", "title": body.get("title") or (action_title(kind, params) if kind in actions.KINDS else sound_title(kind, params) if kind in sound.KINDS else kind), "params": params,
            "source": action_source(kind, params) if kind in actions.KINDS else sound_source(kind, params) if kind in sound.KINDS else None,
            "outputs": [], "progress": None, "error": None, "log": "", "created": time.time(), "started": None,
@@ -2281,7 +2296,7 @@ def cancel(job_id: str) -> dict:
     return public(job)
 
 
-NOT_ON_COMFY = ("voice", "export", "soundtrack", "qa")  # jobs a Spark runs without its ComfyUI server
+NOT_ON_COMFY = ("voice", "export", "soundtrack", "qa", "train", "finish", "graphics")  # jobs a Spark runs without its ComfyUI server
 
 
 COMFY_PROMPT = re.compile(r"^\[tensorfold\] comfy prompt ([0-9a-f-]{8,64})$", re.M)
@@ -2584,11 +2599,18 @@ def projects() -> list[dict]:
 
 @app.post("/api/projects")
 def new_project(body: dict) -> dict:
-    project_id = time.strftime("p%m%d-%H%M%S")
+    stamp, n = time.strftime("p%m%d-%H%M%S"), 1
+    project_id = stamp
+    while True:  # an id no other project has: two made in one second differ (as roughcut.new_project)
+        try:
+            project_file(project_id).parent.mkdir(parents=True)
+            break
+        except FileExistsError:
+            n += 1
+            project_id = f"{stamp}-{n}"
     data = {"id": project_id, "name": body.get("name") or "Untitled", "preset": "small" if SPARK else "draft", "quality": "fh8" if SPARK else "standard",
             "segments": [], "timeline": []}
     file = project_file(project_id)
-    file.parent.mkdir(parents=True, exist_ok=True)
     fresh = file.with_suffix(".json.new")
     fresh.write_text(json.dumps(data, indent=1))
     fresh.replace(file)
@@ -2740,7 +2762,10 @@ def slate_room(plan: dict, lora: bool) -> dict:
 
 
 app.include_router(slate.attach(HOME, DURATIONS, compose, compose_references, REFERENCE_LIMIT,
-                                lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}, slate_room))
+                                lambda: {"ref2va": ref2va_ready(), "ref2va_turbo": ref2va_turbo_ready()}, slate_room, within=inside))
+import director  # noqa: E402  (the Director: a logline to a checked, cut film, beside this file)
+app.include_router(director.attach(HOME, queue=queue_job, lookup=jobs.get, stop_job=cancel, check=qa_gate, new_project=new_project,
+                                   save_project=save_project, presets={k: v[1] for k, v in PRESETS.items()}, app=app, references=ref2va_ready))
 import agents  # noqa: E402  (Brains and agents: the user's own CLI sign-ins and MCP tools, beside this file)
 app.include_router(agents.attach(HOME))
 
@@ -2779,7 +2804,23 @@ action_router, action_build, action_title, action_source = actions.attach(HOME, 
 import sound  # noqa: E402  (sound effects and foley: Stable Audio Open and MMAudio, run locally, beside this file)
 sound_router, sound_build, sound_title, sound_source = sound.attach(HOME, PACK, SPARK, inside, relative, held_room, media_seconds)
 app.include_router(action_router)
+import revise  # noqa: E402  (Restyle, Extend and Fix: work on a clip you already have, Library actions, beside this file)
+revise_router, revise_queue, revise_then = revise.attach(sys.modules[__name__])
+app.include_router(revise_router)
 app.include_router(sound_router)
+import captions  # noqa: E402  (what is in each clip and picture, described by the local vision model and searched, beside this file)
+caption_router = captions.attach(HOME, library, inside, relative, lambda request, mutation=False: agents.local(request, mutation),
+                                 lambda: running["process"] is None and not any(j["status"] in ("queued", "running") for j in list(jobs.values())),
+                                 lambda: hub.takes(), lambda: settings.load()["presets"].get("captions_auto", True))
+app.include_router(caption_router)
+import train  # noqa: E402  (a LoRA trained from the Library's clips and stills on this Spark, beside this file)
+train_router, train_build, train_free = train.attach(HOME, PACK, SPARK, inside, media_seconds, enqueue, jobs, lock)
+app.include_router(train_router)
+import finish  # noqa: E402  (Finish: the final cut and mix through Tesseract, to Resolve, Premiere or After Effects, beside this file)
+app.include_router(finish.attach(HOME, PACK, inside, relative))
+import graphics  # noqa: E402  (motion graphics: titles, captions, slideshows, music videos, rendered with HyperFrames, beside this file)
+graphics_router, graphics_build, graphics_title = graphics.attach(HOME, PACK, SPARK, inside, relative)
+app.include_router(graphics_router)
 import clear  # noqa: E402  (finished jobs and their files into the trash folder, and back, beside this file)
 app.include_router(clear.attach(HOME, jobs, order, lock)[0])
 import sparks  # noqa: E402  (worker Sparks behind this queue: a job's "sparks" number, beside this file)
@@ -2854,7 +2895,15 @@ import telemetry  # noqa: E402  (this machine's readings for the status bar: GPU
 app.include_router(telemetry.attach(HOME, jobs, order, lock, memory_guard, engines=lambda: {"bolt": bolt.summary()}))
 import suite  # noqa: E402  (the filmmaker suite's files in and out: imports, timeline, dailies, beside this file)
 app.include_router(suite.attach(HOME, jobs, lock, PRESETS, app))
+import push  # noqa: E402  (notifications on a phone: Web Push with the studio's own keys, beside this file)
+app.include_router(push.attach(HOME, lambda request: agents.local(request, True)))
+import nightshift  # noqa: E402  (the night shift: a batch rendered overnight, dailies in the morning, beside this file)
+app.include_router(nightshift.attach(HOME, jobs, order, lock, queue_job, cancel, PRESETS, suite.probe, suite.dailies_package, lambda: environment({})["PATH"], push.send))
 app.include_router(settings.attach(HOME))
+import beats  # noqa: E402  (a song's tempo, beats and bars, measured with numpy, beside this file)
+app.include_router(beats.attach(HOME, inside))
+import roughcut  # noqa: E402  (a rough cut on the song's beats, exported with its FCPXML, EDL and Resolve zip, beside this file)
+app.include_router(roughcut.attach(HOME, lambda body: queue_job(body), jobs, lock, inside, relative, media_seconds, public))
 try:
     import nodes  # noqa: E402  (Nodes: a canvas of the studio's own jobs, run in order, beside this file)
 except ImportError:  # an install without it keeps the rest of the app
@@ -2941,6 +2990,10 @@ if __name__ == "__main__":
     if os.environ.get("STUDIO_PIDFILE"):  # a worker Spark's app, started by another Spark's Studio: how that one finds it again
         Path(os.environ["STUDIO_PIDFILE"]).write_text(str(os.getpid()))
     hub.start()
+    nightshift.start()  # the night shift's scheduler: planned shifts start at their time or when the queue is idle
+    if not os.environ.get("STUDIO_PIDFILE"):  # the captioner describes this studio's Library, not a worker Spark's
+        caption_router.captioner["start"]()
+    director.resume_later()  # the Director's runs a restart cut off
     app.router.on_shutdown.append(stop_session_comfy)  # the detached ComfyUI belongs to this process, not to one render
 
     # Update authorization needs the actual socket peer. Tailscale Serve forwards the browser's IP,

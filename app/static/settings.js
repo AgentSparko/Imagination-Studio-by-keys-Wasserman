@@ -5,12 +5,12 @@
 const SET_DEFAULTS = {
   appearance: { type_size: "comfortable", glow: true, poster: true, accent: "amber", motion: "system", start_cards: ["clip", "scout", "still", "sharp", "long", "voice"], start_off: [] },
   layout: { hidden: [], order: [] },
-  presets: { recipe: "quick", image_model: "qwen", seconds: 5, qa_gate: true, audio_rate: "keep", seed: "fixed", mode: "clip" },
+  presets: { recipe: "quick", image_model: "qwen", seconds: 5, qa_gate: true, audio_rate: "keep", seed: "fixed", mode: "clip", captions_auto: true },
   hermes_profile: "", hermes_command: "" };
 const SET = { data: null, loaded: false, section: "appearance", saving: false, local: { endpoint: null, found: null, finding: false, said: null, testing: false },
   agents: { name: "", endpoint: "", model: "", nearby: null, finding: false, adding: false, said: {}, testing: {} }, about: null };
 const SET_SECTIONS = [["appearance", "Appearance", "type, glow, poster, accent"], ["layout", "Studio layout", "what the sidebar shows"],
-  ["presets", "Presets & preferences", "what a new take starts from"], ["connections", "Connections", "subscriptions, local models, tools"], ["access", "Access key", "sign in your phone, a new key"],
+  ["presets", "Presets & preferences", "what a new take starts from"], ["connections", "Connections", "subscriptions, local models, tools"], ["access", "Access key", "sign in your phone, a new key"], ["notify", "Notifications", "a night shift done, on your phone"],
   ["models", "Models & weights", "what the studio needs, found and linked"], ["sparks", "Sparks", "one to five DGX Sparks for a job"],
   ["brains", "Brains & tools", "your agents, another computer, MCP tools"], ["updates", "Updates", "the version and the branch it follows"], ["about", "About", "version, credits, licences"]];
 // Machine's own pages, opened here too: each is the same view, and its data is drawn again when it arrives
@@ -105,6 +105,7 @@ function setPresets() { const p = prefs().presets, put1 = patch => settingsSave(
     setRow("Clip length", "A clip's seconds; the exact frames are shown before it is queued", secs),
     setRow("Home starts on", "The composer's first chip", setSeg(p.mode, { clip: "Clip", picture: "Picture", voice: "Voice", song: "Song" }, v => put1({ mode: v }), "Home starts on")),
     setRow("QA gate on each clip", "The transcript and contact-sheet check after a Sharp Spec clip", setSwitch(p.qa_gate, v => put1({ qa_gate: v }), "QA gate")),
+    setRow("Describe new clips automatically", "When nothing is rendering, the local model looks at new clips and pictures so the Library can search by what is in them", setSwitch(p.captions_auto !== false, v => put1({ captions_auto: v }), "Describe new clips automatically")),
     setRow("Delivery sound", "On a DGX Spark a clip's sound is 32 kHz; 48 kHz stereo re-encodes only the sound", setSeg(p.audio_rate, { keep: "Keep 32 kHz", "48000": "48 kHz stereo" }, v => put1({ audio_rate: v }), "Delivery sound")),
     setRow("Seed", "Fixed repeats a take; random gives each a new one", setSeg(p.seed, { fixed: "Fixed", random: "Random" }, v => put1({ seed: v }), "Seed")),
     setRow("Renders go to", "The studio folder, set when the studio starts (STUDIO_HOME)", el("code", { class: "st-path" }, (S && S.home) || "the studio folder")))]; }
@@ -286,6 +287,7 @@ function setAbout() { if (!SET.about && typeof updRequest === "function") { SET.
       "MMAudio's models: Apple DFN5B CLIP · Synchformer (Iashin et al.) · NVIDIA BigVGAN v2 · Google: T5 · the SGLang-Omni team and Descript: Fish's codec on a Spark",
       "The agents you connect: Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), Grok CLI (xAI), Hermes Agent (Nous Research); Ollama, LM Studio, vLLM, SGLang (the SGLang team and LMSYS), llama.cpp (Georgi Gerganov and the ggml contributors); Blender (Blender Foundation) and blender-mcp (Siddharth Ahuja)",
       "OpenAI Whisper, faster-whisper (SYSTRAN, Mobius Labs), yt-dlp, FFmpeg, PyTorch, Hugging Face diffusers, transformers and huggingface_hub, torchsde, FastAPI, Starlette and Uvicorn (Encode), xgrammar (MLC-AI), Zig, BusyBox, uv, NumPy, Pillow, PyAV",
+      "Motion graphics, training and finishing: HeyGen (HyperFrames) · GreenSock (GSAP) · Microsoft (Playwright) · Node.js · kohya-ss (musubi-tuner) · ostris · bitsandbytes (Tim Dettmers) · Mirage (Tesseract, Tesseract Converter) · DejaVu fonts",
       "Geist and Instrument Serif · LobeHub and Simple Icons: the agents' marks · @itxabdullaa: the Black Mirror test prompt",
       "The community LoRA authors, by name on each card in Looks and in CREDITS.md · every one of them, with what was used and its licence, under Every credit below"].map(t => el("li", {}, t)))),
   setFullCredits(),
@@ -295,6 +297,7 @@ function setAbout() { if (!SET.about && typeof updRequest === "function") { SET.
       "FLUX3-K: FLUX Kommunity License", "MOSS-Image: Apache 2.0 (commercial use allowed)", "Fish Audio Drama 3: Fish Audio Community License v1.0; a hosted voice service needs Fish's own licence",
       "NVIDIA Nemotron 3.5 Bolt: OpenMDW License 1.1 (commercial use allowed; a copy keeps the licence and NVIDIA's notices) · its DGX Spark engine: MiaAI-Lab's recipe, MIT, on TensorFold",
       "Stable Audio Open 1.0: Stability AI Community License (free under US$1 million of yearly revenue)", "MMAudio's weights: CC-BY-NC 4.0, non-commercial",
+      "HyperFrames: Apache 2.0 · GSAP: its no-charge Standard License (not open source) · musubi-tuner: Apache 2.0 · bitsandbytes: MIT · Tesseract: Mirage's own terms (free below US$1 million of yearly revenue, not for redistribution, usage counts on by default) · Tesseract Converter: MIT",
       "Wasserman's Filmmaker Suite: each app under its own licence, Apache-2.0 (Master Canvas: MIT); the studio ships none of their code but the Slate workflow and the Motion Previs port, each with its NOTICE"].map(t => el("li", {}, t))))]; }
 
 function setEmbedded(section) { const [name, data] = SET_VIEWS[section], view = typeof globalThis[name] === "function" ? globalThis[name] : null;
@@ -307,7 +310,7 @@ function setEmbedded(section) { const [name, data] = SET_VIEWS[section], view = 
   return [el("div", { class: "st-embed", "data-embed": section }, view())]; }
 function viewSettings() {
   const draw = { appearance: setAppearance, layout: setLayout, presets: setPresets, connections: setConnections, access: setAccess, about: setAbout,
-    models: () => setEmbedded("models"), sparks: () => setEmbedded("sparks"), brains: () => setEmbedded("brains"), updates: () => setEmbedded("updates") }[SET.section] || setAppearance;
+    models: () => setEmbedded("models"), sparks: () => setEmbedded("sparks"), brains: () => setEmbedded("brains"), updates: () => setEmbedded("updates"), notify: () => typeof nightNotify === "function" ? nightNotify() : [setPanel("Notifications", "Not in this build.")] }[SET.section] || setAppearance;
   return el("div", { class: "settings" },
     typeof pageHead === "function" ? pageHead("Studio Vault", "Settings", "How the studio looks, what it shows, and what it connects to.") : el("h1", { class: "display" }, "Settings"),
     el("div", { class: "st-wrap" },

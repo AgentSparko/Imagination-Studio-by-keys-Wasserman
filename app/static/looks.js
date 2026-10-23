@@ -4,7 +4,7 @@
 // Create (loraHub in index.html): install asks with the LoRA's licence first, a running install is watched, and a
 // recipe of your own is added with the same POST and install.
 const LK = { asked: false, open: false, form: { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" } };
-const LOOK_COVERS = { "wasserman-80s-horror": "art/looks/80s-horror.webp" };  // a look with its own banner; the rest wait for art slots
+const LOOK_COVERS = { "wasserman-80s-horror": "art/looks/80s-horror.webp", "realism-people": "art/looks/realism-people.webp" };  // a look with its own banner; the rest wait for art slots
 const lookFirstStyle = r => Object.keys(r.styles || {})[0] || "";
 const lookBusy = r => !!(r.installing && r.installing.stage !== "failed");
 const lookTerms = r => "“" + r.name + "”" + (r.author ? " by " + r.author : "") + (r.size ? " (" + sizeText(r.size) + ")" : "") + "\n" + (r.licence || "The file is the author's, under its own licence: read it on the LoRA's page first.") + (r.page ? "\n" + r.page : "");
@@ -77,7 +77,8 @@ function lookTally() { const sets = LORAS.filter(r => r.builtin), ok = sets.filt
 
 function lookCard(r) { const st = r.installing, busy = lookBusy(r), dead = r.status === "unsupported", gated = r.status === "gated";
   const on = (C.loras || []).some(p => p.id === r.id) && C.goes === "video";
-  const cover = LOOK_COVERS[r.id] ? el("div", { class: "art ar1" }, el("img", { src: LOOK_COVERS[r.id], alt: "", loading: "lazy", decoding: "async" })) : artSlot("look-" + r.id, "ar1", "looks");
+  const src = r.cover ? file(r.cover) : LOOK_COVERS[r.id];  // a cover kept beside the LoRA wins (loras/<id>.webp)
+  const cover = src ? el("div", { class: "art ar1" }, el("img", { src, alt: "", loading: "lazy", decoding: "async" })) : artSlot("look-" + r.id, "ar1", "looks");
   const state = busy ? el("span", { class: "tag2 t" }, st.stage + (st.of ? " " + Math.round(100 * st.done / st.of) + "%" : "…"))
     : r.installed ? el("span", { class: "tag2 ok" }, "Installed") : null;
   const use = !r.installed || busy || dead ? null
@@ -101,6 +102,7 @@ function lookCard(r) { const st = r.installing, busy = lookBusy(r), dead = r.sta
         : busy ? null
         : !r.installed ? el("button", { type: "button", class: "small", title: r.page || "", onclick: () => lookInstall([r]) }, st && st.stage === "failed" ? "Try again" : "Install")
         : use,
+        r.trained && r.installed && !busy && typeof trainTryButton === "function" ? trainTryButton(r) : null,  // a LoRA trained here (train.js)
         r.installed && !busy ? el("button", { type: "button", class: "small ghost", title: "Moves this LoRA's file to the trash folder" + (r.builtin ? "; the preset stays here" : " and takes it out of the hub"), onclick: () => lookRemove(r) }, "Remove") : null))); }
 
 function lookForm() { const f = LK.form;
@@ -132,9 +134,16 @@ function viewLooks() {
   const toInstall = shown.filter(r => !r.installed && r.status !== "unsupported" && !lookBusy(r));
   const search = el("input", { type: "search", class: "looksearch", placeholder: "Search looks: horror, anime, orbit…", value: HUB.q, "aria-label": "Search looks",
     oninput: e => { HUB.q = e.target.value; const at = e.target.selectionStart; render(); const again = document.querySelector(".looks input[type=search]"); if (again) { again.focus(); again.setSelectionRange(at, at); } } });
+  // two segments: the hub's looks, and Train a LoRA from Library clips and stills (train.js)
+  const training = !!LK.train && typeof trainPanel === "function";
+  const segs = typeof trainPanel === "function" ? el("div", { class: "seg-ctl", role: "tablist", "aria-label": "Looks or train a LoRA", style: "margin-bottom:14px" },
+    [[false, "Looks"], [true, "Train a LoRA"]].map(([on, label]) => el("button", { type: "button", role: "tab", "aria-selected": training === on ? "true" : "false", class: training === on ? "on" : "",
+      onclick: () => { if (training === on) return; LK.train = on; render(); } }, label))) : null;
+  const head = vaultHead("looks", "Looks", "Styles for pictures and clips, one LoRA a card.",
+    training ? null : el("span", { class: "chips" }, el("button", { type: "button", class: "small" + (LK.open ? " on" : ""), onclick: () => { LK.open = !LK.open; render(); } }, "+ Add your own")));
+  if (training) return el("div", { class: "looks" }, head, segs, trainPanel());
   return el("div", { class: "looks" },
-    vaultHead("looks", "Looks", "Styles for pictures and clips, one LoRA a card.",
-      el("button", { type: "button", class: "small" + (LK.open ? " on" : ""), onclick: () => { LK.open = !LK.open; render(); } }, "+ Add your own")),
+    head, segs,
     el("div", { class: "note looktally" }, LORAS.length ? lookTally() : "Loading the hub…"),
     LK.open ? lookForm() : null,
     el("div", { class: "looksbar" },

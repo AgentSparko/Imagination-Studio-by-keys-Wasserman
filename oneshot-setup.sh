@@ -3,7 +3,8 @@
 # One-shot: TensorFold Studio on Apple Silicon: Qwen-Image-2.1-Turbo (text to image) + FastH3 (video + audio)
 #
 #   bash oneshot-setup.sh --all --app   # every feature this Mac's memory runs (said with why for what it leaves out), the app
-#   bash oneshot-setup.sh               # install, fetch the image model, FastH3 and what it needs of MiniMax H3, render a test clip
+#   bash oneshot-setup.sh               # install, fetch the image model, FastH3 and what it needs of MiniMax H3, motion graphics,
+#                                       # Finish and phone notifications, render a test clip
 #   bash oneshot-setup.sh --app         # the same, plus the double-clickable app: the full one-shot
 #   bash oneshot-setup.sh --turbo       # also MiniMax H3's own transformer and its Turbo adapter (64 GB more, 128 GB of memory)
 #   bash oneshot-setup.sh --ref2va      # also MiniMax H3's Ref2VA transformer: reference pictures to video (64 GB more, 128 GB of memory)
@@ -28,16 +29,28 @@
 #   bash oneshot-setup.sh --remove      # also Find a person and Remove a person (the same ComfyUI, Akatz Labs' H3 Relay, Meta's
 #                                       # SAM 3.1: 1.7 GB more; needs --ref2va)
 #   bash oneshot-setup.sh --moss        # also MOSS-Image (OpenMOSS, Apache 2.0) as a picture model, on the same ComfyUI (28 GB)
+#   bash oneshot-setup.sh --graphics    # motion graphics: titles, captions, slideshows, music videos (scripts/setup-graphics.sh:
+#                                       # HyperFrames and GSAP, Node 22 if this Mac's is older, a browser; about 400 MB).
+#                                       # Part of every install; --no-graphics leaves it out
+#   bash oneshot-setup.sh --finish      # Finish: the final cut and mix to Resolve, Premiere or After Effects (scripts/setup-finish.sh:
+#                                       # Tesseract and Tesseract Converter, two fonts; about 150 MB). Part of every install;
+#                                       # --no-finish leaves it out. Tesseract is free under Mirage's own terms (not open
+#                                       # source); the converter is MIT
+#   bash oneshot-setup.sh --train       # training a LoRA runs on a CUDA machine (oneshot-setup-spark.sh --train): said, and left out here
 #   bash oneshot-setup.sh --image-only  # the image model only (33 GB), render a test image
 #   bash oneshot-setup.sh --no-render   # install and fetch only
 #   bash oneshot-setup.sh --no-loras    # skip the essential LoRA bundle (about 4 GB from the LoRAs' authors; --loras=camera,style
 #                                       # takes some groups, --lora-bundle=PATH installs from a bundle on disk with no other network)
+#   bash oneshot-setup.sh --yes         # the plain install above without the checklist a terminal shows first (every part
+#                                       # ticked there; Enter installs them all); any other flag also leaves the list out
 #   bash oneshot-setup.sh --verify      # check an existing install, no downloads, no render
 #   bash oneshot-setup.sh --upgrade     # after `git pull`: move an existing install to this version (engine, scripts, Motion
-#                                       # Previs environment), fetch no weights, then --verify. Running it twice changes nothing.
+#                                       # Previs environment, motion graphics and Finish where they are installed), fetch no
+#                                       # weights, then --verify. Running it twice changes nothing.
 #
 # Memory: 48 GB for --image-only; 64 GB for the default install (M1 to M4 run FastH3 on the MLX engine with 8-bit
-# weights, 37 GB more on disk, much slower than an M5); 128 GB with --turbo. Disk: 33 GB, 175 GB and 240 GB.
+# weights, 37 GB more on disk, much slower than an M5); 128 GB with --turbo. Disk: 33 GB, 175 GB and 240 GB, and about
+# 0.6 GB more for motion graphics (0.4 GB) and Finish (0.15 GB), which every install includes.
 # Engine payload order: this clone's ./payload -> GHCR carrier image -> release download -> git at the pinned commit.
 # Installs into its own venv ($PREFIX, default ~/.local/opt/tensorfold-studio). Touches nothing else.
 # Weights: $QWEN_MODEL_DIR (default ~/qwen-models/Qwen-Image-2.1-Turbo, 33 GB), $FASTH3_DIR (default
@@ -54,7 +67,7 @@ if [ "$(uname -s)" = Linux ]; then
   SPARK_ARGS=()
   for arg in "$@"; do
     case "$arg" in
-      --all|--image-only|--no-render|--verify|--motion|--upgrade|--voice|--flux3|--music|--moss|--bolt|--sound|--ref2va|--image-edit|--h3-base|--loras|--loras=*|--no-loras|--lora-bundle=*) SPARK_ARGS+=("$arg");;
+      --all|--yes|-y|--image-only|--no-render|--verify|--motion|--upgrade|--voice|--flux3|--music|--moss|--bolt|--sound|--graphics|--no-graphics|--finish|--no-finish|--train|--ref2va|--image-edit|--h3-base|--loras|--loras=*|--no-loras|--lora-bundle=*) SPARK_ARGS+=("$arg");;
       --upscale|--remove) echo "note: on a DGX Spark $arg comes with --ref2va (spark/setup-workflows.sh): adding --ref2va"; SPARK_ARGS+=("--ref2va");;
       --fasth3) ;;
       --turbo|--app) echo "note: $arg is for the Mac build and does nothing on a DGX Spark";;
@@ -64,6 +77,21 @@ if [ "$(uname -s)" = Linux ]; then
   echo "Linux detected: installing the DGX Spark (CUDA) build"
   exec bash "$HERE/oneshot-setup-spark.sh" ${SPARK_ARGS[@]+"${SPARK_ARGS[@]}"}
 fi
+# In a terminal with no feature flag: the checklist of parts (scripts/install-checklist.sh), every part this Mac's memory
+# runs ticked; what is ticked becomes this script's own flags below. --yes, any flag, no terminal: no list.
+# shellcheck source=scripts/install-checklist.sh
+. "$HERE/scripts/install-checklist.sh"
+if checklist_wanted "$@"; then
+  LIST_RAM=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
+  if [ "$LIST_RAM" -ge 64 ]; then  # below 64 GB the install below says what this Mac can run
+    LIST_CHIP="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "this Mac")"
+    LIST_CMD="bash oneshot-setup.sh"; for arg in "$@"; do LIST_CMD="$LIST_CMD $arg"; done
+    LIST_FLAGS="$(checklist_run "$(checklist_rows_mac "$LIST_RAM" "$LIST_CHIP")" "$(df -g "$HOME" | awk 'NR==2{print $4}')" \
+      "Imagination Studio on this Mac ($LIST_CHIP, ${LIST_RAM} GB): what to install" "$LIST_CMD" "$(checklist_note_mac "$LIST_RAM")")" || exit $?
+    set -- "$@" $LIST_FLAGS
+  fi
+fi
+[ "${STUDIO_CHECKLIST_DRY:-0}" != 1 ] || { echo "$*"; exit 0; }
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 H3_MODEL_DIR="${H3_MODEL_DIR:-$HOME/h3-models/MiniMax-H3}"
 QWEN_MODEL_DIR="${QWEN_MODEL_DIR:-$HOME/qwen-models/Qwen-Image-2.1-Turbo}"
@@ -94,11 +122,12 @@ REF_ADAPTER_NAME="lightx2v_ref2v_4step_v0.1_ourlayout.safetensors"
 X2_REPO="speach1sdef178/MiniMax-H3-X2-Detail-VAE"
 X2_NAME="MiniMax-H3-X2-Detail-v1.safetensors"
 X2_SHA256="2296840f4acedcaa976688e7d7b97f7bf570b136e400385d3f46224011897aac"
-ALL=0; MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""; IMAGE_EDIT=0; VOICE=0; FLUX3=0; MUSIC=0; SOUND=0; BOLT=0; COMFY_ARGS=()
+ALL=0; MODE=""; VIDEO=1; TURBO=0; APP=0; REF2VA=0; MOTION=0; UPGRADE=0; LORAS=""; IMAGE_EDIT=0; VOICE=0; FLUX3=0; MUSIC=0; SOUND=0; BOLT=0; GRAPHICS=""; FINISH=""; TRAIN=0; COMFY_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --all) ALL=1;;  # every feature this Mac's memory runs (chosen after the preflight reads the chip and the memory)
     --image-only) VIDEO=0;;
+    --yes|-y) ;;  # the plain install without the checklist
     --fasth3) ;;  # FastH3 is the default video engine since 2.1; the flag is kept so older commands still run
     --turbo) TURBO=1;;
     --ref2va) REF2VA=1;;
@@ -108,6 +137,9 @@ for arg in "$@"; do
     --music) MUSIC=1;;
     --bolt) BOLT=1;;
     --sound) SOUND=1;;
+    --graphics) GRAPHICS=1;; --no-graphics) GRAPHICS=0;;
+    --finish) FINISH=1;; --no-finish) FINISH=0;;
+    --train) TRAIN=1;;  # a CUDA machine's (spark/setup-train.sh): said below and left out
     --upscale|--remove|--moss) COMFY_ARGS+=("$arg");;
     --image-edit) IMAGE_EDIT=1;;
     --app) APP=1;;
@@ -141,6 +173,8 @@ ok "$CHIP, macOS $(sw_vers -productVersion), ${RAM} GB"
 # --all: every feature this Mac runs, by its memory (each a job's measured peak on an M5 Ultra, one job at a time:
 # the Studio unloads one model before the next). What is left out is said, with why.
 if [ "$ALL" = 1 ]; then
+  GRAPHICS="${GRAPHICS:-1}"; FINISH="${FINISH:-1}"
+  echo "  --all: training a LoRA left out: it runs on a CUDA machine (oneshot-setup-spark.sh --train)"
   if [ "$RAM" -lt 64 ]; then VIDEO=0; echo "  --all on ${RAM} GB: pictures only (video, voice and music need 64 GB)"
   else
     MOTION=1; VOICE=1; MUSIC=1; FLUX3=1; SOUND=1; IMAGE_EDIT=1; COMFY_ARGS+=(--moss)
@@ -149,6 +183,25 @@ if [ "$ALL" = 1 ]; then
     if [ "$RAM" -ge 192 ]; then COMFY_ARGS+=(--upscale --remove); else echo "  --all on ${RAM} GB: Upscale and Remove a person left out (their peaks are 125 and 135 GB: 192 GB)"; fi
   fi
 fi
+[ "$TRAIN" = 0 ] || [ "$ALL" = 1 ] || echo "  --train: training a LoRA runs on a CUDA machine (oneshot-setup-spark.sh --train): left out on this Mac"
+# Gated parts (FLUX3-K; Stable Audio Open for sound): Hugging Face is asked before anything is downloaded, with the
+# person's own sign-in (app/hf_gate.py through scripts/install-checklist.sh). One whose licence this account has not
+# accepted is left out with what to do, the rest installs, and the end of the run says it again.
+trap checklist_said_later EXIT
+if [ "$UPGRADE" = 0 ]; then
+  GATE_MODE=install; [ "$MODE" != "--verify" ] || GATE_MODE=verify
+  FLUX3_DIR="${FLUX3_MODEL_DIR:-$HOME/flux3-models}"
+  if [ "$FLUX3" = 1 ] && { [ ! -s "$FLUX3_DIR/FLUX3-K-Fast/model.safetensors" ] || [ ! -s "$FLUX3_DIR/FLUX3-K-Full/model.safetensors" ]; }; then
+    checklist_gate_part "$GATE_MODE" --flux3 FLUX3-K "bash oneshot-setup.sh" \
+      https://huggingface.co/black-forest-labs/flux-3-image-klein/resolve/main/model.safetensors \
+      https://huggingface.co/black-forest-labs/flux-3-image-klein-base/resolve/main/model.safetensors || FLUX3=0
+  fi
+  if [ "$SOUND" = 1 ] && [ ! -f "${SOUND_MODELS:-$PREFIX/sound-models}/stable-audio-open-1.0/model_index.json" ]; then
+    checklist_gate_part "$GATE_MODE" --sound "Sound effects and foley" "bash oneshot-setup.sh" \
+      https://huggingface.co/stabilityai/stable-audio-open-1.0/resolve/main/model_index.json || SOUND=0
+  fi
+fi
+[ "${STUDIO_GATE_DRY:-0}" != 1 ] || { echo "flux3=$FLUX3 sound=$SOUND"; exit 0; }
 # Upscale and Remove a person hold MiniMax H3's bf16 Ref2VA transformer and text encoder at once (125 and 135 GB at
 # their peaks, measured; the app keeps 16 GB free beside them): a Mac with less is refused here, not halfway through a job
 for one in ${COMFY_ARGS[@]+"${COMFY_ARGS[@]}"}; do
@@ -162,6 +215,12 @@ if [ "$UPGRADE" = 1 ]; then
   ls "$H3_MODEL_DIR"/FL2VA/text_encoder/*.safetensors >/dev/null 2>&1 || VIDEO=0
   ok "upgrade: installed $INSTALLED -> $(cat "$HERE/VERSION")$([ "$VIDEO" = 1 ] || echo " (image-only install)")"
 else ok "version $(cat "$HERE/VERSION")$([ ! -f "$PREFIX/VERSION" ] || echo " (installed: $INSTALLED)")"; fi
+# motion graphics and Finish come with every install; --upgrade keeps them where they are and adds none
+if [ "$UPGRADE" = 1 ]; then
+  [ -n "$GRAPHICS" ] || { [ -d "$PREFIX/graphics/node_modules/hyperframes" ] && GRAPHICS=1; } || GRAPHICS=0
+  [ -n "$FINISH" ] || { { [ -x "$PREFIX/finish/bin/tsrct" ] || [ -f "$PREFIX/finish/fonts/InstrumentSerif-Regular.ttf" ]; } && FINISH=1; } || FINISH=0
+fi
+GRAPHICS="${GRAPHICS:-1}"; FINISH="${FINISH:-1}"
 # an install that already holds MiniMax H3's transformer and the Turbo adapter keeps them
 [ "$VIDEO" = 0 ] || { ls "$H3_MODEL_DIR"/FL2VA/transformer/*.safetensors >/dev/null 2>&1 && [ -f "$PREFIX/adapters/$H3_ADAPTER_NAME" ] && TURBO=1; } || true
 # Peak memory measured on an M5 Ultra: image 28 GiB; FastH3 on the native engine 32 GiB (the passes; the text encoder
@@ -181,6 +240,7 @@ command -v uv >/dev/null || die "uv required: brew install uv"
 command -v python3.11 >/dev/null || die "python3.11 required: brew install python@3.11"
 command -v git >/dev/null || die "git required"
 [ "$VIDEO" = 0 ] || { command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; } || die "ffmpeg (with ffprobe) required: brew install ffmpeg"
+[ "$VIDEO" = 1 ] || command -v ffmpeg >/dev/null || echo "  ! no ffmpeg: motion graphics, captions and the rough cut need it (brew install ffmpeg)"
 
 fetch_ghcr() {
   command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 1
@@ -213,8 +273,25 @@ if [ ! -x "$PREFIX/venv/bin/python" ] || ! "$PREFIX/venv/bin/python" -c "$HAS_EN
     "${TF_SPEC[@]}" "mflux @ git+$MFLUX_REPO@$MFLUX_COMMIT"
 fi
 cp "$HERE/h3_generate.py" "$HERE/qwen_image_generate.py" "$HERE/zig_fasth3.py" "$HERE/fasth3_q8.py" "$PREFIX/"
-# speech-to-text for the QA gate of the Wasserman Sharp Spec (app/qa.py); without it that gate is shown as skipped
-uv pip install -q -p "$PREFIX/venv/bin/python" faster-whisper || echo "  note: faster-whisper was not installed; the QA gate's speech check will be skipped"
+if [ "$MODE" != "--verify" ]; then
+  # speech-to-text for the QA gate of the Wasserman Sharp Spec (app/qa.py) and for captions (graphics, Finish); without it
+  # the gate's speech check is skipped and captions wait for it
+  uv pip install -q -p "$PREFIX/venv/bin/python" faster-whisper || echo "  note: faster-whisper was not installed; the QA gate's speech check will be skipped"
+  # notifications on a phone when a night shift is done (app/push.py); without them the studio still runs
+  uv pip install -q -p "$PREFIX/venv/bin/python" cryptography pywebpush || echo "  note: cryptography and pywebpush were not installed; phone notifications will be off"
+fi
+# what the studio's own features import: numpy (captions, search, the rough cut, the Director), faster-whisper (captions,
+# the speech check), cryptography and pywebpush (phone notifications)
+"$PREFIX/venv/bin/python" -c "import numpy" 2>/dev/null || die "numpy is missing from $PREFIX/venv: run oneshot-setup.sh without --verify"
+"$PREFIX/venv/bin/python" - <<'EOF'
+import importlib.util as u
+import numpy
+print(f"  ✓ numpy {numpy.__version__}")
+print("  ✓ faster-whisper: captions and the QA gate's speech check" if u.find_spec("faster_whisper")
+      else "  ! faster-whisper is not installed: captions and the QA gate's speech check wait for it")
+print("  ✓ cryptography and pywebpush: phone notifications" if u.find_spec("cryptography") and u.find_spec("pywebpush")
+      else "  ! cryptography or pywebpush is not installed: phone notifications are off")
+EOF
 "$PREFIX/venv/bin/python" - <<'EOF' || die "the installed TensorFold lacks the H3 or Qwen-Image family"
 import importlib.metadata as m
 import mlx.core as mx
@@ -420,6 +497,20 @@ if [ "$MOTION" = 1 ] || [ -x "$PREFIX/motion-venv/bin/python" ]; then
     || echo "  ! Motion Previs is not fully set up: its tab says which layers are not available on this machine"
 fi
 
+# motion graphics and Finish: small, every install has them (--no-graphics, --no-finish leave them out), before --upgrade
+# hands over to --verify so an upgrade moves them to this version's pins too
+if [ "$GRAPHICS" = 1 ]; then  # motion graphics: HyperFrames in its own folder
+  step "Motion graphics: HyperFrames $(sed -nE 's/^HYPERFRAMES_VERSION="([^"]+)".*/\1/p' "$HERE/scripts/setup-graphics.sh") -> $PREFIX/graphics (about 400 MB)"
+  PREFIX="$PREFIX" bash "$HERE/scripts/setup-graphics.sh" $([ "$MODE" = "--verify" ] && echo --verify) $([ "$MODE" = "--no-render" ] && echo --no-test) | sed 's/^/  /' \
+    || echo "  ! Motion graphics are not fully set up: bash scripts/setup-graphics.sh"
+elif [ "$MODE" = "--verify" ]; then echo "  - motion graphics are not installed (--graphics adds them)"; fi
+if [ "$FINISH" = 1 ]; then  # Finish: Tesseract, its converter and two fonts in $PREFIX/finish
+  step "Finish: Tesseract and Tesseract Converter -> $PREFIX/finish (about 150 MB)"
+  [ "$MODE" = "--verify" ] || echo "  Tesseract is free to use under Mirage's own terms, not open source (TERMS.md beside it); the converter is MIT."
+  PREFIX="$PREFIX" bash "$HERE/scripts/setup-finish.sh" $([ "$MODE" = "--verify" ] && echo --verify) | sed 's/^/  /' \
+    || echo "  ! Finish is not fully set up: bash scripts/setup-finish.sh"
+elif [ "$MODE" = "--verify" ]; then echo "  - Finish is not installed (--finish adds it)"; fi
+
 [ "$MODE" = "--verify" ] || cp "$HERE/VERSION" "$PREFIX/VERSION"
 export PREFIX H3_MODEL_DIR QWEN_MODEL_DIR FASTH3_DIR
 if [ "$APP" = 1 ] && [ "$MODE" != "--verify" ]; then
@@ -429,7 +520,7 @@ fi
 
 if [ "$UPGRADE" = 1 ]; then
   step "Upgraded: $INSTALLED -> $(cat "$PREFIX/VERSION"). Checking the install (restart the app to serve the new pages)"
-  exec bash "$HERE/oneshot-setup.sh" --verify $([ "$VIDEO" = 1 ] || echo --image-only)
+  exec bash "$HERE/oneshot-setup.sh" --verify $([ "$VIDEO" = 1 ] || echo --image-only) $([ "$GRAPHICS" = 1 ] || echo --no-graphics) $([ "$FINISH" = 1 ] || echo --no-finish)
 fi
 # The essential LoRA bundle: every preset of the LoRA hub, fetched once from its author's page into one folder laid out
 # by the hub's groups, then installed (oneshot-essential-bundle.sh). --loras=GROUPS takes some groups, --lora-bundle=PATH
