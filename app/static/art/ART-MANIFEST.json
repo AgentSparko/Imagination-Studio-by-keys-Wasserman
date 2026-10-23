@@ -378,14 +378,6 @@
    "ready": true
   },
   {
-   "name": "look-3d-animation-style",
-   "file": "art/look-3d-animation-style.webp",
-   "size": "1024x1024",
-   "aspect": "1:1",
-   "purpose": "cover for the 3D Animation Style look card",
-   "ready": true
-  },
-  {
    "name": "look-video-upscaler",
    "file": "art/look-video-upscaler.webp",
    "size": "1024x1024",

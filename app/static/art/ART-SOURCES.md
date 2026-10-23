@@ -61,7 +61,6 @@ Rendered for this app on 2026-10-18 with the studio's own Image Engine (FLUX3-K 
 - art/act-story-slate.webp
 - art/act-video-own.webp
 - art/act-video-refs.webp
-- art/look-3d-animation-style.webp
 - art/look-anime-slider.webp
 - art/look-camera-motion.webp
 - art/look-character-swap.webp

@@ -179,6 +179,9 @@ cores · a 2x video decoder for 2K finals on the Mac
 3.2.0 is the studio's code: its engines are the 3.1.0 builds, so an update from 3.1.0 downloads no weights and no engines. The new
 parts that need a download (motion graphics, Finish, training) are added by the installer's flags, listed under Install.
 
+Looks no longer offers 3D Animation Style: on the DGX Spark's FastH3 it barely changed a clip's look, even at full strength.
+Realism People by fal is new in its place among the styles.
+
 
 Every new part has its place in the sidebar. Under **Creative Engines**: **Cast & Places** (the characters' and
 locations' sheets, with the bible and dialogue choices on top), **Director**, **Motion graphics** and **Night shift**,
@@ -317,7 +320,7 @@ It runs on this computer and needs no account.
 **Models, looks and installs**
 - **Models & weights** finds every model the studio needs anywhere on the machine and links it instead of
   downloading it again (**Use everything found here**), and **Install** runs the right installer for what is missing.
-- **Gated weights** (Keyframe Animation, 3D Animation Style, Stable Audio Open): Install signs you in to Hugging Face
+- **Gated weights** (Keyframe Animation, Stable Audio Open): Install signs you in to Hugging Face
   once, opens the licence page, and downloads by itself once access is granted.
 - **Looks**: the LoRA hub as a style library, one card a look.
 
@@ -2162,7 +2165,6 @@ author's, for credit.
 |---|---|---|---|---|---|
 | Anime Slider | adf99 | A slider between flat 2D anime (plus) and photorealism (minus). | text or a first frame | None stated | Mac (90 s), DGX Spark (150 s) |
 | Lineart Anime | DiffSynth-Studio | Colours a line-art video into finished anime. | a source video | Apache-2.0 | Mac (280 s), DGX Spark (205 s) |
-| 3D Animation Style | SOLRICKS | The look of a 3D animated feature. Start the prompt with `3dsrx`. | text or a first frame | H3 Community, gated | DGX Spark (Mac: rewritten for the engine, no clip rendered yet) |
 
 **06 Support & Finishing**
 
@@ -2184,7 +2186,7 @@ author's, for credit.
 "Not usable yet" means the hub lists the LoRA and the bundle holds its file, but the LoRA needs something a clip does
 not have in this version. Its card says which. Three LoRAs are not for a clip at all and have a job of their own,
 which the Library runs as an action (see *Library actions*): Turnaround, Person Remover and Video Upscaler LoRA.
-Multiple Angles is a LoRA for the image model: it is used in *Edit a picture*, not on a clip. 3D Animation Style is approved download by download by its author; its file is in kohya's own layout (`lora_unet_blocks_0_attn_qkv_proj`), which ComfyUI reads as it is and the Mac converter renames.
+Multiple Angles is a LoRA for the image model: it is used in *Edit a picture*, not on a clip.
 
 **What a picked LoRA asks for.** A LoRA that needs more than a prompt says so in its own row and again in the Render
 step, each with a button to the step that takes it, and "Queue this clip" waits until nothing is missing: a last frame

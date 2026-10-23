@@ -79,7 +79,7 @@ its author's page; each keeps its author's model card and licence beside it.
 - **Character Editing:** Character Swap and Person Remover by Akatz Labs (akatz-ai); Natural Face Speech by vpakarinen.
 - **Motion & Action:** Motion Continuity Repair, Combat Base V2 and Weapon Combat by JOKER141; Spatial Physics by
   Jojocodex.
-- **Art Style:** Anime Slider by adf99; Lineart Anime by DiffSynth-Studio; 3D Animation Style by SOLRICKS; Realism People
+- **Art Style:** Anime Slider by adf99; Lineart Anime by DiffSynth-Studio; Realism People
   by fal (huggingface.co/fal/MiniMax-H3-Realism-People-LoRA, MiniMax H3 Community License).
 - **Support & Finishing:** Video Upscaler LoRA by dntpi (with the latent upscaler by LBH-123-AI it builds on).
 - **Fun:** VH5 Tape (VHS) by KennethFal; Wushu Action by Jojocodex; Multiple Angles, for Qwen-Image-2.1, by akhaliq.
