@@ -25,6 +25,72 @@
 # is then shown without a terminal. STUDIO_CHECKLIST_DRY=1 makes an installer print the flags it would run with, then
 # stop before anything is installed.
 
+CHECKLIST_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CHECKLIST_LATER=""  # the gated parts left out of this run, said again at its end (checklist_gate_part, checklist_said_later)
+
+# checklist_gate URL: granted | open | sign_in | accept | pending | unknown for one file on Hugging Face, as the studio's
+# Install reads it (app/hf_gate.py's gate_of: the person's own token, a one-byte read). No answer (no network, no
+# Python) is "unknown". STUDIO_GATE_FAKE="part-of-url=answer;..." answers for tests.
+checklist_gate() {
+  local url="$1" pair
+  if [ -n "${STUDIO_GATE_FAKE:-}" ]; then
+    local IFS=';'
+    for pair in $STUDIO_GATE_FAKE; do
+      case "$url" in *"${pair%%=*}"*) echo "${pair#*=}"; return 0;; esac
+    done
+    echo unknown; return 0
+  fi
+  local py="${PREFIX:-}/venv/bin/python"; [ -x "$py" ] || py=python3
+  "$py" - "$CHECKLIST_ROOT/app" "$url" 2>/dev/null <<'PY' || echo unknown
+import sys
+import types
+try:
+    import fastapi  # noqa: F401
+except ImportError:  # before the studio's environment exists: hf_gate's web routes are not used here
+    stub = types.ModuleType("fastapi")
+    stub.APIRouter = stub.HTTPException = stub.Request = object
+    sys.modules["fastapi"] = stub
+sys.path.insert(0, sys.argv[1])
+import hf_gate
+print(hf_gate.gate_of(sys.argv[2]).get("access") or "unknown")
+PY
+}
+
+# checklist_gate_part MODE FLAG NAME COMMAND URL...: 0 when every gated file of a part opens for this person's Hugging
+# Face account. Otherwise one plain line says what to do, the part is remembered for the end of the run, and 1 is
+# returned: the installer drops the part and installs the rest. MODE verify only says "waiting for the licence".
+checklist_gate_part() {
+  local mode="$1" flag="$2" what="$3" command="$4" url answer page why=""
+  shift 4
+  for url in "$@"; do
+    answer="$(checklist_gate "$url" | tail -1)"
+    case "$answer" in granted|open) continue;; esac
+    page="${url%%/resolve/*}"
+    case "$answer" in
+      sign_in) why="sign in to Hugging Face first (hf auth login, or the studio's Install guide), then accept its licence at $page";;
+      pending) why="your request at $page is waiting for the author's approval";;
+      accept) why="accept its licence at $page with your Hugging Face account (signed in: hf auth login)";;
+      *) why="Hugging Face did not answer, so access could not be checked: accept its licence at $page (signed in: hf auth login)";;
+    esac
+    break
+  done
+  [ -n "$why" ] || return 0
+  if [ "$mode" = verify ]; then
+    echo "  - $what: waiting for the licence ($why)"
+    return 1
+  fi
+  echo "  ! $what is gated on Hugging Face and left out of this install: $why. Everything else installs."
+  CHECKLIST_LATER="${CHECKLIST_LATER}Not installed yet: $what ($why, then run: $command $flag)
+"
+  return 1
+}
+
+# the gated parts left out, at the end of a run that did not fail (an installer's EXIT trap)
+checklist_said_later() {
+  [ "$?" = 0 ] && [ -n "$CHECKLIST_LATER" ] || return 0
+  printf '\n%s' "$CHECKLIST_LATER"
+}
+
 # checklist_wanted ARGS...: is the list shown for this run?
 checklist_wanted() {
   [ -z "${CI:-}" ] || return 1

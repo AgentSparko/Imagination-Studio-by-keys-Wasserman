@@ -160,6 +160,23 @@ if ! command -v uv >/dev/null; then
   [ "$VERIFY" = 0 ] || die "no uv"
   curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null
 fi
+# Gated parts (FLUX3-K; Stable Audio Open for sound): Hugging Face is asked before anything is downloaded, with the
+# person's own sign-in (app/hf_gate.py through scripts/install-checklist.sh). One whose licence this account has not
+# accepted is left out with what to do, the rest installs, and the end of the run says it again.
+trap checklist_said_later EXIT
+if [ "$UPGRADE" = 0 ]; then
+  GATE_MODE=install; [ "$VERIFY" = 0 ] || GATE_MODE=verify
+  GATE_CMD="bash ${STUDIO_SETUP_ENTRY:-oneshot-setup-spark.sh}"
+  if [ "$FLUX3" = 1 ] && [ ! -s "$MODELS/FLUX3-K-Comfy/diffusion_models/flux3-image-klein-bf16.safetensors" ] \
+     && [ ! -s "$MODELS/FLUX3-K-Comfy/diffusion_models/flux3_image_klein_sd_bf16.safetensors" ]; then
+    checklist_gate_part "$GATE_MODE" --flux3 FLUX3-K "$GATE_CMD" \
+      https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-bf16.safetensors || FLUX3=0
+  fi
+  if [ "$SOUND" = 1 ] && [ ! -s "$MODELS/Sound-Comfy/stable-audio-open-1.0/model.safetensors" ]; then
+    checklist_gate_part "$GATE_MODE" --sound "Sound effects and foley" "$GATE_CMD" https://huggingface.co/stabilityai/stable-audio-open-1.0/resolve/main/model_index.json || SOUND=0
+  fi
+fi
+[ "${STUDIO_GATE_DRY:-0}" != 1 ] || { echo "flux3=$FLUX3 sound=$SOUND"; exit 0; }
 # disk for what is still to fetch (GB, with room): each part asked for whose weights are not here yet, by the file that
 # says it is (the sizes in the header above); a machine that holds some of them already needs only the rest
 missing() { [ ! -s "$1" ]; }

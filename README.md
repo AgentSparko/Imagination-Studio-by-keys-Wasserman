@@ -111,6 +111,10 @@ free disk space. Everything starts ticked: type a row's number (or `3 5`, or `4-
 every optional model, `d` to tick everything again, and press Enter to install what is ticked; the install prints the
 same choice as flags so it can be run again without the list. `--yes` (or any flag) skips the list and installs as
 before, with the plain install's parts; so does a run that is not in a terminal.
+FLUX3-K and sound effects are gated on Hugging Face: before anything is downloaded the install checks that your
+signed-in account (`hf auth login`) has accepted each one's licence. One that has not is left out with the page to
+accept it, everything else installs, and the end of the run prints the command that adds it afterwards (`--verify`
+reports it as waiting for the licence).
 
 ### Install flags
 

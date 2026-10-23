@@ -169,3 +169,61 @@ def test_the_mac_installer_turns_the_list_into_its_own_flags():
                                     "oneshot-setup-rtx-6000.sh", "scripts/make-app.sh", "scripts/install-checklist.sh"])
 def test_the_scripts_parse(script):
     assert subprocess.run([BASH, "-n", str(ROOT / script)]).returncode == 0
+
+
+SAO = "https://huggingface.co/stabilityai/stable-audio-open-1.0/resolve/main/model_index.json"
+KLEIN = "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-bf16.safetensors"
+
+
+def gate(tmp_path, *urls, mode="install", **extra):
+    """checklist_gate_part for FLUX3-K: its status, what it said, and what the end of the run says."""
+    script = (f'. "{LIB}"; checklist_gate_part {mode} --flux3 FLUX3-K "bash oneshot-setup-spark.sh" "$@"; s=$?; '
+              'printf "STATUS=%s\\n%s" "$s" "$CHECKLIST_LATER"')
+    done = subprocess.run([BASH, "-c", script, "x", *urls], capture_output=True, text=True, timeout=120,
+                          env=env(HF_HOME=str(tmp_path), PREFIX=str(tmp_path), **extra))
+    return int(re.search(r"STATUS=(\d+)", done.stdout).group(1)), done.stdout
+
+
+def test_a_gated_part_whose_licence_is_accepted_is_kept(tmp_path):
+    code, said = gate(tmp_path, KLEIN, STUDIO_GATE_FAKE="klein=granted")
+    assert code == 0 and "Not installed yet" not in said and "!" not in said
+    assert gate(tmp_path, KLEIN, STUDIO_GATE_FAKE="klein=open")[0] == 0  # a repo that is not gated
+
+
+def test_a_refused_licence_drops_the_part_with_what_to_do(tmp_path):
+    code, said = gate(tmp_path, KLEIN, STUDIO_GATE_FAKE="klein=accept")
+    assert code == 1 and "left out of this install" in said and "Everything else installs" in said
+    assert "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy" in said and "hf auth login" in said
+    assert re.search(r"Not installed yet: FLUX3-K \(accept its licence at https://huggingface.co/black-forest-labs/"
+                     r"flux-3-image-klein-comfy .*then run: bash oneshot-setup-spark.sh --flux3\)", said)
+    assert "sign in to Hugging Face first" in gate(tmp_path, KLEIN, STUDIO_GATE_FAKE="klein=sign_in")[1]
+    assert "waiting for the author's approval" in gate(tmp_path, KLEIN, STUDIO_GATE_FAKE="klein=pending")[1]
+    code, said = gate(tmp_path, KLEIN, mode="verify", STUDIO_GATE_FAKE="klein=accept")
+    assert code == 1 and "FLUX3-K: waiting for the licence" in said and "Not installed yet" not in said
+
+
+def test_no_network_or_no_sign_in_is_not_yet(tmp_path):
+    dead = {"HTTPS_PROXY": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9", "NO_PROXY": "", "no_proxy": ""}
+    code, said = gate(tmp_path, SAO, HF_TOKEN="hf_not_a_real_token", **dead)  # app/hf_gate.py itself, with no way out
+    assert code == 1 and "Hugging Face did not answer" in said and "Not installed yet: FLUX3-K" in said
+    code, said = gate(tmp_path, SAO, **dead)  # no token saved and none given
+    assert code == 1 and "sign in to Hugging Face first" in said
+
+
+def test_the_cuda_installer_asks_before_downloading_and_the_rtx_entry_no_longer_stops():
+    cuda = (ROOT / "oneshot-setup-cuda.sh").read_text()
+    assert cuda.index("checklist_gate_part \"$GATE_MODE\" --flux3") < cuda.index("say \"Environment:")
+    assert "|| FLUX3=0" in cuda and "|| SOUND=0" in cuda and "trap checklist_said_later EXIT" in cuda
+    assert "exit 1" not in (ROOT / "oneshot-setup-rtx-6000.sh").read_text()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the Mac installer")
+def test_the_mac_installer_drops_a_refused_part_and_installs_the_rest(tmp_path):
+    done = subprocess.run([BASH, str(ROOT / "oneshot-setup.sh"), "--flux3", "--sound"], capture_output=True, text=True,
+                          timeout=60, env=env(STUDIO_GATE_DRY="1", HF_HOME=str(tmp_path), PREFIX=str(tmp_path),
+                                              FLUX3_MODEL_DIR=str(tmp_path / "flux3"),
+                                              STUDIO_GATE_FAKE="flux-3-image-klein=granted;stable-audio=accept"))
+    assert done.returncode == 0, done.stderr
+    assert "flux3=1 sound=0" in done.stdout  # FLUX3-K stays, sound waits for its licence
+    assert "Sound effects and foley is gated on Hugging Face and left out" in done.stdout
+    assert "Not installed yet: Sound effects and foley" in done.stdout and "then run: bash oneshot-setup.sh --sound)" in done.stdout

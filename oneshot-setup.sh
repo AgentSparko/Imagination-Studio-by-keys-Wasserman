@@ -184,6 +184,24 @@ if [ "$ALL" = 1 ]; then
   fi
 fi
 [ "$TRAIN" = 0 ] || [ "$ALL" = 1 ] || echo "  --train: training a LoRA runs on a CUDA machine (oneshot-setup-spark.sh --train): left out on this Mac"
+# Gated parts (FLUX3-K; Stable Audio Open for sound): Hugging Face is asked before anything is downloaded, with the
+# person's own sign-in (app/hf_gate.py through scripts/install-checklist.sh). One whose licence this account has not
+# accepted is left out with what to do, the rest installs, and the end of the run says it again.
+trap checklist_said_later EXIT
+if [ "$UPGRADE" = 0 ]; then
+  GATE_MODE=install; [ "$MODE" != "--verify" ] || GATE_MODE=verify
+  FLUX3_DIR="${FLUX3_MODEL_DIR:-$HOME/flux3-models}"
+  if [ "$FLUX3" = 1 ] && { [ ! -s "$FLUX3_DIR/FLUX3-K-Fast/model.safetensors" ] || [ ! -s "$FLUX3_DIR/FLUX3-K-Full/model.safetensors" ]; }; then
+    checklist_gate_part "$GATE_MODE" --flux3 FLUX3-K "bash oneshot-setup.sh" \
+      https://huggingface.co/black-forest-labs/flux-3-image-klein/resolve/main/model.safetensors \
+      https://huggingface.co/black-forest-labs/flux-3-image-klein-base/resolve/main/model.safetensors || FLUX3=0
+  fi
+  if [ "$SOUND" = 1 ] && [ ! -f "${SOUND_MODELS:-$PREFIX/sound-models}/stable-audio-open-1.0/model_index.json" ]; then
+    checklist_gate_part "$GATE_MODE" --sound "Sound effects and foley" "bash oneshot-setup.sh" \
+      https://huggingface.co/stabilityai/stable-audio-open-1.0/resolve/main/model_index.json || SOUND=0
+  fi
+fi
+[ "${STUDIO_GATE_DRY:-0}" != 1 ] || { echo "flux3=$FLUX3 sound=$SOUND"; exit 0; }
 # Upscale and Remove a person hold MiniMax H3's bf16 Ref2VA transformer and text encoder at once (125 and 135 GB at
 # their peaks, measured; the app keeps 16 GB free beside them): a Mac with less is refused here, not halfway through a job
 for one in ${COMFY_ARGS[@]+"${COMFY_ARGS[@]}"}; do
