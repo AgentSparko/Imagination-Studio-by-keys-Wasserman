@@ -160,7 +160,8 @@ def _inspect(pack: Path, fetch: bool, known: dict) -> dict:
         raise UpdateError("This installation has its own commits. Updates will keep them; merge them manually first.") from error
     changed = git(pack, "diff", "--name-only", current, target).splitlines()
     if any(name == "requirements.lock" or name.startswith(("scripts/setup-", "oneshot-setup")) for name in changed):
-        raise UpdateError("This update also changes installation dependencies. Run the setup instructions for this version first.")
+        raise UpdateError("This update also changes what the installer sets up: in the studio's folder run "
+                          "`git pull && bash oneshot-setup.sh --upgrade`, then restart the studio.")
     try:
         version = git(pack, "show", target + ":VERSION", timeout=10)[:80]
     except UpdateError:

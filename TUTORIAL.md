@@ -1,4 +1,4 @@
-# Wasserman Slate AI Studio, powered by TensorFold: install it, click it, make things
+# Imagination Studio by keys+Wasserman, powered by TensorFold: install it, click it, make things
 
 **Thank you first** to Sam Wasserman (Slate, the Sharp Spec, Motion Previs Studio), the Qwen team (Qwen-Image-2.1),
 Black Forest Labs (FLUX 3 Image Klein) and felix-ab (flux3-mlx), OpenMOSS (MOSS-Image), MiniMax (H3 and MiniMax-Music3), FastVideo / Hao AI
@@ -36,7 +36,8 @@ run again; downloads resume. Variants:
 
 | Command | What it installs |
 |---|---|
-| `bash oneshot-setup.sh --app` | images and FastH3 video (about 175 GB); needs 64 GB of memory on an M5 |
+| `bash oneshot-setup.sh --app` | images and FastH3 video, motion graphics and Finish (about 175 GB); needs 64 GB of memory on an M5. In a terminal it first shows a checklist of parts; `--yes` skips it |
+| `bash oneshot-setup.sh --all --app` | every feature this Mac's memory runs (about 400 GB with 64 GB of memory, 530 GB with 128 GB or more) |
 | `bash oneshot-setup.sh --turbo --app` | also MiniMax H3 Turbo (about 240 GB); needs 128 GB of memory, and adds a second engine card |
 | `bash oneshot-setup.sh --image-only --app` | image model only (33 GB) |
 | add `--flux3` | the FLUX3-K Fast and Full picture models (41 GB; accept the FLUX Kommunity License on Hugging Face first) |
@@ -46,7 +47,7 @@ run again; downloads resume. Variants:
 | add `--voice` | Fish Audio Drama 3 for the Voice tab |
 | add `--music` | MiniMax-Music3 for the Music tab (22 GB of weights; on an M5 also TensorFold's Metal engine, built in a few minutes) |
 | `bash oneshot-setup.sh --verify` | checks an existing install, downloads nothing |
-| `git pull && bash oneshot-setup.sh --upgrade` | moves an existing install to the newest version: the engine and scripts, no model downloads, your clips and projects untouched |
+| `git pull && bash oneshot-setup.sh --upgrade` | moves an existing install to the newest version: the engines, scripts and the parts already installed; from 3.1 it also adds motion graphics and Finish. No model downloads, your clips and projects untouched. Restart the app afterwards |
 
 The models have their own licenses: Qwen-Image-2.1 is **non-commercial**; MiniMax H3 and FastH3 are under the
 MiniMax H3 Community License; FLUX3-K under the FLUX Kommunity License; Drama 3 under the Fish Audio Community License
@@ -54,9 +55,10 @@ MiniMax H3 Community License; FLUX3-K under the FLUX Kommunity License; Drama 3 
 commercial product must show "MiniMax-Music3" in its interface). The script prints the links before each download.
 
 **On a DGX Spark** the same `bash oneshot-setup.sh` installs the CUDA build (it hands over to
-`oneshot-setup-spark.sh`). It passes on `--image-only`, `--no-render`, `--verify`, `--motion`, `--voice`, `--flux3`,
-`--music` and `--upgrade`; run `bash oneshot-setup-spark.sh --ref2va` (or `--image-edit`) directly for those. There is
-no `--turbo`, no `--app` and no 2x decoder there. The steps below are the same on both machines unless they
+`oneshot-setup-spark.sh`). It passes on every flag the CUDA install takes (`--all`, `--yes`, `--ref2va`, `--image-edit`,
+`--h3-base`, `--flux3`, `--moss`, `--music`, `--voice`, `--sound`, `--bolt`, `--motion`, `--train`, `--graphics`, `--finish`,
+`--image-only`, `--no-render`, `--verify`, `--upgrade` and the LoRA flags). There is no `--turbo`, no `--app` and no 2x
+decoder there, and Finish runs Tesseract on a Mac over ssh (Settings → Connections). The steps below are the same on both machines unless they
 say otherwise.
 
 **Prefer to let an agent do it?** Give Claude Code (or another coding agent) this:
