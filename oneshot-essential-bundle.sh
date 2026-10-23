@@ -35,12 +35,16 @@ PKG_BASE="https://huggingface.co/drowzeys/keys-studio-lora-essential/resolve/mai
 STUDIO_DIR="${STUDIO_HOME:-$(python3 "$HERE/app/studio_home.py")}"  # app/studio_home.py: the folder the app uses
 PKG_FILE="keys-studio-lora-essential-$([ "$(uname -s)" = Darwin ] && echo mac || echo spark)-2026-10-13-r4.tar"  # Keys' r4 build of the pack (2026-10-13)
 case " ${ARGS[*]-} " in *" --package"*|*" --source"*|*" --make-package"*|*" --verify "*|*" --dry-run "*) ;; *)
-  if [ "${LORA_PACKAGE:-}" != none ] && [ -z "${LORA_BUNDLE:-}" ] && [ ! -e "${DEST:-$STUDIO_DIR/lora-bundle}/package.json" ]; then
-    ARGS+=(--package "${LORA_PACKAGE:-$PKG_BASE/$PKG_FILE}")
+  # the pinned package is fetched when no bundle is here, or when the one here came from an older package (a bundle
+  # notes the package it came from in .package; one with no note predates it, so it is brought up to the pinned one)
+  BUNDLE_DIR="${DEST:-$STUDIO_DIR/lora-bundle}"
+  if [ "${LORA_PACKAGE:-}" != none ] && [ -z "${LORA_BUNDLE:-}" ] && { [ ! -e "$BUNDLE_DIR/package.json" ] || [ "$(cat "$BUNDLE_DIR/.package" 2>/dev/null)" != "$PKG_FILE" ]; }; then
+    ARGS+=(--package "${LORA_PACKAGE:-$PKG_BASE/$PKG_FILE}"); FROM_PACKAGE="$PKG_FILE"
   fi;; esac
 PY="$PREFIX/venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)" || { echo "python3 is needed" >&2; exit 2; }
 "$PY" "$HERE/scripts/lora-bundle.py" ${ARGS[@]+"${ARGS[@]}"}; RC=$?
 [ $RC -le 1 ] || exit $RC
+[ -z "${FROM_PACKAGE:-}" ] || [ ! -e "$BUNDLE_DIR/package.json" ] || echo "$FROM_PACKAGE" > "$BUNDLE_DIR/.package"
 if [ "$INSTALL" = 1 ] && [ "$CHECK" = 0 ]; then
   DEST="${DEST:-$STUDIO_DIR/lora-bundle}"
   if [ -x "$PREFIX/venv/bin/python" ]; then
