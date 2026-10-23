@@ -1146,11 +1146,10 @@ def check_tool(tool: dict) -> dict:
         lines.put(None)
     def drain():  # the log is only ever shown as an error hint: 1 MB of it is plenty, whatever the server pours
         kept = 0
-        for line in process.stderr:
-            if kept > 1 << 20:
-                break
-            kept += len(line)
-            errors.append(line)
+        for line in process.stderr:  # read to the end even past the cap: a pipe nobody reads stalls the server
+            if kept <= 1 << 20:
+                kept += len(line)
+                errors.append(line)
     threading.Thread(target=read, daemon=True).start()
     threading.Thread(target=drain, daemon=True).start()
 

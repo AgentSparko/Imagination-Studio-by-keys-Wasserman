@@ -407,7 +407,7 @@ function slTakes(scene, shot) { return shot.takes.filter(t => t.mediaPath).map(t
     have ? slKeepVoices(shot, take) : null, slFeedback(scene, shot, take)); }); }
 // A take's sound kept as a speaking character's voice: their voice sheet's cast voice from then on (slate.py)
 const slSpeakers = shot => [...new Set(slTf(shot).lines.filter(l => (l.text || "").trim() && l.characterId).map(l => l.characterId))].map(id => SL.p.characters.find(c => c.id === id)).filter(Boolean);
-async function slKeepVoice(shot, take, who) { try { clearTimeout(slTimer); await slPut();  // the server reads the take from the file
+async function slKeepVoice(shot, take, who) { try { slCancel(); await slPut();  // the server reads the take from the file
     SL.p = await api("/api/slate/voice-from-take", { project: SL.p.id, shot: shot.id, take: take.id, character: who.id }); SL.plan = {};
     const v = (SL.p.voices || []).find(x => x.characterId === who.id); toast("Kept as the voice of " + who.name + (v && v.drama ? ", " + Number(v.drama.seconds).toFixed(1) + " s" : "") + ": shots with Drama 3 dialogue use it"); render(); } catch (e) { toast(e.message); } }
 const slKeepVoices = (shot, take) => { const who = slSpeakers(shot); return who.length ? el("div", { class: "row chips", style: "margin-top:6px" }, who.map(c => el("button", { class: "small fit", title: "The take's sound (its first 15 s, at least 2 s) becomes " + c.name + "'s voice: the reference for their lines when dialogue is voiced by Drama 3", onclick: () => slKeepVoice(shot, take, c) }, "Keep this voice for " + c.name)), el("span")) : null; };

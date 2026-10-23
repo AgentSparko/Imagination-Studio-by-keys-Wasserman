@@ -35,12 +35,11 @@ def test_two_saves_in_flight_do_not_tear_the_project_file():
             said.append(str(error))
 
     try:
-        for who in ("left", "right"):
-            threading.Thread(target=save, args=(who,)).start()
-        import time
-        deadline = time.time() + 5
-        while any(t.name.startswith("Thread-") for t in threading.enumerate()) and time.time() < deadline:
-            time.sleep(0.05)
+        savers = [threading.Thread(target=save, args=(who,)) for who in ("left", "right")]
+        for saver in savers:
+            saver.start()
+        for saver in savers:
+            saver.join(5)
     finally:
         server.json.dumps = real
     assert said == [], f"a second saver fought over the temp: {said}"
