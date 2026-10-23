@@ -140,12 +140,15 @@ if [ "$UPGRADE" = 1 ]; then
   [ ! -s "${BOLT_MODELS:-$MODELS}/Nemotron-3.5-Bolt-24GB/model.safetensors.index.json" ] || BOLT=1
   [ ! -x "$PREFIX/drama3/bin/drama3-generate" ] || VOICE=1
   [ ! -x "$PREFIX/train/venv/bin/python" ] || TRAIN=1
+  # motion graphics and Finish are part of every install since 3.2.0: an upgrade from before it adds them (small;
+  # --no-graphics, --no-finish leave them out). From 3.2.0 on, an upgrade keeps them where they are.
+  if [ "$(printf '%s\n' "$INSTALLED" 3.2.0 | sort -V | head -1)" != 3.2.0 ]; then GRAPHICS="${GRAPHICS:-1}"; FINISH="${FINISH:-1}"; fi
   [ -n "$GRAPHICS" ] || { [ -d "$PREFIX/graphics/node_modules/hyperframes" ] && GRAPHICS=1; } || GRAPHICS=0
   [ -n "$FINISH" ] || { { [ -x "$PREFIX/finish/bin/tsrct" ] || [ -f "$PREFIX/finish/fonts/InstrumentSerif-Regular.ttf" ]; } && FINISH=1; } || FINISH=0
   ok "upgrade: installed $INSTALLED -> $(cat "$HERE/VERSION")$([ "$IMAGE_ONLY" = 0 ] || echo " (image-only install)")"
 else ok "version $(cat "$HERE/VERSION")$([ ! -f "$PREFIX/VERSION" ] || echo " (installed: $INSTALLED)")"; fi
-# motion graphics and Finish come with every install (small: --no-graphics, --no-finish leave them out); --upgrade keeps
-# them where they are and adds none
+# motion graphics and Finish come with every install (small: --no-graphics, --no-finish leave them out); --upgrade adds
+# them to an install from before 3.2.0 and otherwise keeps them where they are
 GRAPHICS="${GRAPHICS:-1}"; FINISH="${FINISH:-1}"
 GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
 MEM_GB=$(awk '/MemTotal/{print int($2/1048576)}' /proc/meminfo)

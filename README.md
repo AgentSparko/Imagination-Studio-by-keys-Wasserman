@@ -176,8 +176,11 @@ cores · a 2x video decoder for 2K finals on the Mac
 
 ## New in 3.2.0 (2026-10-22)
 
-3.2.0 is the studio's code: its engines are the 3.1.0 builds, so an update from 3.1.0 downloads no weights and no engines. The new
-parts that need a download (motion graphics, Finish, training) are added by the installer's flags, listed under Install.
+3.2.0 is the studio's code: its engines are the 3.1.0 builds (the installers still take them from the carrier
+`keys-tensorfold-studio:3.1.0` and the v3.1.0 release), so an update from 3.1.0 downloads no weights and no engines. Because 3.2.0 adds install
+parts, the app's own updater asks for the installer first: `git pull && bash oneshot-setup.sh --upgrade` on a Mac or a
+DGX Spark, then restart the app. `--upgrade` from 3.1 adds motion graphics and Finish (about 550 MB); training a LoRA
+is added with `--train` on a DGX Spark.
 
 Every new part has its place in the sidebar, and **Creative Engines** are in the order a film is made: Video, Image,
 Sound, Story, Cast & Places, Director, Previs, Motion graphics, Edit and Night shift (⌥1 to ⌥6 follow it). Under
@@ -902,7 +905,8 @@ the Qwen team for Qwen-Image-2.1-Turbo, and the ComfyUI team for the runtime thi
 git clone https://github.com/drowzeys/Imagination-Studio-by-keys-Wasserman.git && cd Imagination-Studio-by-keys-Wasserman
 sudo apt install -y git ffmpeg
 bash oneshot-setup.sh            # the same command as on a Mac: on Linux it runs oneshot-setup-spark.sh
-                                 # 99 GB of models, the engine build, a test image and a 5 second test clip
+                                 # the core install (125 GB free disk): models, engines, motion graphics, Finish,
+                                 # a test image and a 5 second test clip; --all for everything (about 400 GB)
 bash scripts/app.sh              # http://127.0.0.1:7870
 ```
 
@@ -914,16 +918,20 @@ refuses the jobs that need it when they are queued. The 720p preset is not one o
 finished clip there. Without ffmpeg a clip also keeps ComfyUI's own sound track instead of the limited 256 kb/s one,
 and the render says so.
 
-#### Upgrade from 2.5 or 2.6 (DGX Spark)
+#### Upgrade an existing install (DGX Spark)
 
 ```bash
 cd Imagination-Studio-by-keys-Wasserman && git pull
 bash oneshot-setup.sh --upgrade  # on Linux: oneshot-setup-spark.sh --upgrade
+bash scripts/app.sh              # restart the app on the new version
 ```
 
 `--upgrade` moves an existing install to the version of the clone: the environment's packages, ComfyUI at its pinned
-commit, the engine (rebuilt only when its pinned commit changed) and the Motion Previs environment, which it adds
-when it is missing. It **fetches no weights** (a model that is not on disk is named and left out; an image-only
+commit, the engines (rebuilt or taken from the carrier only when their pinned commit changed), every optional part
+already installed (Ref2VA, FLUX3-K, MOSS-Image, Music, Voice, sound, Bolt, training), the Motion Previs environment,
+which it adds when it is missing, and motion graphics and Finish, which it adds to an install from before 3.2.0
+(`--no-graphics`, `--no-finish` leave them out). Worker Sparks then take the head's code with **Sparks → Update and
+start**. It **fetches no weights** (a model that is not on disk is named and left out; an image-only
 install stays image-only), does not touch `~/ImaginationStudio` (clips, projects, LoRAs, settings), prints the version
 before and after, and ends with `--verify`. Running it a second time changes nothing. Restart the app afterwards
 (`bash scripts/app.sh`) so it serves the new pages. Run it when no clip is rendering.
@@ -1617,16 +1625,17 @@ bash oneshot-setup.sh --turbo --app     # the same plus MiniMax H3 Turbo (64 GB 
 bash oneshot-setup.sh --ref2va --app    # the same plus reference pictures to video (64 GB more on disk, 128 GB of memory)
 ```
 
-#### Upgrade from 2.5 or 2.6 (Mac)
+#### Upgrade an existing install (Mac)
 
 ```bash
 cd Imagination-Studio-by-keys-Wasserman && git pull
 bash oneshot-setup.sh --upgrade         # add --app to rebuild the double-clickable app as well
 ```
 
-`--upgrade` moves an existing install to the version of the clone: it replaces the TensorFold engine in the
-install's own environment when it is older than this version needs (2.6.1: the build with reference videos and
-audio), copies the render scripts, and adds the Motion Previs environment when it is missing (0.5 GB). It **fetches
+`--upgrade` moves an existing install to the version of the clone: it replaces the TensorFold engine and the native
+FastH3 engine in the install's own environment when they are older than this version pins, copies the render
+scripts, moves the optional parts it finds installed to this version's pins, adds the Motion Previs environment when it is missing (0.5 GB), and adds motion graphics and Finish to
+an install from before 3.2.0 (about 550 MB; `--no-graphics`, `--no-finish` leave them out). It **fetches
 no weights**: a model that is not on disk is named and left out, and an image-only install stays image-only. It does
 not touch `~/ImaginationStudio` (clips, projects, LoRAs, settings), prints the version before and after, and ends with
 `--verify`. Running it a second time changes nothing. Quit and reopen the app afterwards. A plain
@@ -1669,7 +1678,9 @@ it is open and installs when its queue and render engine are idle. Turn it off i
 saved for this installation. Updates preserve projects, media,
 models and runtime environments. Updates only move the branch forward: local code changes, untracked files, commits
 of your own that are not on GitHub, or a detached checkout pause updates without discarding work. Updates requiring changes to installation
-dependencies show a message asking you to follow that version's setup instructions.
+dependencies show a message asking you to run the installer first, as 3.1 to 3.2 does: `git pull && bash
+oneshot-setup.sh --upgrade` in the clone (on a Mac or a DGX Spark), then restart the app (quit and reopen the Mac
+app, or `bash scripts/app.sh`). See *Upgrade an existing install* under each build.
 
 Start Studio using `bash scripts/app.sh` or the existing Mac app launcher to support an update and restart. The launcher
 waits for its server to exit before changing source, saves the old commit under `refs/studio-backups/`, and checks the
