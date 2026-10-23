@@ -72,6 +72,8 @@ def link_found(lora_id: str, target: Path) -> bool:
     return target.exists()
 
 PRESETS = Path(__file__).with_name("lora-presets.json")
+# LoRAs the studio no longer offers, though a package's own menu (bundle.json) still lists them: not brought back from it
+WITHDRAWN = {"3d-animation-style"}  # on the DGX Spark's FastH3 it barely changed a clip, even at full strength
 FIELDS = ("name", "author", "url", "page", "sha256", "trigger", "styles", "strength", "range", "base", "licence", "notes")
 LIMIT = 4  # LoRAs on one clip
 # the hub's sections, in the order they are shown (lora-groups.json, which the essential bundle's folders follow)
@@ -280,7 +282,8 @@ def attach(home: Path, pack: Path, spark: bool):
                 extra = json.loads((Path(where).expanduser() / "bundle.json").read_text()).get("loras", [])
             except (OSError, ValueError, AttributeError):
                 extra = []
-            built += [{"status": "ready", "needs": "text", **r, "builtin": True} for r in extra if r.get("id") and r.get("url") and r["id"] not in taken]
+            built += [{"status": "ready", "needs": "text", **r, "builtin": True} for r in extra
+                      if r.get("id") and r.get("url") and r["id"] not in taken and r["id"] not in WITHDRAWN]
             taken = {r["id"] for r in built}
         return built + [{"status": "ready", "category": ["mine"], "needs": "text", **r, "builtin": False} for r in added() if r.get("id") not in taken]
 
