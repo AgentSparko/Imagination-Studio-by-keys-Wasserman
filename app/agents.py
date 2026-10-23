@@ -1418,7 +1418,10 @@ def snapshot(here: Path) -> dict:
     for path in sorted(here.rglob("*")) if here.is_dir() else []:
         name = str(path.relative_to(here))
         if path.is_file() and not any(part.startswith(".") for part in Path(name).parts):
-            stat = path.stat()
+            try:
+                stat = path.stat()
+            except OSError:  # gone since the walk: a write_json temp renamed into place, a file the agent removed
+                continue
             out[name] = [stat.st_size, stat.st_mtime_ns]
     return out
 
