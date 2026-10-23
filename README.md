@@ -2014,16 +2014,27 @@ settings and queues ordinary jobs, so the queue, the Sparks and the QA gate trea
 
 | Button | Does | Settings | Needs |
 |---|---|---|---|
-| **Restyle** | The clip made again in a new look. The clip goes in as a reference video, so its action, camera and timing stay and the picture is drawn again from your words. The new clip has the clip's size (the preset of that size, else the nearest size of your own). | the new look (required), seconds (2 to 15, default the whole clip), keep the clip's sound (default on), seed | MiniMax H3 Ref2VA |
+| **Restyle** | The clip made again in a new look, in three steps. 1: the clip's first frame is redrawn in that look by the picture model. 2: Motion Previs reads the clip's motion as a depth layer. 3: the clip is made again from the depth layer and the redrawn frame, so its action, camera and timing stay and the look and the setting are the new frame's. The new clip has the clip's size (the preset of that size, else the nearest size of your own). | the new look (required), picture model, seconds (2 to 15, default the whole clip), keep the clip's sound (default on), seed | MiniMax H3 Ref2VA, Motion Previs and a picture model |
 | **Extend** | The clip carried on: a new clip opens on its last frame, then the two are joined into one file, `renders/<job>-extended.mp4`, with the repeated frame at the join dropped. Over 15 seconds the new part is a long take (a chain of clips). | how much longer (5 to 30 s), what happens next (default: the clip's own prompt while the studio remembers it, else "continue the shot"), join (default on), seed | ffmpeg |
-| **Fix** | One thing changed from a sentence ("change the sky to a stormy sunset"), in two jobs. 1: the clip's first frame is redrawn by the picture model from the instruction. 2: the clip is made again from that frame as a reference picture and the clip as a reference video, so the motion is the clip's and the look the new frame's. | what to change (required), picture model (Qwen 2.1 Turbo or Full, FLUX3-K Fast or Full), keep the clip's sound, seed | MiniMax H3 Ref2VA and a picture model |
+| **Fix** | One thing changed from a sentence ("change the sky to a stormy sunset"), in the same three steps: the first frame is redrawn from the instruction, Motion Previs reads the clip's motion, and the clip is made again from its depth layer and the redrawn frame, so the motion and camera are the clip's and the look the new frame's. | what to change (required), picture model (Qwen 2.1 Turbo or Full, FLUX3-K Fast or Full), keep the clip's sound, seed | MiniMax H3 Ref2VA, Motion Previs and a picture model |
+
+Restyle and Fix go the way the create wizard goes for a control layer
+([Motion Previs](#motion-previs-a-shot-into-control-layers-and-a-camera-move)): the clip's depth map is `<Video 1>`,
+declared as the structure of the shot and not its look, and the redrawn first frame is `<Picture 1>`, the first-frame
+anchor the look and the setting come from. The clip itself as the reference video is
+not used: the model follows it so closely that the new clip comes back almost unchanged. What the depth layer keeps
+is chosen from the analysis: a person's body motion and the camera when the clip has someone in it, the main object's
+path and the camera when it has nobody. The clip's own sound goes with the depth layer as a reference (or, where it
+cannot, is laid under the new clip afterwards). The Queue shows the steps as they come: the frame, the analysis
+(Motion Previs, on the processor, under a minute), then the clip. A clip worked on twice uses its analysis again.
 
 A reference video is at most 15 seconds: a longer clip is cut to its first 15 for Restyle and Fix, and the panel says
-so. There is no mask in Fix: the whole first frame is redrawn from the instruction, so small details elsewhere can
-change too, and the new clip follows the redrawn frame's look wherever it differs from the clip. A clip without sound
-of its own gets sound made for it.
+so. There is no mask: the whole first frame is redrawn, so small details elsewhere can change too, and the new clip
+follows the redrawn frame's look wherever it differs from the clip. A clip without sound of its own gets sound made
+for it.
 
-Restyle and Fix need the Ref2VA model (`--ref2va` on a DGX Spark, a Mac with 128 GB or more); Extend needs only ffmpeg.
+Restyle and Fix need the Ref2VA model (`--ref2va` on a DGX Spark, a Mac with 128 GB or more) and Motion Previs
+(`--motion`; its depth layer needs only ffmpeg, its AI depth and pose the full install); Extend needs only ffmpeg.
 
 Agents have the same three as `restyle_clip`, `extend_clip` and `fix_clip`; over the API they are
 `POST /api/revise {kind: "restyle" | "extend" | "fix", params}` (or `POST /api/jobs` with the same kind), which

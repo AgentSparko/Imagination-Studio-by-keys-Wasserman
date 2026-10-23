@@ -1,5 +1,5 @@
-"""Restyle, Extend and Fix (app/revise.py): the jobs each queues, the 15 second cut, Extend's join and Fix's two steps,
-and their panels in the Library (app/static/revise.js). The studio around them is stood in for: nothing is rendered.
+"""Restyle, Extend and Fix (app/revise.py): the jobs each queues, the 15 second cut, Extend's join, the three steps
+of Restyle and Fix (first frame, motion analysis, the clip from the depth layer), and their panels in the Library (app/static/revise.js). The studio around them is stood in for: nothing is rendered.
 Run: python3 -m pytest tests/test_revise.py. Needs ffmpeg for the clips (the tests that use one are skipped without it)."""
 
 import json
@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -42,11 +43,39 @@ def frames(path: Path) -> int:
     return int(json.loads(out)["streams"][0]["nb_read_frames"])
 
 
-def studio(pace=""):
+def server_module():
+    os.environ.setdefault("STUDIO_HOME", str(Path(tempfile.mkdtemp()) / "TensorFoldStudio"))
+    import server
+    return server
+
+
+def studio(pace="", motion=True, able=None):
     home = Path(tempfile.mkdtemp()).resolve() / "home"
     for name in ("renders", "uploads", "sparks"):
         (home / name).mkdir(parents=True)
     queued, built = [], []
+    # Motion Previs stood in for: its queue (motion.API) and its hand-off (motion.motion_reference)
+    analyses, packs, submitted, handed = {}, {}, [], []
+
+    def submit(body):
+        submitted.append(body)
+        one = f"m{len(submitted)}"
+        analyses[one] = {"id": one, "status": "queued"}
+        return dict(analyses[one])
+
+    def get_pack(pack):
+        if pack not in packs:
+            raise HTTPException(404, "no such pack")
+        return packs[pack]
+
+    def motion_reference(pack, layer, mode, seconds, width, height, timing="stretch"):
+        handed.append({"pack": pack, "layer": layer, "mode": mode, "seconds": seconds, "width": width, "height": height, "timing": timing})
+        return {"clip": f"motion/{pack}/handoff/{layer}-{width}x{height}-{seconds:g}s-{timing}-cover.mp4", "sound": ns.handoff_sound,
+                "camera": "The camera pushes in slowly.", "camera_reliable": True}
+
+    api = {"submit": submit, "job": lambda one: analyses[one], "pack": get_pack,
+           "able": lambda: able if able is not None else {"ffmpeg": True, "ai_depth": True, "pose": True, "camera": True}}
+    real = server_module()
 
     def inside(path):
         resolved = (home / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
@@ -73,7 +102,10 @@ def studio(pace=""):
                          CUSTOM_SIDES=(256, 1536), CUSTOM_PIXELS=1344 * 768, LONGEST=15, FPS=24, LEAD=LEAD,
                          VIDEO_SUFFIXES=(".mp4", ".mov"), hub=SimpleNamespace(takes=lambda: {}),
                          pace=SimpleNamespace(measure=lambda path: {"motion": "slow"}, choose=lambda asked, measured: pace),
-                         queued=queued, built=built)
+                         queued=queued, built=built, SPARK=False, compose_references=real.compose_references,
+                         motion_template=real.motion_template,
+                         motion=SimpleNamespace(API=api, motion_reference=motion_reference) if motion else SimpleNamespace(),
+                         analyses=analyses, packs=packs, submitted=submitted, handed=handed, handoff_sound=True)
     router, queue, then = revise.attach(ns)
     ns.router, ns.queue, ns.then = router, queue, then
     ns.chain = next(r.endpoint for r in router.routes if r.path == "/api/revise/{chain_id}")
@@ -99,25 +131,139 @@ def test_a_new_clip_keeps_the_size_of_the_one_it_comes_from():
     assert size(640, 360)["preset"] == "custom" and size(640, 360)["width"] == 640  # small enough: its own size
 
 
-@needs_ffmpeg
-def test_restyle_queues_one_reference_clip_at_the_clips_size():
-    s = studio(pace="flow")
-    clip(s.HOME / "renders/a.mp4", 3)
+def until(test, seconds=5.0):
+    stop = time.time() + seconds
+    while not test():
+        if time.time() > stop:
+            raise AssertionError("the chain did not move on")
+        time.sleep(0.01)
+
+
+def a_clip(s, monkeypatch, name="renders/a.mp4", seconds=3, sound=True):
+    if FFMPEG:
+        clip(s.HOME / name, seconds, sound=sound)
+    else:
+        (s.HOME / name).write_bytes(b"x")
+        monkeypatch.setattr(revise, "probe", lambda path: {"width": 864, "height": 480, "duration": float(seconds), "sound": sound})
+
+
+def finish(s, job_id, output):
+    """A queued step's job finished, as server.perform would: outputs written, then ``then``."""
+
+    (s.HOME / output).parent.mkdir(parents=True, exist_ok=True)
+    (s.HOME / output).write_bytes(b"png")
+    record = s.jobs[job_id]
+    record.update(status="running", outputs=[output])
+    s.then(record)
+    record["status"] = "done"
+    return record
+
+
+def test_restyle_redraws_the_first_frame_reads_the_motion_and_renders_from_the_depth_layer(monkeypatch):
+    monkeypatch.setattr(revise, "WATCH", 0.01)
+    s = studio()
+    a_clip(s, monkeypatch)
     job = s.queue({"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "a watercolour painting", "seed": 7}})
-    body = s.queued[-1]
-    assert body["kind"] == "video" and body["title"] == "Restyle: a.mp4" and job["revise"]["kind"] == "restyle"
-    p = body["params"]
-    assert p["prompt"] == "<Video 1> shows the action and camera. Re-render it as: a watercolour painting"
-    assert p["reference_videos"] == ["renders/a.mp4"] and p["reference_video_sound"] is True and p["preset"] == "small"
-    assert abs(p["seconds"] - 3) < 0.1 and p["seed"] == 7 and p["pace"] == "flow" and "then" not in p
-    assert "image" not in p and "first_frame_from" not in p  # references never combine with a first frame
-    s.queue({"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "claymation", "keep_sound": False, "seconds": 2}})
-    assert s.queued[-1]["params"]["reference_video_sound"] is False and s.queued[-1]["params"]["seconds"] == 2
-    assert "first 2 s" in s.chain(s.queue({"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "x", "seconds": 2}})["revise"]["id"])["notes"][0]
+    first = s.queued[-1]
+    assert first["kind"] == "edit" and first["title"] == "Restyle: a.mp4 (1/3: the first frame)" and job["revise"]["kind"] == "restyle"
+    p = first["params"]
+    assert p["prompt"] == "Redraw this frame as: a watercolour painting; keep the composition"
+    assert p["image"].startswith("uploads/a_first_") and p["size"] == "source" and p["image_model"] == "qwen" and p["seed"] == 7
+    assert p["then"] == job["revise"]["id"]
+    assert s.chain(job["revise"]["id"])["of"] == 3
+    # 2/3: the analysis, queued on Motion Previs when the frame is done
+    finish(s, job["id"], "scouts/j1/edit.png")
+    asked = dict(s.submitted[0])
+    assert abs(asked.pop("end") - 3) < 0.1 and len(s.submitted) == 1
+    assert asked == {"source": "renders/a.mp4", "start": 0, "mode": "actor-motion", "layers": ["depth", "ai-depth", "pose", "camera"],
+                     "title": "Restyle: a.mp4"}
+    chain = s.chain(job["revise"]["id"])
+    assert chain["steps"][1] == {"id": "m1", "kind": "analysis", "title": "Restyle: a.mp4 (2/3: the motion)", "status": "queued",
+                                 "pack": None, "stage": None, "error": None} and chain["status"] == "running" and len(s.queued) == 1
+    # nobody in the clip (the pose pass found no one): the main object's motion is kept
+    s.packs["p1"] = {"layers": ["reference", "depth", "ai-depth", "openpose"], "pose": {"totalFrames": 72, "detectedFrames": 0}}
+    s.analyses["m1"].update(status="done", pack="p1")
+    until(lambda: len(s.queued) == 2)
+    last = s.queued[-1]
+    assert last["kind"] == "video" and last["title"] == "Restyle: a.mp4 (3/3: the clip)"
+    q = last["params"]
+    assert q["references"] == ["scouts/j1/edit.png"] and q["reference_videos"] == ["motion/p1/handoff/ai-depth-864x480-3s-trim-cover.mp4"]
+    assert q["motion"] == {"pack": "p1", "layer": "ai-depth", "mode": "object-motion", "measured": None, "free": False}
+    assert q["reference_video_sound"] is True and q["pace"] == "auto" and q["preset"] == "small" and q["seed"] == 7 and "then" not in q
+    assert "image" not in q and "first_frame_from" not in q
+    assert s.handed[-1] == {"pack": "p1", "layer": "ai-depth", "mode": "object-motion", "seconds": q["seconds"], "width": 864, "height": 480, "timing": "trim"}
+    prompt = q["prompt"]
+    assert "<Video 1> is the structural template of the target video" in prompt and "Legend of <Video 1>: a depth map" in prompt
+    assert "<Picture 1> is the first-frame anchor" in prompt and "The look of the clip is that of <Picture 1>: a watercolour painting." in prompt
+    assert "<Audio 1> is the synchronized audio track of <Video 1>." in prompt and "The camera pushes in slowly." in prompt
+    assert "photorealistic" not in prompt and "] A video that follows the structure of <Video 1> frame by frame" in prompt
+    assert "The picture keeps the look of <Picture 1> throughout: no skeleton lines" in prompt
+    s.jobs["j2"]["status"] = "done"
+    assert s.chain(job["revise"]["id"])["status"] == "done"
+    # the same clip again: its pack is used again, the clip follows the frame at once
+    job = s.queue({"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "claymation", "keep_sound": False, "mode": "camera-only"}})
+    finish(s, job["id"], "scouts/j3/edit.png")
+    assert len(s.submitted) == 1 and len(s.queued) == 4
+    chain = s.chain(job["revise"]["id"])
+    assert chain["steps"][1]["cached"] is True and chain["steps"][1]["status"] == "done"
+    q = s.queued[-1]["params"]
+    assert q["reference_video_sound"] is False and q["motion"]["mode"] == "camera-only" and "<Audio 1>" not in q["prompt"]
     assert "look like" in refused(s.queue, {"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": " "}})
     assert "between 2 and 15" in refused(s.queue, {"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "x", "seconds": 20}})
+    assert "mode is one of" in refused(s.queue, {"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "x", "mode": "all"}})
     assert "choose a clip" in refused(s.queue, {"kind": "restyle", "params": {"prompt": "x"}})
     assert "outside" in refused(s.queue, {"kind": "restyle", "params": {"video": "/etc/hosts", "prompt": "x"}})
+
+
+def test_restyle_and_fix_say_when_motion_previs_or_ref2va_is_missing(monkeypatch):
+    s = studio(motion=False)
+    a_clip(s, monkeypatch)
+    assert "Motion Previs" in refused(s.queue, {"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "anime"}})
+    s = studio(able={"ffmpeg": False})
+    a_clip(s, monkeypatch)
+    assert "oneshot-setup.sh --motion" in refused(s.queue, {"kind": "fix", "params": {"video": "renders/a.mp4", "instruction": "x"}})
+    s = studio()
+    a_clip(s, monkeypatch)
+
+    def no_ref2va(kind, params, job_id):
+        raise HTTPException(400, "MiniMax H3 Ref2VA is not installed here (oneshot-setup.sh --ref2va adds it)")
+
+    s.build = no_ref2va
+    assert "Ref2VA is not installed" in refused(s.queue, {"kind": "fix", "params": {"video": "renders/a.mp4", "instruction": "x"}})
+    assert s.queued == []
+
+
+@needs_ffmpeg
+def test_the_clips_own_sound_is_laid_under_when_the_depth_layer_cannot_carry_it(monkeypatch):
+    monkeypatch.setattr(revise, "WATCH", 0.01)
+    s = studio()
+    s.handoff_sound = False
+    clip(s.HOME / "renders/a.mp4", 3)
+    job = s.queue({"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "anime"}})
+    s.packs["p1"] = {"layers": ["depth"]}
+    finish(s, job["id"], "scouts/j1/edit.png")
+    s.analyses["m1"].update(status="done", pack="p1")
+    until(lambda: len(s.queued) == 2)
+    q = s.queued[-1]["params"]
+    assert q["reference_video_sound"] is False and q["motion"]["layer"] == "depth" and q["motion"]["mode"] == "actor-motion"
+    assert q["then"] == job["revise"]["id"] and "<Audio 1>" not in q["prompt"]
+    clip(s.HOME / "renders/j2.mp4", 3, sound=False)
+    record = s.jobs["j2"]
+    record.update(status="running", outputs=["renders/j2.mp4"])
+    s.then(record)
+    assert record["outputs"] == ["renders/j2-sound.mp4", "renders/j2.mp4"] and revise.probe(s.HOME / "renders/j2-sound.mp4")["sound"]
+
+
+def test_a_failed_analysis_is_said_on_the_chain(monkeypatch):
+    monkeypatch.setattr(revise, "WATCH", 0.01)
+    s = studio()
+    a_clip(s, monkeypatch)
+    job = s.queue({"kind": "fix", "params": {"video": "renders/a.mp4", "instruction": "make it snow"}})
+    finish(s, job["id"], "scouts/j1/edit.png")
+    s.analyses["m1"].update(status="failed", error="no video stream")
+    until(lambda: s.chain(job["revise"]["id"])["error"])
+    chain = s.chain(job["revise"]["id"])
+    assert chain["status"] == "failed" and "no video stream" in chain["error"] and len(s.queued) == 1
 
 
 @needs_ffmpeg
@@ -125,9 +271,9 @@ def test_a_clip_over_15_seconds_is_cut_to_its_first_15_with_a_note():
     s = studio()
     clip(s.HOME / "renders/long.mp4", 16.5, size="320x180")
     job = s.queue({"kind": "restyle", "params": {"video": "renders/long.mp4", "prompt": "film noir"}})
-    ref = s.queued[-1]["params"]["reference_videos"][0]
+    ref = s.built[-1][1]["reference_videos"][0]  # what the last step was checked with
     assert ref.startswith("uploads/long_first15s_") and ref.endswith(".mp4")
-    assert abs(revise.probe(s.HOME / ref)["duration"] - 15) < 0.15 and s.queued[-1]["params"]["seconds"] == 15
+    assert abs(revise.probe(s.HOME / ref)["duration"] - 15) < 0.15 and s.built[-1][1]["seconds"] == 15
     assert any("16.5 s long" in n and "first 15 s" in n for n in job["revise"]["notes"])
 
 
@@ -136,7 +282,7 @@ def test_a_silent_clip_cannot_keep_its_sound():
     s = studio()
     clip(s.HOME / "renders/quiet.mp4", 3, sound=False)
     job = s.queue({"kind": "restyle", "params": {"video": "renders/quiet.mp4", "prompt": "anime"}})
-    assert s.queued[-1]["params"]["reference_video_sound"] is False and "no sound" in job["revise"]["notes"][0]
+    assert s.built[-1][1]["reference_video_sound"] is False and "no sound" in job["revise"]["notes"][0]
 
 
 @needs_ffmpeg
@@ -175,41 +321,48 @@ def test_extend_joins_the_clip_and_its_extension_without_the_repeated_frame():
     assert chain["status"] == "done" and chain["outputs"][0] == "renders/j1-extended.mp4" and chain["error"] is None
 
 
-def test_fix_redraws_the_first_frame_then_makes_the_clip_again(monkeypatch):
+def test_fix_redraws_the_first_frame_reads_the_motion_then_makes_the_clip_from_its_depth(monkeypatch):
+    monkeypatch.setattr(revise, "WATCH", 0.01)
     s = studio()
-    if FFMPEG:
-        clip(s.HOME / "renders/a.mp4", 3)
-    else:
-        (s.HOME / "renders/a.mp4").write_bytes(b"x")
-        monkeypatch.setattr(revise, "probe", lambda path: {"width": 864, "height": 480, "duration": 3.0, "sound": True})
+    a_clip(s, monkeypatch)
     job = s.queue({"kind": "fix", "params": {"video": "renders/a.mp4", "instruction": "change the sky to a stormy sunset",
                                              "image_model": "flux3k-fast", "seed": 5}})
     first = s.queued[-1]
-    assert first["kind"] == "edit" and first["title"] == "Fix: a.mp4 (1/2: the first frame)"
+    assert first["kind"] == "edit" and first["title"] == "Fix: a.mp4 (1/3: the first frame)"
     p = first["params"]
     assert p["image"].startswith("uploads/a_first_") and (s.HOME / p["image"]).is_file() and p["size"] == "source"
     assert p["prompt"] == "change the sky to a stormy sunset" and p["image_model"] == "flux3k-fast" and p["then"] == job["revise"]["id"]
-    # the second step was checked when the first was queued, with the frame standing in for the corrected one
+    # the last step was checked when the first was queued, with the frame and the clip standing in
     kind, checked = s.built[-1]
     assert kind == "video" and checked["references"] == [p["image"]] and checked["reference_videos"] == ["renders/a.mp4"]
     chain = s.chain(job["revise"]["id"])
-    assert chain["of"] == 2 and len(chain["steps"]) == 1 and chain["status"] == "running"
-    edited = s.HOME / "scouts/j1/edit.png"
-    edited.parent.mkdir(parents=True)
-    edited.write_bytes(b"png")
-    record = s.jobs[job["id"]]
-    record.update(status="running", outputs=["scouts/j1/edit.png"])
-    s.then(record)
+    assert chain["of"] == 3 and len(chain["steps"]) == 1 and chain["status"] == "running"
+    finish(s, job["id"], "scouts/j1/edit.png")
+    assert len(s.submitted) == 1 and s.submitted[0]["source"] == "renders/a.mp4" and s.submitted[0]["title"] == "Fix: a.mp4"
+    s.analyses["m1"]["status"] = "running"
+    assert s.chain(job["revise"]["id"])["steps"][1]["status"] == "running" and len(s.queued) == 1
+    s.packs["p1"] = {"layers": ["reference", "depth", "ai-depth", "openpose"], "pose": {"totalFrames": 72, "detectedFrames": 70}}
+    s.analyses["m1"].update(status="done", pack="p1")
+    until(lambda: len(s.queued) == 2)
     second = s.queued[-1]
-    assert len(s.queued) == 2 and second["kind"] == "video" and second["title"] == "Fix: a.mp4 (2/2: the clip)"
+    assert second["kind"] == "video" and second["title"] == "Fix: a.mp4 (3/3: the clip)"
     q = second["params"]
-    assert q["references"] == ["scouts/j1/edit.png"] and q["reference_videos"] == ["renders/a.mp4"] and q["reference_video_sound"] is True
-    assert q["prompt"] == ("<Picture 1> is the corrected first frame of <Video 1>. Keep <Video 1>'s action, camera and timing exactly; "
-                           "render it with <Picture 1>'s look: change the sky to a stormy sunset")
-    assert q["preset"] == "small" and q["seed"] == 5 and "then" not in q
-    record["status"] = "done"
+    assert q["references"] == ["scouts/j1/edit.png"] and q["reference_videos"] == ["motion/p1/handoff/ai-depth-864x480-3s-trim-cover.mp4"]
+    assert q["motion"] == {"pack": "p1", "layer": "ai-depth", "mode": "actor-motion", "measured": None, "free": False}
+    assert q["reference_video_sound"] is True and q["preset"] == "small" and q["seed"] == 5 and "then" not in q
+    fields = {"scene": "The look of the clip is that of <Picture 1>: change the sky to a stormy sunset.", "action": "", "camera": "",
+              "dialogue": [], "soundscape": "", "music": "N/A", "subjects": [""], "video_subjects": [""], "audio_notes": [], "video_sound": True,
+              "motion": {"layer": "ai-depth", "mode": "actor-motion", "camera": "The camera pushes in slowly.", "people": 1, "pace": "auto",
+                         "measured": None, "free": False}}
+    made = s.motion_template(fields["motion"], 1)
+    fields["lead"] = made["lead"].replace("A photorealistic video", "A video")
+    fields["avoid"] = made["avoid"].replace("The picture is photorealistic throughout, continuing the look of <Picture 1>",
+                                            "The picture keeps the look of <Picture 1> throughout")
+    assert q["prompt"] == s.compose_references(fields, 1)
+    assert "the positions, silhouettes and body movement of its figure and the camera path" in q["prompt"]
+    assert json.loads((s.HOME / "motion/revise.json").read_text()) and list(json.loads((s.HOME / "motion/revise.json").read_text()).values()) == ["p1"]
     chain = s.chain(job["revise"]["id"])
-    assert [one["id"] for one in chain["steps"]] == ["j1", "j2"] and chain["status"] == "running"
+    assert [one["id"] for one in chain["steps"]] == ["j1", "m1", "j2"] and chain["status"] == "running"
     s.jobs["j2"]["status"] = "done"
     assert s.chain(job["revise"]["id"])["status"] == "done"
     s.then(s.jobs["j2"])  # a finished last step has nothing after it
@@ -240,6 +393,8 @@ def test_the_studio_takes_the_actions_on_its_jobs_route_and_runs_the_next_step()
     assert client.post("/api/revise", json={"kind": "fix", "params": {"video": "renders/none.mp4", "instruction": "x"}}).status_code == 400
     assert client.get("/api/revise").json()["kinds"][0] == {"kind": "restyle", "title": "Restyle"}
     assert client.get("/api/revise/nope").status_code == 404
+    assert set(server.motion.API) == {"submit", "job", "pack", "able"}  # Motion Previs' queue, for Restyle and Fix
+    assert server.compose_references and server.motion_template and server.motion.motion_reference
     source = (ROOT / "app/server.py").read_text()
     assert 'if params.get("then") and job["status"] != "cancelled":' in source and "revise_then(job)" in source
 
@@ -294,26 +449,32 @@ def test_a_clip_gets_restyle_extend_and_fix_and_each_opens_its_panel():
       actOpen("fix", "renders/a.mp4"); panel = actPanel(); out.fix = text(panel);
       out.models = find(panel, n => n.tag === "select").kids.map(o => o.attrs.value);
       REV.fix.instruction = "change the sky to a stormy sunset";
-      answers["/api/revise"] = { id: "j2", title: "Fix: a.mp4", revise: { id: "c2", status: "running", steps: [{ id: "j2" }], of: 2, notes: [] } };
+      answers["/api/revise"] = { id: "j2", title: "Fix: a.mp4", revise: { id: "c2", status: "running", steps: [{ id: "j2" }], of: 3, notes: [] } };
       await hot(panel).attrs.onclick(); out.fix_sent = calls.slice(-1)[0];
       jobs = [{ id: "j2", status: "done", outputs: ["scouts/j2/edit.png"] }];
       out.fix_steps = text(actPanel());
-      REV.chains.fix = { id: "c2", status: "done", steps: [{ id: "j2" }, { id: "j3" }], of: 2, notes: [] };
+      REV.chains.fix = { id: "c2", status: "running", steps: [{ id: "j2" }, { id: "m1", kind: "analysis", title: "Fix: a.mp4 (2/3: the motion)", status: "running", stage: "depth" }], of: 3, notes: [] };
+      out.fix_reading = text(actPanel());
+      REV.chains.fix = { id: "c2", status: "done", steps: [{ id: "j2" }, { id: "pack-p1", kind: "analysis", status: "done", cached: true }, { id: "j3" }], of: 3, notes: [] };
       jobs.push({ id: "j3", status: "done", outputs: ["renders/j3.mp4"] }); out.fix_done = text(actPanel());
       actOpen("upscale", "renders/a.mp4"); out.upscale = text(actPanel());
     """)
     assert got["video"] == ["Upscale", "Remove a person", "Restyle", "Extend", "Fix"] and got["image"] == ["Turnaround"]
-    assert got["id"] == "actpanel" and "Restyle this clip" in got["restyle"] and "action, camera and timing stay" in got["restyle"]
+    assert got["id"] == "actpanel" and "Restyle this clip" in got["restyle"] and "three steps" in got["restyle"]
+    assert "the motion, camera and timing come from the clip’s depth" in got["restyle"] and "The whole frame is redrawn" in got["restyle"]
     assert got["refused"] == "Say what the clip should look like now"
-    assert got["sent"] == ["/api/revise", {"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "a watercolour painting", "keep_sound": True, "seed": 1}}]
+    assert got["sent"] == ["/api/revise", {"kind": "restyle", "params": {"video": "renders/a.mp4", "prompt": "a watercolour painting", "image_model": "qwen", "keep_sound": True, "seed": 1}}]
     assert "first 15 s" in got["note"]
     assert "Extend this clip" in got["extend"] and "30 s" in got["extend"] and "Join to the clip" in got["extend"]
     assert got["extend_sent"][1] == {"kind": "extend", "params": {"video": "renders/a.mp4", "seconds": 5, "seed": 1, "join": True}}
-    assert "the whole frame is redrawn from the instruction" in got["fix"] and "the motion is the clip’s" in got["fix"]
+    assert "the whole frame is redrawn from the instruction" in got["fix"] and "the motion and camera are the clip’s" in got["fix"]
+    assert "Motion Previs reads the clip’s motion as a depth layer" in got["fix"]
     assert got["models"] == ["qwen", "flux3k-fast"]
     assert got["fix_sent"][1]["kind"] == "fix" and got["fix_sent"][1]["params"]["instruction"] == "change the sky to a stormy sunset"
-    assert "Step 1 of 2" in got["fix_steps"] and "Step 2 of 2 is queued when the one before finishes." in got["fix_steps"]
-    assert "Step 2 of 2" in got["fix_done"] and "Fixed" in got["fix_done"] and "The clip as it was" in got["fix_done"]
+    assert "Step 1 of 3: the first frame" in got["fix_steps"] and "Step 2 of 3: the motion is queued when the one before finishes." in got["fix_steps"]
+    assert "Step 2 of 3: the motion" in got["fix_reading"] and "Motion Previs is making the depth layer." in got["fix_reading"]
+    assert "Step 3 of 3: the clip is queued" in got["fix_reading"]
+    assert "Step 3 of 3: the clip" in got["fix_done"] and "Read before" in got["fix_done"] and "Fixed" in got["fix_done"] and "The clip as it was" in got["fix_done"]
     assert "Upscale this clip" in got["upscale"]
 
 

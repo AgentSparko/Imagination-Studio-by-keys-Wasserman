@@ -100,12 +100,15 @@ TOOLS = [
                                  "preset": {"type": "string", "description": "a preset from studio_state"},
                                  "quality": {"type": "string", "description": "a quality from studio_state"},
                                  "seed": {"type": "integer"}, "title": {"type": "string"}}, ("prompt", "total_seconds"))},
-    {"name": "restyle_clip", "description": "Make a Library clip again in a new look: the clip is the reference video (Ref2VA), so its "
-                                            "action, camera and timing stay. At most 15 s (a longer clip is cut to its first 15).",
+    {"name": "restyle_clip", "description": "Make a Library clip again in a new look, in three steps: its first frame redrawn in the look, "
+                                            "its motion read by Motion Previs, then the clip made from its depth layer and the new frame "
+                                            "(Ref2VA), so its motion, camera and timing stay. At most 15 s (a longer clip is cut to its "
+                                            "first 15). Returns the first job; list_jobs shows the last (its title ends \"3/3: the clip\").",
      "inputSchema": text_schema({"video": {"type": "string", "description": "Library path of the clip"},
                                  "prompt": {"type": "string", "description": "the new look (\"a watercolour painting\", \"16 mm film\")"},
                                  "keep_sound": {"type": "boolean", "description": "keep the clip's own sound (default true)"},
                                  "seconds": {"type": "number", "description": "only the first seconds, 2 to 15 (default the whole clip)"},
+                                 "image_model": {"type": "string", "enum": ["qwen", "qwen-full", "flux3k-fast", "flux3k-full"]},
                                  "seed": {"type": "integer"}}, ("video", "prompt"))},
     {"name": "extend_clip", "description": "Carry a Library clip on from its last frame and join the two into one file "
                                            "(renders/<job>-extended.mp4, the job's first output). Over 15 s the new part is a long take.",
@@ -114,10 +117,10 @@ TOOLS = [
                                  "prompt": {"type": "string", "description": "what happens next (default the clip's own prompt)"},
                                  "join": {"type": "boolean", "description": "join the new part to the clip (default true)"},
                                  "seed": {"type": "integer"}}, ("video",))},
-    {"name": "fix_clip", "description": "Change one thing in a Library clip from an instruction, in two jobs: its first frame is "
-                                        "redrawn by the picture model (the whole frame, no mask), then the clip is made again from "
-                                        "that frame with the clip's own motion. Returns the first job; the second is queued when it "
-                                        "finishes (list_jobs: its title ends \"2/2: the clip\").",
+    {"name": "fix_clip", "description": "Change one thing in a Library clip from an instruction, in three steps: its first frame is "
+                                        "redrawn by the picture model (the whole frame, no mask), its motion is read by Motion Previs, "
+                                        "then the clip is made again from its depth layer and that frame. Returns the first job; the "
+                                        "last is queued when the analysis finishes (list_jobs: its title ends \"3/3: the clip\").",
      "inputSchema": text_schema({"video": {"type": "string", "description": "Library path of the clip"},
                                  "instruction": {"type": "string", "description": "the change, e.g. change the sky to a stormy sunset"},
                                  "image_model": {"type": "string", "enum": ["qwen", "qwen-full", "flux3k-fast", "flux3k-full"]},
@@ -480,7 +483,7 @@ def run(name: str, args: dict):
             params["image"] = args["first_frame"]
         return job_summary(call("POST", "/api/jobs", {"kind": "long", "title": args.get("title") or "agent: long take", "params": params}))
     if name in ("restyle_clip", "extend_clip", "fix_clip"):  # Restyle, Extend, Fix (app/revise.py): the first job and its chain
-        keys = {"restyle_clip": ("video", "prompt", "keep_sound", "seconds", "seed"), "extend_clip": ("video", "seconds", "prompt", "join", "seed"),
+        keys = {"restyle_clip": ("video", "prompt", "keep_sound", "seconds", "image_model", "seed"), "extend_clip": ("video", "seconds", "prompt", "join", "seed"),
                 "fix_clip": ("video", "instruction", "image_model", "keep_sound", "seed")}[name]
         made = call("POST", "/api/revise", {"kind": name.split("_")[0], "params": {k: args[k] for k in keys if args.get(k) not in (None, "")}})
         return {**job_summary(made), "revise": made.get("revise")}
