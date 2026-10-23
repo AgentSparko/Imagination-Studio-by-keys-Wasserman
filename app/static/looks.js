@@ -4,7 +4,7 @@
 // Create (loraHub in index.html): install asks with the LoRA's licence first, a running install is watched, and a
 // recipe of your own is added with the same POST and install.
 const LK = { asked: false, open: false, form: { name: "", url: "", file: "", trigger: "", strength: 1, styles: "", author: "", notes: "" } };
-const LOOK_COVERS = { "wasserman-80s-horror": "art/looks/80s-horror.webp" };  // a look with its own banner; the rest wait for art slots
+const LOOK_COVERS = { "wasserman-80s-horror": "art/looks/80s-horror.webp", "realism-people": "art/looks/realism-people.webp" };  // a look with its own banner; the rest wait for art slots
 const lookFirstStyle = r => Object.keys(r.styles || {})[0] || "";
 const lookBusy = r => !!(r.installing && r.installing.stage !== "failed");
 const lookTerms = r => "“" + r.name + "”" + (r.author ? " by " + r.author : "") + (r.size ? " (" + sizeText(r.size) + ")" : "") + "\n" + (r.licence || "The file is the author's, under its own licence: read it on the LoRA's page first.") + (r.page ? "\n" + r.page : "");

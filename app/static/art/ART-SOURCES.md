@@ -90,3 +90,5 @@ Sam Wasserman's own custom artwork for the engines, the start and action cards a
 ## Vault covers (2026-10-18)
 
 Sam Wasserman's own art: art/vault-library.webp, art/vault-looks.webp, art/vault-suite.webp, art/vault-nodes.webp, art/vault-agent.webp.
+Sam Wasserman's own art: art/engine-cast.webp (Cast & Places), art/engine-director.webp (Director), art/engine-night.webp
+(Night shift) and art/looks/realism-people.webp (the Realism People card in Looks).

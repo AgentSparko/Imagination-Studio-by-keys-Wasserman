@@ -456,6 +456,30 @@
    "aspect": "16:9",
    "purpose": "cover of the Agent room",
    "ready": true
+  },
+  {
+   "name": "engine-cast",
+   "file": "art/engine-cast.webp",
+   "size": "1600x900",
+   "aspect": "16:9",
+   "purpose": "cover of the Cast & Places page: a film's characters and locations",
+   "ready": true
+  },
+  {
+   "name": "engine-director",
+   "file": "art/engine-director.webp",
+   "size": "1600x900",
+   "aspect": "16:9",
+   "purpose": "cover of the Director page: a logline to a checked cut",
+   "ready": true
+  },
+  {
+   "name": "engine-night",
+   "file": "art/engine-night.webp",
+   "size": "1600x900",
+   "aspect": "16:9",
+   "purpose": "cover of the Night shift page: a batch rendered overnight",
+   "ready": true
   }
  ]
 }

@@ -28,7 +28,12 @@ const rmProduction = view => { if (typeof slateMode === "function") slateMode("s
 const rmBrain = () => { if (!SL.brain) { SL.brain = {}; api("/api/slate/brain").then(b => { SL.brain = b; render(); }).catch(() => {}); } };
 
 // Cast & Places: the bible and dialogue choices, then the characters' and the locations' sheets, as Slate's Studios tab
-function viewCast() { const head = pageHead("Creative Engines", "Cast & Places", "The people and places of a film, a sheet for each with its pictures and LoRAs, kept the same in every shot.", rmPicker());
+// a room's header: its cover beside the title, as an engine's landing page has it, when the art is there (art/engine-<id>.webp)
+function roomHead(id, title, line, right) {
+  if (typeof ART === "undefined" || !ART.ready.has("engine-" + id)) return pageHead("Creative Engines", title, line, right);
+  return el("div", { class: "enghead" }, artSlot("engine-" + id, "", id),
+    el("div", { class: "stack" }, el("span", { class: "eyebrow" }, "Creative Engine"), el("h1", { class: "display" }, title), line ? el("p", { class: "sub" }, line) : null, right || null)); }
+function viewCast() { const head = roomHead("cast", "Cast & Places", "The people and places of a film, a sheet for each with its pictures and LoRAs, kept the same in every shot.", rmPicker());
   if (!SL.p) return el("div", {}, head, rmNone("The cast and the places belong to a film."));
   rmBrain(); const p = SL.p;
   return el("div", { "data-room-view": "cast" }, head, el("section", { class: "card" },
@@ -39,7 +44,7 @@ function viewCast() { const head = pageHead("Creative Engines", "Cast & Places",
     el("div", { class: "row", style: "margin-top:14px" }, el("button", { class: "small fit", onclick: () => rmProduction("studios") }, "Open the film in Production"), el("span")))); }
 
 // the Director: a logline to a checked cut, on the picked film; a run that is live on another film says so
-function viewDirector() { const head = pageHead("Creative Engines", "Director", "Give it a logline: it writes, casts, renders, checks and cuts the whole film while you watch.", rmPicker());
+function viewDirector() { const head = roomHead("director", "Director", "Give it a logline: it writes, casts, renders, checks and cuts the whole film while you watch.", rmPicker());
   if (!SL.p) return el("div", {}, head, rmNone("The Director works on a film: start one, or give it a logline here once it is made."));
   rmBrain();
   const live = typeof DR !== "undefined" ? Object.keys(DR.st).find(id => id !== SL.p.id && DR.st[id] && DR.st[id].running) : null;
@@ -51,7 +56,7 @@ function viewDirector() { const head = pageHead("Creative Engines", "Director", 
       el("div", { class: "row", style: "margin-top:14px" }, el("button", { class: "small fit", onclick: () => rmProduction("deliver") }, "See the takes in Production"), el("span")))); }
 
 // the Night shift: the shifts and their planning (nightshift.js), and the rest of the picked film rendered tonight
-function viewNight() { const head = pageHead("Creative Engines", "Night shift", "Render a batch overnight and wake up to a reel, the dailies and notes on your phone.", rmPicker());
+function viewNight() { const head = roomHead("night", "Night shift", "Render a batch overnight and wake up to a reel, the dailies and notes on your phone.", rmPicker());
   if (SL.p && RM.nsFor !== SL.p.id && typeof NS !== "undefined") { RM.nsFor = SL.p.id; NS.film = SL.p.id; }  // the panel's own picker starts on the same film
   return el("div", { "data-room-view": "night" }, head,
     SL.p ? el("div", { class: "row", style: "margin-bottom:14px;align-items:center" }, el("span", { class: "note m-flat" }, "Every shot of " + (SL.p.name || "this film") + " with a prompt and no good take, rendered overnight:"), nightFromFilm(SL.p), el("span")) : null,
