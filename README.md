@@ -179,11 +179,9 @@ cores · a 2x video decoder for 2K finals on the Mac
 3.2.0 is the studio's code: its engines are the 3.1.0 builds, so an update from 3.1.0 downloads no weights and no engines. The new
 parts that need a download (motion graphics, Finish, training) are added by the installer's flags, listed under Install.
 
-Looks no longer offers 3D Animation Style: on the DGX Spark's FastH3 it barely changed a clip's look, even at full strength.
-Realism People by fal is new in its place among the styles.
-
-
-Every new part has its place in the sidebar. Under **Creative Engines**: **Cast & Places** (the characters' and
+Every new part has its place in the sidebar, and **Creative Engines** are in the order a film is made: Video, Image,
+Sound, Story, Cast & Places, Director, Previs, Motion graphics, Edit and Night shift (⌥1 to ⌥6 follow it). Under
+**Creative Engines**: **Cast & Places** (the characters' and
 locations' sheets, with the bible and dialogue choices on top), **Director**, **Motion graphics** and **Night shift**,
 each with a film picker that starts on the film open in Production, else the newest. **Edit** gains a **Finish** tab,
 Production (Slate) a **Rough cut** tab beside Deliver, and **Looks** a **Train a LoRA** tab beside its looks. Each is
@@ -216,6 +214,23 @@ Making the film, in the order you would use it:
 
 Also new:
 
+- **The installer asks what to install.** Run in a terminal, the one-click install first shows a checklist of every part
+  this machine can run, each with its download size and the free space, everything ticked. Untick what you do not want
+  and press Enter; `--yes` skips the list and installs the usual set. Parts behind a licence on Hugging Face (FLUX3-K,
+  Stable Audio Open) are checked before anything downloads: one you have not accepted yet is left out with the page to
+  accept it, and the rest installs. [Install](#install).
+- **Bolt is always one of your agents** when the studio's own engine is installed, beside a local brain on another
+  server (a GLM, a DeepSeek) and your subscriptions: nothing to add by hand.
+- **Looks:** **Realism People** by fal (trigger `r34l1sm`) for faces that hold up in close-up, and Keys' newer LoRA pack
+  (r4: 22 LoRAs from one hosted copy); an install with an older pack is brought up to it. Any LoRA, one you trained
+  included, can show a cover picture kept beside it (`loras/<id>.webp` in the studio folder). **3D Animation Style is no
+  longer offered**: on the DGX Spark's FastH3 it barely changed a clip, even at full strength.
+- **Library search** gives each match its own tick box, and *Select all* takes the matches while you search, so a
+  trailer, a finish or a delete can use just the clips you found.
+- **Restyle and Fix keep a clip's motion and change its look**: the first frame is redrawn (in the new style, or with the
+  fix), Motion Previs reads the clip's depth, and the clip is rendered again from both.
+- **Motion graphics run only on a Node.js with the latest security fixes** (the 2026-10-21 release: 22.23.4, 24.22.1,
+  26.12.1); an older one, the system's or the studio's own, is replaced.
 - **Your phone and other devices, with an access key.** On the computer running the studio nothing is asked. A phone,
   a tablet or another computer signs in once: **Settings → Access key** shows a QR code that signs a phone in with one
   scan, the key itself to copy, and *Make a new key* for a lost phone. Step by step: TUTORIAL.md section 15, and
