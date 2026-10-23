@@ -176,8 +176,8 @@ cores · a 2x video decoder for 2K finals on the Mac
 
 ## New in 3.2.0 (2026-10-22)
 
-3.2.0 is the studio's code: its engines are the 3.1.0 builds (the installers still take them from the carrier
-`keys-tensorfold-studio:3.1.0` and the v3.1.0 release), so an update from 3.1.0 downloads no weights and no engines. Because 3.2.0 adds install
+3.2.0 is the studio's code: its engines are the 3.1.0 builds (the carrier `keys-tensorfold-studio:3.2.0` and the
+v3.2.0 release hold the same ones, checksummed as before), so an update from 3.1.0 downloads no weights and no engines. Because 3.2.0 adds install
 parts, the app's own updater asks for the installer first: `git pull && bash oneshot-setup.sh --upgrade` on a Mac or a
 DGX Spark, then restart the app. `--upgrade` from 3.1 adds motion graphics and Finish (about 550 MB); training a LoRA
 is added with `--train` on a DGX Spark.
