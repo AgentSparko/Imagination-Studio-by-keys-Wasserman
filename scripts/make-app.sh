@@ -89,9 +89,9 @@ fi
 if [ "${DESKTOP:-0}" = 1 ]; then ln -sfn "$APP" "$HOME/Desktop/Wasserman Slate AI Studio"; echo "Shortcut on the Desktop: Wasserman Slate AI Studio"; fi
 # the app serves what the install has: say what the default install includes and this one lacks
 # (oneshot-setup.sh adds each; --verify reports them)
-[ -d "$PREFIX/graphics/node_modules/hyperframes" ] || echo "  ! motion graphics are not installed: bash $HERE/oneshot-setup.sh --no-render adds them"
-[ -x "$PREFIX/finish/bin/tsrct" ] || echo "  ! Finish is not installed: bash $HERE/oneshot-setup.sh --no-render adds it"
+[ -d "$PREFIX/graphics/node_modules/hyperframes" ] || echo "  ! motion graphics are not installed: bash $HERE/oneshot-setup.sh --yes --no-render adds them"
+[ -x "$PREFIX/finish/bin/tsrct" ] || echo "  ! Finish is not installed: bash $HERE/oneshot-setup.sh --yes --no-render adds it"
 "$PREFIX/venv/bin/python" -c "import numpy, cryptography, pywebpush, faster_whisper" 2>/dev/null \
-  || echo "  ! some of numpy, faster-whisper, cryptography and pywebpush are missing: bash $HERE/oneshot-setup.sh --no-render adds them"
+  || echo "  ! some of numpy, faster-whisper, cryptography and pywebpush are missing: bash $HERE/oneshot-setup.sh --yes --no-render adds them"
 echo "Built $APP"
 echo "Double-click it (or: open \"$APP\"). It serves http://127.0.0.1:$PORT from $HERE."

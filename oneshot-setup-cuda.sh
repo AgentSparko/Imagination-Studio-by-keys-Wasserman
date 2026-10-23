@@ -59,6 +59,8 @@
 #                                             # ARM (a DGX Spark) the two fonts only, and the cut is finished on a Mac over ssh.
 #                                             # Tesseract is free under Mirage's own terms (not open source); the converter is
 #                                             # MIT. Part of every install; --no-finish leaves it out
+#   bash oneshot-setup-spark.sh --yes         # the plain install without the checklist a terminal shows first (every part
+#                                             # ticked there; Enter installs them all); any other flag also leaves it out
 #   bash oneshot-setup-spark.sh --verify      # check an existing install, download nothing
 #   bash oneshot-setup-spark.sh --upgrade     # after `git pull`: move an existing install to this version (environment, ComfyUI pin,
 #                                             # engine, Motion Previs environment, and each part already installed), fetch no
@@ -79,12 +81,26 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 MODELS="${SPARK_MODELS:-$HOME/spark-studio-models}"
 COMFY_COMMIT=b9b290e43f1eb379946dfeb013faf9bbefa1a618  # v0.42.0 and later: ComfyUI's FLUX 3 and MOSS-Image nodes
+# In a terminal with no feature flag: the checklist of parts (scripts/install-checklist.sh), every part ticked; what is
+# ticked becomes this script's own flags below. --yes, any flag, no terminal: no list. (On a Mac oneshot-setup.sh shows it.)
+# shellcheck source=scripts/install-checklist.sh
+. "$HERE/scripts/install-checklist.sh"
+if [ "$(uname -s)" = Linux ] && checklist_wanted "$@"; then
+  LIST_DIR="$MODELS"; while [ ! -d "$LIST_DIR" ]; do LIST_DIR="$(dirname "$LIST_DIR")"; done
+  LIST_GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)"
+  LIST_CMD="bash $(basename "${STUDIO_SETUP_ENTRY:-oneshot-setup-spark.sh}")"; for arg in "$@"; do LIST_CMD="$LIST_CMD $arg"; done
+  LIST_FLAGS="$(checklist_run "$(checklist_rows_cuda "$(uname -m)")" "$(df -BG --output=avail "$LIST_DIR" | tail -1 | tr -dc 0-9)" \
+    "Imagination Studio on this machine (${LIST_GPU:-NVIDIA GPU}, $(uname -m)): what to install" "$LIST_CMD")" || exit $?
+  set -- "$@" $LIST_FLAGS
+fi
+[ "$(uname -s)" != Linux ] || [ "${STUDIO_CHECKLIST_DRY:-0}" != 1 ] || { echo "$*"; exit 0; }
 IMAGE_ONLY=0; RENDER=1; VERIFY=0; REF2VA=0; MOTION=0; VOICE=0; UPGRADE=0; LORAS=""; H3_BASE=0; WORKFLOWS=1; IMAGE_EDIT=0; FLUX3=0; MOSS=0; MUSIC=0; SOUND=0; BOLT=0; TRAIN=0; GRAPHICS=""; FINISH=""
 for arg in "$@"; do
   case "$arg" in
     --ref2va) REF2VA=1;; --h3-base) H3_BASE=1;; --image-edit) IMAGE_EDIT=1;; --flux3) FLUX3=1;; --moss) MOSS=1;; --music) MUSIC=1;; --bolt) BOLT=1;; --train) TRAIN=1;; --graphics) GRAPHICS=1;; --no-graphics) GRAPHICS=0;; --finish) FINISH=1;; --no-finish) FINISH=0;; --sound) SOUND=1;; --motion) MOTION=1;; --voice) VOICE=1;; --image-only) IMAGE_ONLY=1;; --no-render) RENDER=0;; --verify) VERIFY=1; RENDER=0;; --upgrade) UPGRADE=1; RENDER=0; MOTION=1;;
     --all) REF2VA=1; H3_BASE=1; IMAGE_EDIT=1; FLUX3=1; MOSS=1; MUSIC=1; SOUND=1; BOLT=1; VOICE=1; MOTION=1; TRAIN=1; GRAPHICS=1; FINISH=1;;  # every feature
     --no-workflows) WORKFLOWS=0;;
+    --yes|-y) ;;  # the plain install without the checklist
     --loras) LORAS=all;; --loras=*) LORAS="${arg#--loras=}";; --no-loras) LORAS=none;; --lora-bundle=*) LORA_BUNDLE="${arg#--lora-bundle=}";;
     *) echo "unknown option $arg" >&2; exit 2;;
   esac

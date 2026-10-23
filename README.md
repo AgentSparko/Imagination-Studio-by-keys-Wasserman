@@ -105,6 +105,13 @@ speech-to-text for captions and the speech check (`faster-whisper`). `--all` add
 and, on a DGX Spark, training a LoRA. `--verify` reports each of these parts, and `--upgrade` moves the parts already
 installed to this version.
 
+Run in a terminal with no flag, the install first shows a checklist of every part the machine runs, each with its
+download size, grouped into what the plain install includes and the larger optional models, with the total beside the
+free disk space. Everything starts ticked: type a row's number (or `3 5`, or `4-6`) to untick or tick it, `n` to untick
+every optional model, `d` to tick everything again, and press Enter to install what is ticked; the install prints the
+same choice as flags so it can be run again without the list. `--yes` (or any flag) skips the list and installs as
+before, with the plain install's parts; so does a run that is not in a terminal.
+
 ### Install flags
 
 For `oneshot-setup-rtx-6000.sh` and `oneshot-setup-spark.sh`; `oneshot-setup.sh` takes the same names on a Mac
@@ -131,6 +138,7 @@ FastH3 video with sound (125 GB), motion graphics, Finish and phone notification
 | `--no-render` | Skip the test clip |
 | `--no-loras` | Skip the essential LoRA bundle (about 4 GB) |
 | `--no-workflows` | Skip the Library action packs |
+| `--yes` | No checklist: the plain install (or what the other flags say), as in a script |
 | `--verify` | Check an existing install and download nothing |
 | `--upgrade` | Move an existing install to this version and fetch no weights |
 

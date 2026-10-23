@@ -41,6 +41,8 @@
 #   bash oneshot-setup.sh --no-render   # install and fetch only
 #   bash oneshot-setup.sh --no-loras    # skip the essential LoRA bundle (about 4 GB from the LoRAs' authors; --loras=camera,style
 #                                       # takes some groups, --lora-bundle=PATH installs from a bundle on disk with no other network)
+#   bash oneshot-setup.sh --yes         # the plain install above without the checklist a terminal shows first (every part
+#                                       # ticked there; Enter installs them all); any other flag also leaves the list out
 #   bash oneshot-setup.sh --verify      # check an existing install, no downloads, no render
 #   bash oneshot-setup.sh --upgrade     # after `git pull`: move an existing install to this version (engine, scripts, Motion
 #                                       # Previs environment, motion graphics and Finish where they are installed), fetch no
@@ -65,7 +67,7 @@ if [ "$(uname -s)" = Linux ]; then
   SPARK_ARGS=()
   for arg in "$@"; do
     case "$arg" in
-      --all|--image-only|--no-render|--verify|--motion|--upgrade|--voice|--flux3|--music|--moss|--bolt|--sound|--graphics|--no-graphics|--finish|--no-finish|--train|--ref2va|--image-edit|--h3-base|--loras|--loras=*|--no-loras|--lora-bundle=*) SPARK_ARGS+=("$arg");;
+      --all|--yes|-y|--image-only|--no-render|--verify|--motion|--upgrade|--voice|--flux3|--music|--moss|--bolt|--sound|--graphics|--no-graphics|--finish|--no-finish|--train|--ref2va|--image-edit|--h3-base|--loras|--loras=*|--no-loras|--lora-bundle=*) SPARK_ARGS+=("$arg");;
       --upscale|--remove) echo "note: on a DGX Spark $arg comes with --ref2va (spark/setup-workflows.sh): adding --ref2va"; SPARK_ARGS+=("--ref2va");;
       --fasth3) ;;
       --turbo|--app) echo "note: $arg is for the Mac build and does nothing on a DGX Spark";;
@@ -75,6 +77,21 @@ if [ "$(uname -s)" = Linux ]; then
   echo "Linux detected: installing the DGX Spark (CUDA) build"
   exec bash "$HERE/oneshot-setup-spark.sh" ${SPARK_ARGS[@]+"${SPARK_ARGS[@]}"}
 fi
+# In a terminal with no feature flag: the checklist of parts (scripts/install-checklist.sh), every part this Mac's memory
+# runs ticked; what is ticked becomes this script's own flags below. --yes, any flag, no terminal: no list.
+# shellcheck source=scripts/install-checklist.sh
+. "$HERE/scripts/install-checklist.sh"
+if checklist_wanted "$@"; then
+  LIST_RAM=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
+  if [ "$LIST_RAM" -ge 64 ]; then  # below 64 GB the install below says what this Mac can run
+    LIST_CHIP="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "this Mac")"
+    LIST_CMD="bash oneshot-setup.sh"; for arg in "$@"; do LIST_CMD="$LIST_CMD $arg"; done
+    LIST_FLAGS="$(checklist_run "$(checklist_rows_mac "$LIST_RAM" "$LIST_CHIP")" "$(df -g "$HOME" | awk 'NR==2{print $4}')" \
+      "Imagination Studio on this Mac ($LIST_CHIP, ${LIST_RAM} GB): what to install" "$LIST_CMD" "$(checklist_note_mac "$LIST_RAM")")" || exit $?
+    set -- "$@" $LIST_FLAGS
+  fi
+fi
+[ "${STUDIO_CHECKLIST_DRY:-0}" != 1 ] || { echo "$*"; exit 0; }
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 H3_MODEL_DIR="${H3_MODEL_DIR:-$HOME/h3-models/MiniMax-H3}"
 QWEN_MODEL_DIR="${QWEN_MODEL_DIR:-$HOME/qwen-models/Qwen-Image-2.1-Turbo}"
@@ -110,6 +127,7 @@ for arg in "$@"; do
   case "$arg" in
     --all) ALL=1;;  # every feature this Mac's memory runs (chosen after the preflight reads the chip and the memory)
     --image-only) VIDEO=0;;
+    --yes|-y) ;;  # the plain install without the checklist
     --fasth3) ;;  # FastH3 is the default video engine since 2.1; the flag is kept so older commands still run
     --turbo) TURBO=1;;
     --ref2va) REF2VA=1;;

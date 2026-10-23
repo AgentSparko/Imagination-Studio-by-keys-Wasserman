@@ -36,7 +36,9 @@ Do these in order on the person's Mac, and report each result plainly.
    free under Mirage's own terms, not open source, and leaves out commercial use by a business with 1 M USD or more a
    year without Mirage's agreement; its converter is MIT). `--no-finish` or `--no-graphics` leaves one out if the person
    asks. `--all` adds the big optional models; training a LoRA is DGX Spark only.
-4. `bash oneshot-setup.sh --app` (add `--turbo` only if they ask for MiniMax H3 Turbo and have 128 GB; `--app` does step 5 with a Desktop shortcut). It resumes if interrupted. It ends by
+4. `bash oneshot-setup.sh --yes --app` (in a terminal with no other flag the install first shows a checklist of parts,
+   everything ticked; `--yes` or any flag leaves it out, and so does a run that is not in a terminal. The list lives in
+   `scripts/install-checklist.sh`; `STUDIO_CHECKLIST_INPUT` and `STUDIO_CHECKLIST_DRY=1` drive it in tests. Add `--turbo` only if they ask for MiniMax H3 Turbo and have 128 GB; `--app` does step 5 with a Desktop shortcut). It resumes if interrupted. It ends by
    rendering `outputs/test.mp4`; confirm that file exists and plays.
 5. `bash scripts/make-app.sh` builds `~/Applications/Wasserman Slate AI Studio.app`. If the models are not in the default
    folders, export `QWEN_MODEL_DIR`, `H3_MODEL_DIR`, `FASTH3_DIR` first: the app records them. Do not set

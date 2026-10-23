@@ -37,4 +37,5 @@ fi
 # The CUDA installer reads nvidia-smi's first row. This directory's nvidia-smi
 # answers those queries for STUDIO_GPU.
 export PATH="$HERE/spark/smi-pin:$PATH"
-exec bash "$HERE/oneshot-setup-cuda.sh" "$@"
+# the checklist names this entry in the command it prints
+STUDIO_SETUP_ENTRY=oneshot-setup-rtx-6000.sh exec bash "$HERE/oneshot-setup-cuda.sh" "$@"
