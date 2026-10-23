@@ -249,6 +249,29 @@ def test_the_app_refuses_before_the_job_is_queued():
         G.room_mb = had
 
 
+
+def test_a_refusal_names_memory_the_driver_holds():
+    """Issue #59: drivers from 590 on keep a finished process's memory in their pools, where no counter shows it."""
+
+    idle = "MemTotal: 127600524 kB\nMemFree: 113077964 kB\nBuffers: 485356 kB\nCached: 6624636 kB\nAnonPages: 1066736 kB\nSlab: 1993500 kB\n"
+    pooled = "MemTotal: 127600524 kB\nMemFree: 43077964 kB\nBuffers: 485356 kB\nCached: 6624636 kB\nAnonPages: 1066736 kB\nSlab: 1993500 kB\n"
+    assert G.unexplained_mb(G.meminfo(idle)) < G.UNEXPLAINED_IDLE_MB  # a worker Spark with nothing running
+    held = G.unexplained_mb(G.meminfo(pooled))
+    assert 70_000 < held < 76_000
+    had = G.smi, G.processes_mb
+    try:
+        G.smi, G.processes_mb = (lambda *query: [["NVIDIA GB10"]]), (lambda: {})
+        note = G.held_note(G.meminfo(pooled))
+        assert f"About {held / 1000:.0f} GB" in note and "NVreg_EnableSystemMemoryPools=0" in note and "R580" in note
+        assert G.held_note(G.meminfo(idle)) == ""
+        G.processes_mb = lambda: {1234: 60_000}  # a program on the GPU: its memory is its own, not the driver's
+        assert G.held_note(G.meminfo(pooled)) == ""
+        G.smi, G.processes_mb = (lambda *query: []), (lambda: {})  # no nvidia-smi answer: nothing can be told
+        assert G.held_note(G.meminfo(pooled)) == ""
+    finally:
+        G.smi, G.processes_mb = had
+
+
 if __name__ == "__main__":
     for name, test in list(globals().items()):
         if name.startswith("test_"):

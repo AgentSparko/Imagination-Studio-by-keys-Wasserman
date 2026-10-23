@@ -13,6 +13,37 @@ import time
 from pathlib import Path
 
 
+def text_encoder_index(model_dir: str) -> None:
+    """Give a text encoder saved as one file the index mflux loads it by. Qwen/Qwen-Image-2.1-Turbo ships its text
+    encoder as text_encoder/model.safetensors with no model.safetensors.index.json (since 2026-10-12), and mflux's
+    Qwen-Image-2.1 loader opens that index without looking, so a fresh install could make no picture (issue #10;
+    the cause and this index found by gsp-agent). The index is built from the file's header: its tensors' names, all
+    in that one file. The base model's four shards come with their own index and are left as they are."""
+
+    import os
+    import struct
+
+    folder = Path(model_dir) / "text_encoder"
+    index, single = folder / "model.safetensors.index.json", folder / "model.safetensors"
+    if index.exists() or not single.is_file():
+        return
+    with open(single, "rb") as handle:
+        size = struct.unpack("<Q", handle.read(8))[0]
+        header = json.loads(handle.read(size))
+    tensors = {name: entry for name, entry in header.items() if name != "__metadata__"}
+    end = max(entry["data_offsets"][1] for entry in tensors.values())
+    if 8 + size + end != single.stat().st_size:
+        raise SystemExit(f"{single} is not a whole safetensors file (download it again)")
+    written = folder / f".model.safetensors.index.json.{os.getpid()}"
+    try:
+        written.write_text(json.dumps({"metadata": {"total_size": end},
+                                       "weight_map": {name: single.name for name in sorted(tensors)}}, indent=2))
+        os.replace(written, index)
+    except OSError as error:
+        raise SystemExit(f"the text encoder at {folder} is one file and needs {index.name} beside it, which could not be "
+                         f"written ({error}): make the folder writable, or run this once as its owner") from error
+
+
 def encode_prompt(model_dir: str, prompt: str):
     """Prompt embeddings (1, tokens, 4096) from mflux's Qwen-Image-2.1 prompt encoder, taken before the language
     model's final RMSNorm: the transformer is conditioned on the last decoder layer's output before that norm
@@ -35,6 +66,7 @@ def encode_prompt(model_dir: str, prompt: str):
     class Holder:
         pass
 
+    text_encoder_index(model_dir)
     holder = Holder()
     holder.text_encoder = Qwen21TextEncoder()
     tokenizers = TokenizerLoader.load_all(definitions=Qwen21WeightDefinition.get_tokenizers(), model_path=model_dir)

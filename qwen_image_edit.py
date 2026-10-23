@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 import edit_plan
+from qwen_image_generate import text_encoder_index
 
 
 def lora_specs(specs: list[str]) -> tuple[list[str], list[float]]:
@@ -144,6 +145,7 @@ def main() -> int:
     scratch = tempfile.TemporaryDirectory(prefix="studio-edit-")
     pictures = [str(prepared(path, fit, Path(scratch.name), index)) for index, (path, fit) in enumerate(zip(args.image, fitted))]
     started = time.perf_counter()
+    text_encoder_index(args.model_dir)  # a text encoder saved as one file (issue #10)
     model = QwenImage21Edit(quantize=args.quantize or None, model_path=args.model_dir, model_config=ModelConfig.qwen_image_21(),
                             lora_paths=paths or None, lora_scales=strengths or None)
     load_s = time.perf_counter() - started
