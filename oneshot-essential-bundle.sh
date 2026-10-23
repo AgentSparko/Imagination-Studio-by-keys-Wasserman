@@ -33,7 +33,7 @@ done
 # LORA_PACKAGE=none goes to the authors' pages for everything; LORA_PACKAGE=<file or address> names another package.
 PKG_BASE="https://huggingface.co/drowzeys/keys-studio-lora-essential/resolve/main"
 STUDIO_DIR="${STUDIO_HOME:-$(python3 "$HERE/app/studio_home.py")}"  # app/studio_home.py: the folder the app uses
-PKG_FILE="keys-studio-lora-essential-$([ "$(uname -s)" = Darwin ] && echo mac || echo spark)-2026-10-13-r3.tar"
+PKG_FILE="keys-studio-lora-essential-$([ "$(uname -s)" = Darwin ] && echo mac || echo spark)-2026-10-13-r4.tar"  # Keys' r4 build of the pack (2026-10-13)
 case " ${ARGS[*]-} " in *" --package"*|*" --source"*|*" --make-package"*|*" --verify "*|*" --dry-run "*) ;; *)
   if [ "${LORA_PACKAGE:-}" != none ] && [ -z "${LORA_BUNDLE:-}" ] && [ ! -e "${DEST:-$STUDIO_DIR/lora-bundle}/package.json" ]; then
     ARGS+=(--package "${LORA_PACKAGE:-$PKG_BASE/$PKG_FILE}")
