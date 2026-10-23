@@ -78,22 +78,28 @@ def node_version(binary: str | Path) -> tuple[int, ...] | None:
     return tuple(int(part) for part in found.groups()) if found else None
 
 
+# the oldest Node of each line with the latest security fixes (Node's 2026-10-21 release): an older one is never run
+NODE_SAFE = {22: (22, 23, 4), 24: (24, 22, 1), 26: (26, 12, 1)}
+
+
+def node_safe(version: tuple | None) -> bool:
+    return bool(version) and (version >= NODE_SAFE[version[0]] if version[0] in NODE_SAFE else version[0] > max(NODE_SAFE))
+
+
 def node_bin() -> tuple[str | None, str]:
-    """(the Node that runs HyperFrames, its version): the private one setup-graphics.sh installed, else the system's
-    when it is 22 or newer; (None, what was found) otherwise."""
+    """(the Node that runs HyperFrames, its version): the private one setup-graphics.sh installed, else the system's,
+    each only when it has the latest security fixes of its line; (None, what was found) otherwise."""
 
     private = install_dir() / "node" / "bin" / "node"
-    if private.is_file() and os.access(private, os.X_OK):
-        version = node_version(private)
-        if version and version[0] >= 22:
-            return str(private), ".".join(map(str, version))
-    system = shutil.which("node", path=search_path())
-    if system:
-        version = node_version(system)
-        if version and version[0] >= 22:
-            return system, ".".join(map(str, version))
-        return None, ("Node " + ".".join(map(str, version)) if version else "a Node that does not start")
-    return None, "no Node"
+    found = []
+    for node in ([private] if private.is_file() and os.access(private, os.X_OK) else []) + [shutil.which("node", path=search_path())]:
+        if not node:
+            continue
+        version = node_version(node)
+        if node_safe(version):
+            return str(node), ".".join(map(str, version))
+        found.append("Node " + ".".join(map(str, version)) if version else "a Node that does not start")
+    return None, (" and ".join(found) + ", without the latest security fixes") if found else "no Node"
 
 
 def cli() -> Path:
@@ -131,7 +137,8 @@ def ready() -> dict:
     version = installed_version() if cli().is_file() else None
     found = browser()
     ffmpeg = shutil.which("ffmpeg", path=search_path())
-    why = ("HyperFrames needs Node 22 or newer (this machine has " + node_said + ")" if not node
+    why = ("HyperFrames needs Node 22 or newer with the latest security fixes (this machine has " + node_said
+           + ")" if not node
            else "HyperFrames is not installed" if not version
            else "GSAP is not installed beside HyperFrames" if not gsap_file().is_file()
            else "no browser to render with" if not found

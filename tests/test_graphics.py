@@ -33,7 +33,7 @@ def fake_install(root: Path) -> None:
 
     (root / "node/bin").mkdir(parents=True)
     node = root / "node/bin/node"
-    node.write_text("#!/bin/sh\necho v22.23.3\n")
+    node.write_text("#!/bin/sh\necho v22.23.4\n")
     node.chmod(0o755)
     (root / "node_modules/hyperframes/dist").mkdir(parents=True)
     (root / "node_modules/hyperframes/dist/cli.js").write_text("")
@@ -197,7 +197,7 @@ def test_the_readiness_report_says_what_is_missing(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(old))
     said = graphics.ready()
     assert said["ok"] is False and said["node"] is None
-    assert said["why"].startswith("HyperFrames needs Node 22 or newer (this machine has Node 20.11.1)")
+    assert said["why"].startswith("HyperFrames needs Node 22 or newer with the latest security fixes (this machine has Node 20.11.1")
     assert "scripts/setup-graphics.sh" in said["why"]
     fake_install(tmp_path / "some")
     monkeypatch.setenv("GRAPHICS_DIR", str(tmp_path / "some"))
@@ -296,3 +296,10 @@ def test_a_real_title_renders_at_320x180(tmp_path):
     assert done.returncode == 0, done.stdout[-1000:] + done.stderr[-1000:]
     info = graphics.probe(target)
     assert (info["width"], info["height"]) == (320, 180) and abs(info["seconds"] - 3.0) < 0.2
+
+
+def test_a_node_without_the_latest_security_fixes_is_never_run():
+    """Node's 2026-10-21 security release: 22.23.4, 24.22.1 and 26.12.1 are the oldest of their lines that are used."""
+    for version, safe in (((22, 23, 3), False), ((22, 23, 4), True), ((24, 22, 0), False), ((24, 22, 1), True),
+                          ((26, 12, 1), True), ((20, 20, 2), False), ((27, 0, 0), True), (None, False)):
+        assert graphics.node_safe(version) is safe, version

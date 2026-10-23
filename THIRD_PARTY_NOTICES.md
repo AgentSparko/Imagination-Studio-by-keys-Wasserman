@@ -264,7 +264,7 @@ installer downloads its pieces from the author's own page, at the version named 
 
 ## Node.js (OpenJS Foundation)
 
-- Node.js 22.23.3, <https://nodejs.org>. MIT License, with the licences of the libraries it bundles at
+- Node.js 22.23.4, <https://nodejs.org>. MIT License, with the licences of the libraries it bundles at
   <https://github.com/nodejs/node/blob/main/LICENSE>.
 - When the machine's own Node is older than 22, `scripts/setup-graphics.sh` unpacks the official tarball (SHA-256
   checked against nodejs.org) into `$PREFIX/graphics/node`, for HyperFrames only. Nothing is installed system-wide.

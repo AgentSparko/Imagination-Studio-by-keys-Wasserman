@@ -21,14 +21,20 @@
 # Telemetry and update checks are switched off for every render (HYPERFRAMES_NO_TELEMETRY, DO_NOT_TRACK).
 set -euo pipefail
 
-NODE_VERSION="22.23.3"
+NODE_VERSION="22.23.4"  # the 2026-10-21 security release
 node_sha256() {  # the official tarballs' SHA-256, from nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt
   case "$1" in
-    linux-arm64) echo a44aeb94849a299b22df10b9e622ec2f605c2183501bc40590705131de7c740f;;
-    linux-x64) echo df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de;;
-    darwin-arm64) echo 23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53;;
-    darwin-x64) echo 8a677b0219178efd6eb0e475457c4afb452b521a92f6e67845a73bd85727f2a8;;
+    linux-arm64) echo 6287aa46b6c375d816e63ae66d024fbbfd70404825aabdfdf898a970871d2f4b;;
+    linux-x64) echo 1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce;;
+    darwin-arm64) echo c9e1dbc748b33ed2d14f42445191ecaf14c56259c7a9a26d0042c49ec2b66428;;
+    darwin-x64) echo efcc2b0db6f94bf53eddb038fe2b370277a042bd29e4f19b8f8e23598795b819;;
   esac
+}
+# the oldest Node of each line with the latest security fixes: an older one, here or the system's, is not used
+node_safe() {  # node_safe <node binary>: true when its version is at least the patched one of its line
+  local v; v="$("$1" --version 2>/dev/null | tr -d v)"; [ -n "$v" ] || return 1
+  local floor; case "${v%%.*}" in 22) floor=22.23.4;; 24) floor=24.22.1;; 26) floor=26.12.1;; *) [ "${v%%.*}" -gt 26 ] 2>/dev/null && return 0; return 1;; esac
+  [ "$(printf '%s\n%s\n' "$floor" "$v" | sort -V | head -1)" = "$floor" ]
 }
 HYPERFRAMES_VERSION="0.8.186"   # app/graphics.py HYPERFRAMES says the same
 GSAP_VERSION="3.14.2"
@@ -62,14 +68,15 @@ esac
 
 step "Node.js 22 or newer"
 NODE=""
-if [ -x "$DIR/node/bin/node" ] && [ "$(major "$DIR/node/bin/node")" -ge 22 ] 2>/dev/null; then
+if [ -x "$DIR/node/bin/node" ] && node_safe "$DIR/node/bin/node"; then
   NODE="$DIR/node/bin/node"; ok "$("$NODE" --version), installed here ($DIR/node)"
-elif command -v node >/dev/null && [ "$(major "$(command -v node)")" -ge 22 ] 2>/dev/null; then
+elif command -v node >/dev/null && node_safe "$(command -v node)"; then
   NODE="$(command -v node)"; ok "$("$NODE" --version), this machine's own ($NODE)"
+  if [ "$VERIFY" = 0 ] && [ -d "$DIR/node" ]; then rm -rf "$DIR/node"; ok "removed the older Node in $DIR/node"; fi
 elif [ "$VERIFY" = 1 ]; then
-  bad "no Node 22 ($(command -v node >/dev/null && node --version || echo "no node")): bash scripts/setup-graphics.sh installs one in $DIR/node"
+  bad "no Node with the latest security fixes ($(command -v node >/dev/null && node --version || echo "no node")): bash scripts/setup-graphics.sh installs v$NODE_VERSION in $DIR/node"
 else
-  echo "  this machine has $(command -v node >/dev/null && node --version || echo "no node"); installing Node v$NODE_VERSION for HyperFrames only"
+  echo "  this machine has $(command -v node >/dev/null && node --version || echo "no node") and $([ -x "$DIR/node/bin/node" ] && "$DIR/node/bin/node" --version || echo "no Node") here: neither has the latest security fixes; installing Node v$NODE_VERSION for HyperFrames only"
   NAME="node-v$NODE_VERSION-$PLATFORM"
   WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
   curl -fsSL --retry 3 -o "$WORK/$NAME.$EXT" "https://nodejs.org/dist/v$NODE_VERSION/$NAME.$EXT"
