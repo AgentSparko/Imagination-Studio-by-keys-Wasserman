@@ -658,3 +658,5 @@ def test_no_credential_of_the_person_reaches_a_third_party_child(monkeypatch):
         assert name not in env, name
     assert env.get("OFFICIAL_TOKEN") == "kept"
     assert env.get("TOKEN") == "vouched" and env.get("HOME") and env.get("PATH")  # ordinary variables ride on
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-the-persons-own")  # a brain's own sign-in still reaches its CLI
+    assert agents.child_env().get("ANTHROPIC_API_KEY") == "sk-the-persons-own"

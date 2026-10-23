@@ -110,6 +110,7 @@ def fake(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("FAKE_REMOTE", str(remote))
     monkeypatch.setenv("FAKE_TOKEN", TOKEN)
+    monkeypatch.setenv("AGENTS_CHILD_ENV_KEEP", "FAKE_TOKEN")  # the stand-in CLI reads its token by a credential-like name
     monkeypatch.setenv("FAKE_CLAUDE_SOURCE", str(source))
     monkeypatch.delenv("FAKE_SSH", raising=False)
     monkeypatch.delenv("FAKE_SIGNED", raising=False)

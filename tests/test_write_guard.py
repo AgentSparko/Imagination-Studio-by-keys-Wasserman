@@ -376,7 +376,9 @@ def test_cancel_on_a_mac_or_of_a_job_without_comfyui_only_stops_the_script(comfy
                                    "http://10.1.2.3:8080", "http://172.20.0.4:8000", "http://100.101.102.103:8000",
                                    "http://[fd7a:115c:a1e0::1]:8000", "http://[::1]:8000", "http://gpu-box:8000",
                                    "https://gpu-box.tail1234.ts.net", "http://gpu-box.local:8000"])
-def test_a_nearby_model_server_is_taken(given):
+def test_a_nearby_model_server_is_taken(given, monkeypatch):
+    # a name is taken when what it resolves to is nearby (a LAN answer stands in for DNS here)
+    monkeypatch.setattr(slate.socket, "getaddrinfo", lambda host, port, **kw: [(0, 0, 0, "", ("192.168.1.20", 0))])
     assert slate.nearby_endpoint(given) == given.strip()
 
 

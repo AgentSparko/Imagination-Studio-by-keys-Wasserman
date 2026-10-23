@@ -559,6 +559,10 @@ def search_path() -> str:
 # by default (the studio's own downloads authenticate through the code that asks for them, not through the
 # environment of every harness, CLI and MCP server it starts -- those are third-party code pulled at run time)
 SECRET_MARKS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "PRIVATE_KEY", "API_KEY", "APIKEY", "ACCESS_KEY")
+# ...except the sign-in the brains themselves read: Claude Code, Codex, Gemini and Grok take their API key or token from
+# these, and a person who signed a CLI in that way must still find it signed in from the Agent room
+BRAIN_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY",
+              "GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY", "GROK_API_KEY")
 
 
 def child_env(extra: dict | None = None) -> dict:
@@ -567,7 +571,7 @@ def child_env(extra: dict | None = None) -> dict:
     # person exported for the studio's own tools (HF_TOKEN above all, which hf_gate reads from the environment)
     # stops at the studio's door. AGENTS_CHILD_ENV_KEEP=NAME,NAME is the escape hatch for a CLI that really must
     # have a token-named variable of the person's own.
-    keep = {k.strip().upper() for k in os.environ.get("AGENTS_CHILD_ENV_KEEP", "").split(",") if k.strip()}
+    keep = {*BRAIN_KEYS, *(k.strip().upper() for k in os.environ.get("AGENTS_CHILD_ENV_KEEP", "").split(",") if k.strip())}
     for name in [k for k in env if k.upper() not in keep and (k.upper() in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
                                                            or any(m in k.upper() for m in SECRET_MARKS))]:
         env.pop(name, None)
