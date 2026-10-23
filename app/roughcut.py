@@ -57,7 +57,7 @@ def grid(found: dict, cut: str) -> list[float]:
     return downbeats[::2] if cut == "two-bars" else downbeats
 
 
-def plan(clips: list[dict], found: dict, cut: str = "bar", align: str = "centre", fps: int = FPS) -> dict:
+def plan(clips: list[dict], found: dict, cut: str = "natural", align: str = "centre", fps: int = FPS) -> dict:
     """The timeline of a rough cut: ``clips`` are [{path, seconds}] in order, ``found`` a song's beats (beats.py).
 
     Song time and timeline time are the same (the song starts with the first clip), and every boundary is a whole
@@ -372,7 +372,7 @@ def make(body: dict) -> dict:
     timeline, dropped}."""
 
     body = body or {}
-    cut = str(body.get("cut") or "bar")
+    cut = str(body.get("cut") or "natural")  # each shot near its own length, cut on a beat
     order = str(body.get("order") or "given")
     align = "start" if body.get("align") == "start" else "centre"
     if cut not in CUTS:

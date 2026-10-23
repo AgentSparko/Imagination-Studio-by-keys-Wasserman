@@ -3,8 +3,8 @@
    to a song so every cut falls on a beat or a bar, exported with the song under it, and handed to DaVinci Resolve as
    a zip of the FCPXML and its media. rcPanel(film) is Slate's Deliver panel; rcLibrary() is the Library's
    "Trailer from these". */
-const RC = { song: "", cut: "bar", order: "given", foley: false, songs: null, beats: {}, busy: false, made: {}, state: {}, trailer: null, timers: {} };
-const RC_CUTS = { beat: ["Every beat", "a fast montage"], bar: ["Every bar", "one clip a bar"], "two-bars": ["Every two bars", "longer, calmer shots"], natural: ["Natural", "each clip near its own length, cut on a beat"] };
+const RC = { song: "", cut: "natural", order: "given", foley: false, songs: null, beats: {}, busy: false, made: {}, state: {}, trailer: null, timers: {} };
+const RC_CUTS = { natural: ["Each shot's own length", "cut on the nearest beat"], bar: ["One bar each", "a clip every bar"], "two-bars": ["Two bars each", "longer, calmer shots"], beat: ["One beat each", "a fast montage"] };
 const RC_ORDERS = { given: "As filmed", shuffle: "Shuffled", energy: "Calm to busy" };
 const RC_SOUNDS = { music: "Songs", voice: "Voice lines", sfx: "Sound effects" };
 const RC_STAGES = { foley: "Making the foley", export: "Exporting the cut", song: "Laying the song under it", files: "Writing the files for Resolve", done: "Ready", failed: "Stopped" };

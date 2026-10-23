@@ -150,7 +150,7 @@ TOOLS = [
      "inputSchema": text_schema({"film": {"type": "string", "description": "a Slate film's id (its best take of each shot, in order)"},
                                  "clips": {"type": "array", "items": {"type": "string"}, "description": "Library paths of clips, instead of a film"},
                                  "song": {"type": "string", "description": "Library path of the song, or a song's or voice line's id"},
-                                 "cut": {"type": "string", "enum": ["beat", "bar", "two-bars", "natural"], "description": "where cuts fall (default bar)"},
+                                 "cut": {"type": "string", "enum": ["beat", "bar", "two-bars", "natural"], "description": "how long each shot runs: natural (default: each shot near its own length, cut on a beat), bar, two-bars or beat"},
                                  "order": {"type": "string", "enum": ["given", "shuffle", "energy"], "description": "clip order (default given; energy is calm to busy)"},
                                  "foley": {"type": "boolean", "description": "make each clip's sound for its picture first (slower)"},
                                  "title": {"type": "string"}}, ("song",))},

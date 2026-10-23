@@ -1035,7 +1035,7 @@ def cut_stage(run: dict, stop: threading.Event) -> None:
     if song:  # the rough cut: every cut on the song's bar lines, the song under it, FCPXML, EDL and a Resolve zip
         say(run, f"Cutting {len(clips)} shots on the song's bars")
         try:
-            made = rough_make({"clips": [c["path"] for c in clips], "song": song, "cut": "bar", "foley": False, "order": "given",
+            made = rough_make({"clips": [c["path"] for c in clips], "song": song, "cut": "natural", "foley": False, "order": "given",
                                "title": title, "width": int(width), "height": int(height)})
         except LookupError as error:
             say(run, f"{error}: cutting in the Editor instead")

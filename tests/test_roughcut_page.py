@@ -60,7 +60,7 @@ def test_the_deliver_panel_picks_a_song_and_makes_a_rough_cut():
       out.seg = !!find(view, n => n.attrs && n.attrs.class === "seg-ctl fit");
       const pick = find(view, n => n.tag === "select"); pick.value = "music/m1.wav"; pick.attrs.onchange(); await new Promise(r => setTimeout(r, 0));
       view = rcPanel(film); out.beats = text(view);
-      button(view, "Every two bars").attrs.onclick(); button(view, "Foley for each clip").attrs.onclick(); button(view, "Calm to busy").attrs.onclick();
+      button(view, "Two bars each").attrs.onclick(); button(view, "Foley for each clip").attrs.onclick(); button(view, "Calm to busy").attrs.onclick();
       answers["/api/roughcut"] = { project: "p1", job: "j9", foley: [], title: "Rough cut of Night Bus", beats: { bpm: 121.6 }, dropped: [],
                                    timeline: [{ path: "renders/a.mp4", in: 1, out: 3, at: 0 }, { path: "renders/c.mp4", in: 0, out: 1.5, at: 2, short: true }] };
       view = rcPanel(film); await button(view, "Make a rough cut").attrs.onclick();
@@ -76,7 +76,7 @@ def test_the_deliver_panel_picks_a_song_and_makes_a_rough_cut():
         return
     assert "A rough cut on the beat" in got["text"] and "2 shots with a take" in got["text"] and got["make_off"]
     assert got["groups"] == ["Songs", "Voice lines"]
-    assert got["cuts"] == ["Every beat", "Every bar", "Every two bars", "Natural"] and got["seg"]
+    assert got["cuts"] == ["Each shot's own length", "One bar each", "Two bars each", "One beat each"] and got["seg"]
     assert "122 BPM · 40 bars · 80 s · a steady beat." in got["beats"]
     assert got["sent"] == {"film": "f1", "title": "Rough cut of Night Bus", "song": "music/m1.wav", "cut": "two-bars", "order": "energy", "foley": True}
     assert "2 cuts at 122 BPM" in got["toast"]

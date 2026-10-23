@@ -2424,7 +2424,7 @@ scene is a cut, on the cast's stills where Ref2VA is installed; the rest carry o
 character without a pinned picture gets a reference still and a turnaround of it, each place a plate, pinned to their
 sheets. Then every shot is rendered in order, at most three in the queue at once, and each take is checked by the QA
 gate; a take that fails is rendered again at the next seed. The take that passes is rated *good* and a failed one
-*no good*. Last, the best take of every shot is cut: with a song, by the rough cut on the song's bar lines with the
+*no good*. Last, the best take of every shot is cut: with a song, by the rough cut on the song's beats (each shot near its own length) with the
 song under it, its FCPXML, EDL and Resolve zip in exports/; without one, on an Editor timeline that is exported, with
 the timeline's FCPXML, EDL and package beside it. The panel shows the stage, the counts (*7 of 9 shots rendered, 2 retakes*), the job at
 work and the run's log; *Stop* takes the jobs still waiting out of the queue, and *Direct it again* carries on: what
@@ -2914,7 +2914,8 @@ where the cuts fall, and press **Make a rough cut**. The studio takes the best t
 good, else the newest that is not marked no-good) in scene and shot order, finds the song's beats, and lays the clips
 end to end so each cut lands on the music:
 
-- **Every beat** is a fast montage, **Every bar** gives each clip one bar, **Every two bars** longer, calmer shots.
+- **Each shot's own length** (the default) keeps every shot near its own length and cuts it on the nearest beat;
+  **One bar each** and **Two bars each** fit every shot to the bars; **One beat each** is a fast montage.
   A clip is trimmed around its middle to fill its slot; a clip shorter than its slot keeps its whole length and the
   next cut lands back on the grid.
 - **Natural** lets each clip run about its own length and cuts it on the last beat it reaches.

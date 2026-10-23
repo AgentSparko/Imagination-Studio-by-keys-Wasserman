@@ -368,7 +368,7 @@ def test_the_panel_in_the_first_ad_tab():
     assert posted["project"] == "p-test" and posted["logline"] == "A keeper finds a letter." and posted["scenes"] == 3 and posted["cut"] is True and posted["retakes"] == 1
 
 
-def test_with_a_song_the_cut_is_the_rough_cut_on_the_bars(studio, monkeypatch):
+def test_with_a_song_the_cut_is_the_rough_cut_on_the_beat(studio, monkeypatch):
     queue, brain = Queue(), Brain()
     studio(queue, brain)
     asked, stages = [], iter(["export", "export", "files", "done"])
@@ -383,7 +383,7 @@ def test_with_a_song_the_cut_is_the_rough_cut_on_the_bars(studio, monkeypatch):
     film = slate.get_project(project)
     best = [s["takes"][0]["mediaPath"] for s in film["scenes"][0]["shots"]]
     assert len(asked) == 1 and asked[0]["clips"] == best and asked[0]["song"] == "song-1"
-    assert asked[0]["cut"] == "bar" and asked[0]["foley"] is False and asked[0]["order"] == "given"
+    assert asked[0]["cut"] == "natural" and asked[0]["foley"] is False and asked[0]["order"] == "given"
     assert not any(b["kind"] == "export" for b in queue.bodies)  # the rough cut exports; the Editor's way is not taken
     assert run["cut"]["project"] == "p1" and run["cut"]["files"] == {"mp4": "exports/e1.mp4", **files}
 
