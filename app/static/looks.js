@@ -77,7 +77,8 @@ function lookTally() { const sets = LORAS.filter(r => r.builtin), ok = sets.filt
 
 function lookCard(r) { const st = r.installing, busy = lookBusy(r), dead = r.status === "unsupported", gated = r.status === "gated";
   const on = (C.loras || []).some(p => p.id === r.id) && C.goes === "video";
-  const cover = LOOK_COVERS[r.id] ? el("div", { class: "art ar1" }, el("img", { src: LOOK_COVERS[r.id], alt: "", loading: "lazy", decoding: "async" })) : artSlot("look-" + r.id, "ar1", "looks");
+  const src = r.cover ? file(r.cover) : LOOK_COVERS[r.id];  // a cover kept beside the LoRA wins (loras/<id>.webp)
+  const cover = src ? el("div", { class: "art ar1" }, el("img", { src, alt: "", loading: "lazy", decoding: "async" })) : artSlot("look-" + r.id, "ar1", "looks");
   const state = busy ? el("span", { class: "tag2 t" }, st.stage + (st.of ? " " + Math.round(100 * st.done / st.of) + "%" : "…"))
     : r.installed ? el("span", { class: "tag2 ok" }, "Installed") : null;
   const use = !r.installed || busy || dead ? null

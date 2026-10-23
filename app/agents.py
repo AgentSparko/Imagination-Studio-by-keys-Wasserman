@@ -252,8 +252,24 @@ def clean_local_agents(value) -> list[dict]:
     return out[:LOCAL_AGENTS_MAX]
 
 
+def with_bolt(agents_: list[dict], endpoint: str) -> list[dict]:
+    """The Studio's own Bolt engine is always one of the local agents when it is installed here, beside the local brain
+    when that brain is another server (a GLM, a DeepSeek): nobody has to add it by hand."""
+
+    is_bolt = lambda address: str(address or "").strip().lower() == bolt.ENDPOINT or bolt.serves(address)
+    if is_bolt(endpoint) or any(is_bolt(one["endpoint"]) for one in agents_) or len(agents_) >= LOCAL_AGENTS_MAX:
+        return agents_
+    try:
+        here = bolt.state().get("available")
+    except Exception:  # noqa: BLE001  (an engine that cannot say is not offered)
+        here = False
+    return agents_ + [{"id": "local:bolt", "name": "Bolt", "endpoint": bolt.ENDPOINT, "model": ""}] if here and not any(
+        one["id"] == "local:bolt" for one in agents_) else agents_
+
+
 def local_agent_ids(saved: dict) -> list[str]:
-    return [one["id"] for one in clean_local_agents(saved.get("local_agents"))]
+    endpoint = str(saved.get("local_endpoint") or "") if "local_endpoint" in saved else os.environ.get("STUDIO_LOCAL_ENDPOINT", "")
+    return [one["id"] for one in with_bolt(clean_local_agents(saved.get("local_agents")), endpoint)]
 
 
 def local_agent(backend: str, config: dict | None = None) -> dict | None:
@@ -410,7 +426,7 @@ def saved_settings() -> dict:
                        "studio_host": remote.get("studio_host") or ""},
             "local_endpoint": endpoint,
             "local_model": model,
-            "local_agents": clean_local_agents(saved.get("local_agents")),
+            "local_agents": with_bolt(clean_local_agents(saved.get("local_agents")), endpoint),
             # the Agent room's first choice
             "agent": saved["agent"] if saved.get("agent") in AGENTS or saved.get("agent") in local_agent_ids(saved)
             else automatic_agent(default, endpoint, model)}
@@ -471,10 +487,11 @@ def save_settings(body: dict) -> dict:
         probes.clear()
         answering.clear()
         tool_checks.clear()
+    now["local_agents"] = with_bolt(clean_local_agents(saved.get("local_agents")), now["local_endpoint"])  # Bolt beside the brain as it is now
     now["default"] = chosen_default({"default": chosen, "local_agents": now["local_agents"]}) or automatic_default(now["local_endpoint"])
     now["agent"] = agent or automatic_agent(now["default"], now["local_endpoint"], now["local_model"])
     if folder():  # a default nobody picked is not written down, so it stays automatic
-        written = {**now, "agent": agent}
+        written = {**now, "agent": agent, "local_agents": clean_local_agents(saved.get("local_agents"))}  # only the ones added by hand
         write_json(folder() / "settings.json", {**written, "default": chosen} if chosen else {k: v for k, v in written.items() if k != "default"})
     return now
 

@@ -319,7 +319,9 @@ def attach(home: Path, pack: Path, spark: bool):
         installed = ready(recipe["id"]).is_file() and not state
         here = None if installed else found_here(recipe["id"])
         # usable: its file is here and this machine has what it runs on (a clip, a Library action or Edit a picture)
-        return {**recipe, "installed": installed, "installing": state, "usable": installed and recipe.get("status") != "unsupported",
+        # a cover picture kept beside the LoRA (loras/<id>.webp, .jpg or .png): yours for a LoRA you trained or added
+        cover = next((f"loras/{recipe['id']}{ext}" for ext in (".webp", ".jpg", ".jpeg", ".png") if (folder / f"{recipe['id']}{ext}").is_file()), None)
+        return {**recipe, "installed": installed, "installing": state, "usable": installed and recipe.get("status") != "unsupported", "cover": cover,
                 "flow": lora_flows.public(recipe["id"]) if recipe.get("flow") else None,
                 # found on this machine: Install links that file instead of downloading it
                 "found": {"path": here["shown"], "proof": here.get("proof", "")} if here else None}

@@ -381,3 +381,16 @@ def test_a_local_agent_that_does_not_answer_is_kept_but_not_ready(local):
     said = post("/api/brains/test", {"backend": "local:off-for-now"}).json()
     assert said["ok"] is False and said["error"].startswith("Off for now does not answer at http://127.0.0.1:9/v1")
     assert post("/api/brains/local:off-for-now/default").status_code in (200, 400)
+
+
+def test_the_studios_bolt_is_a_local_agent_by_itself_when_it_is_installed(local, monkeypatch):
+    """With Bolt installed and the local brain on another server, Bolt is offered as an agent without being added."""
+    local(lambda body, n: {"content": "ok"}, tools=False)
+    monkeypatch.setattr(agents.bolt, "state", lambda: {"available": True})
+    ids = [one["id"] for one in client.get("/api/brains").json()["settings"]["local_agents"]]
+    assert ids == ["local:bolt"]
+    monkeypatch.setattr(agents.bolt, "state", lambda: {"available": False})
+    assert client.get("/api/brains").json()["settings"]["local_agents"] == []
+    monkeypatch.setattr(agents.bolt, "state", lambda: {"available": True})
+    post("/api/brains/settings", {"local_endpoint": "studio:bolt"})  # Bolt is the local brain itself: not offered twice
+    assert client.get("/api/brains").json()["settings"]["local_agents"] == []
