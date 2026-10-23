@@ -89,7 +89,7 @@ function viewMachine() {
 }
 
 /* ---------- Brains & tools: the user's own subscriptions and the MCP tools an agent may use ---------- */
-const BR = { data: null, tools: null, testing: {}, said: {}, checking: {}, checked: {}, status: {}, sign: {}, signOpen: null, signTimer: null, signSig: "", codeDraft: {} };
+const BR = { data: null, tools: null, testing: {}, said: {}, checking: {}, checked: {}, status: {}, sign: {}, signOpen: null, signTimers: {}, signSig: {}, codeDraft: {} };
 // each brain shows its own mark (brand/, THIRD-PARTY-MARKS.md); a local model server and the tools show a plain sign
 const BRAIN_MARK = { claude: "claude", codex: "codex", gemini: "gemini", grok: "grok", hermes: "hermes", openai: "openai", chatgpt: "openai" };
 // the local brain wears NVIDIA's mark when it is the Studio's own Nemotron 3.5 Bolt engine
@@ -107,10 +107,11 @@ const signRedraw = () => { if (typeof CN !== "undefined" && CN.sheet) return cnS
 const typing = () => typeof document !== "undefined" && document.activeElement && document.activeElement.matches && document.activeElement.matches("input,textarea,select");
 async function brainStatus(id, fresh) { if (!fresh && BR.status[id]) return; BR.status[id] = { state: "asking" };
   try { BR.status[id] = await api("/api/brains/" + id + "/status"); } catch (e) { BR.status[id] = { state: "unknown", detail: e.message }; } signRedraw(); }
-function signFollow(id) { clearInterval(BR.signTimer); BR.signTimer = setInterval(async () => { let now;
+function signFollow(id) { clearInterval(BR.signTimers[id]); BR.signTimers[id] = setInterval(async () => { let now;
   try { now = await api("/api/brains/" + id + "/signin"); } catch (e) { now = { state: "failed", reason: e.message, lines: [] }; }
-  const sig = JSON.stringify(now), was = BR.signSig; BR.signSig = sig; BR.sign[id] = now;
-  if (!SIGN_RUNNING.includes(now.state)) { clearInterval(BR.signTimer); BR.signTimer = null;
+  // one timer and one last-seen signature per brain: a second sign-in must not orphan the first's polling
+  const sig = JSON.stringify(now), was = BR.signSig[id]; BR.signSig[id] = sig; BR.sign[id] = now;
+  if (!SIGN_RUNNING.includes(now.state)) { clearInterval(BR.signTimers[id]); delete BR.signTimers[id];
     if (now.state === "done") { toast("Signed in"); BR.status = {}; BR.data = null; brainsLoad().then(signRedraw); } }
   if (sig !== was && !(typing() && now.state === "needs_code")) signRedraw(); }, 1000); }
 async function signStart(b, extra) { BR.signOpen = b.id; BR.codeDraft[b.id] = "";
@@ -120,7 +121,7 @@ async function signStart(b, extra) { BR.signOpen = b.id; BR.codeDraft[b.id] = ""
 async function signCode(id) { const code = (BR.codeDraft[id] || "").trim(); if (!code) return toast("Paste the code from the sign-in page first");
   try { BR.sign[id] = await api("/api/brains/" + id + "/signin/code", { code }); BR.codeDraft[id] = ""; } catch (e) { toast(e.message); } signRedraw(); }
 async function signCancel(id) { try { BR.sign[id] = await api("/api/brains/" + id + "/signin/cancel", {}); } catch (e) { toast(e.message); }
-  clearInterval(BR.signTimer); BR.signTimer = null; signRedraw(); }
+  clearInterval(BR.signTimers[id]); delete BR.signTimers[id]; signRedraw(); }
 async function signOut(b) { if (typeof confirm === "function" && !confirm("Sign " + b.label + " out" + (b.where && b.where !== "here" ? " on " + b.where.replace(/^ssh:/, "") : "") + "? This runs its own sign-out; you can sign in again here.")) return;
   try { const r = await api("/api/brains/" + b.id + "/signout", {}); BR.status[b.id] = r; toast(r.ok ? "Signed out" : "The CLI did not say it signed out"); } catch (e) { toast(e.message); } signRedraw(); }
 const copyText = async (value, what) => { try { await navigator.clipboard.writeText(value); toast(what + " copied"); } catch { toast("Select it and copy: " + value); } };

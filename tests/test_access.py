@@ -102,6 +102,7 @@ def test_the_studios_own_clients_send_it(monkeypatch):
             return b'{"id": "1", "status": "done"}' if not seen[-1].full_url.endswith(".mp4") else b""
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=None: Answer(request))
+    monkeypatch.setattr(remote.OPENER, "open", lambda request, timeout=None: Answer(request))  # remote.py's opener refuses redirects
     sparks.KEYS["http://127.0.0.1:41001"] = "worker-key"
     try:
         sparks.call("http://127.0.0.1:41001", "/api/spark/self")

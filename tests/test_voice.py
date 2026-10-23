@@ -3,8 +3,10 @@ command line is stood in for by a small script that writes a WAV and its stats."
 import json
 import os
 import struct
+import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
@@ -641,3 +643,39 @@ def test_a_voice_take_waits_for_memory_a_stopped_server_is_giving_back(monkeypat
         raise AssertionError("refused expected")
     except RuntimeError as error:
         assert "needs about 50 GB" in str(error)
+
+
+def test_an_engine_the_kernel_wont_release_still_gives_the_gpu_lock_back(monkeypatch, tmp_path):
+    """A SIGKILL to a process stuck in the kernel (the way a wedged GPU leaves it) is not always waitable. That must
+    not hold stop()'s actual promise hostage -- the lock back and ownership cleared -- or every later take waits on
+    the GPU lock of an owner that is gone until the app itself restarts."""
+
+    voice = server.voice
+    monkeypatch.setattr(voice, "LOCK", tmp_path / "studio-gpu.lock.d")
+    monkeypatch.setattr(voice, "settle", lambda: None)
+    monkeypatch.setattr(voice, "mem_available_gb", lambda: 80.0)
+    one = voice.Served.__new__(voice.Served)
+    one.mutex = threading.RLock()
+    one.note = lambda *args, **more: None
+    one.owner = "drama3@studio"
+    voice.LOCK.mkdir(parents=True)
+    (voice.LOCK / "owner").write_text("drama3@studio")
+
+    class Corpse:  # poll() alive, and no wait that ever returns: kill-guard territory
+        class stdin:
+            @staticmethod
+            def close():
+                pass
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout: float = 0):
+            raise subprocess.TimeoutExpired("drama3-server", timeout)
+
+    one.process = Corpse()
+    one.stop("the engine hung")  # must not raise out of the wedged wait
+    assert one.process is None and one.owner == "" and not voice.LOCK.exists()

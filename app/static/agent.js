@@ -2,7 +2,7 @@
 // The Agent room: pick your own agent (Claude Code, Codex, Hermes, Gemini, Grok or a local model), say what you want, and
 // it works through the Studio's tools (stills, clips with sound, voice, songs, the timeline) in a conversation that keeps
 // its session from one turn to the next. It asks when a choice matters; what it made gathers in Delivered.
-const AG = { prompt: "", backend: null, tools: new Set(["blender", "studio"]), attach: [], tasks: null, timer: null, picking: false, lib: null, open: {},
+const AG = { prompt: "", backend: null, tools: new Set(["blender", "studio"]), attach: [], tasks: null, timer: null, picking: false, busy: false, lib: null, open: {},
   threads: null, cur: null, thread: null, reply: "", jobs: {}, seen: 0, focus: null, earlier: false, toolsOpen: {} };
 const AG_SUGGEST = [
   ["Garage, 35 mm", "In Blender, build a rain-soaked parking garage at night with sodium lights. Put a camera at eye level with a 35 mm lens looking down the row, and render a 1344×768 still."],
@@ -246,13 +246,16 @@ function agChosen() { return agBrain(AG.backend); }
 const agTarget = how => how !== "start" && AG.cur && AG.thread ? AG.thread.backend : AG.backend;
 async function agSend(text, how) {
   text = String(text || "").trim(); if (!text) return toast(how === "reply" ? "Write your answer first" : "Say what you need first");
+  // starting a turn takes a moment: a second click, a second Enter, before it starts must not start a second turn
+  if (AG.busy) return; AG.busy = true; render();
   const id = agTarget(how), brain = agBrain(id), st = agSignState(brain);
-  if (!agReady(brain)) return toast((brain ? brain.label : agName(id) || "No agent") + (st ? " is " + st.state.replace("_", " ") : " is not set up here") + ": " + (agSettings() ? "Settings → Connections" : "Machine → Brains & tools"));
+  if (!agReady(brain)) { AG.busy = false; render(); return toast((brain ? brain.label : agName(id) || "No agent") + (st ? " is " + st.state.replace("_", " ") : " is not set up here") + ": " + (agSettings() ? "Settings → Connections" : "Machine → Brains & tools")); }
   try {
     if (how !== "start" && AG.cur && AG.thread) { const r = await api("/api/agent/threads/" + encodeURIComponent(AG.cur) + "/messages", { text, backend: id, attach: AG.attach }); if (r && r.thread) AG.thread = r.thread; AG.reply = ""; }
     else { const r = await api("/api/agent/tasks", { prompt: text, backend: id, tools: agIsHarness(id) ? [...AG.tools] : [], attach: AG.attach }); AG.prompt = ""; if (r && r.thread) { AG.cur = r.thread; await agThreadLoad(AG.cur); } }
-    AG.attach = []; AG.picking = false; AG.seen = -1; await agThreadsLoad(); agentWatch(); render(); toast((AG.thread && AG.thread.live && how !== "start" && (AG.thread.queued || []).length ? "Queued for " : "Sent to ") + agName(id));
+    AG.attach = []; AG.picking = false; AG.seen = -1; await agThreadsLoad(); agentWatch(); toast((AG.thread && AG.thread.live && how !== "start" && (AG.thread.queued || []).length ? "Queued for " : "Sent to ") + agName(id));
   } catch (e) { toast(e.message); }
+  AG.busy = false; render();
 }
 function agComposer(key, value, set, placeholder, how, disabled) {
   const area = el("textarea", { placeholder, "aria-label": how === "reply" ? "Your answer" : "Your message", "data-ag": key, rows: how === "start" ? 4 : 2 });
@@ -267,13 +270,13 @@ function agComposer(key, value, set, placeholder, how, disabled) {
         : AG.thread && (AG.thread.tools || []).length ? el("span", { class: "note m-flat" }, "with " + AG.thread.tools.join(", ")) : null,
       el("span", { class: "su-grow" }),
       el("button", { class: "small", onclick: () => { AG.picking = !AG.picking; render(); } }, "Attach" + (AG.attach.length ? " (" + AG.attach.length + ")" : "")),
-      el("button", { class: "primary", disabled: !ready || !!disabled, onclick: () => agSend(area.value || (how === "start" ? AG.prompt : AG.reply), how) }, how === "reply" ? "Send answer " : "Send ", el("kbd", { class: "ag-kbd" }, "⌘⏎"))));
+      el("button", { class: "primary", disabled: !ready || !!disabled || AG.busy, onclick: () => agSend(area.value || (how === "start" ? AG.prompt : AG.reply), how) }, how === "reply" ? "Send answer " : "Send ", el("kbd", { class: "ag-kbd" }, "⌘⏎"))));
 }
 function agQuestion(thread, t) {
   return el("div", { class: "agr-q", role: "group", "aria-label": "Your agent asks" },
     el("div", { class: "kv" }, el("span", { class: "eyebrow" }, agName(t.backend || thread.backend) + " asks"), el("span", { class: "note m-flat" }, "Answer and it carries on")),
     el("div", { class: "agr-qtext" }, agText(t.text)),
-    (t.options || []).length ? el("div", { class: "agr-opts" }, t.options.map(o => el("button", { class: "toggle", onclick: () => agSend(o, "reply") }, o))) : null,
+    (t.options || []).length ? el("div", { class: "agr-opts" }, t.options.map(o => el("button", { class: "toggle", disabled: AG.busy, onclick: () => agSend(o, "reply") }, o))) : null,
     agComposer("reply", AG.reply, v => { AG.reply = v; }, "Your answer…", "reply"));
 }
 

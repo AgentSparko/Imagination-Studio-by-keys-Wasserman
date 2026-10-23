@@ -405,22 +405,29 @@ class Served:
 
         with self.mutex:
             process, self.process = self.process, None
-            if process is not None:
-                if process.poll() is None:
-                    try:
-                        process.stdin.close()
-                    except OSError:
-                        pass
-                    try:
-                        process.wait(timeout=20)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=10)
-                settle()
-                self.note("unloaded", why=why, available_gb=round(mem_available_gb(), 1))
-            if self.owner and lock_owner() == self.owner:
-                shutil.rmtree(LOCK, ignore_errors=True)
-            self.owner = ""
+            try:
+                if process is not None:
+                    if process.poll() is None:
+                        try:
+                            process.stdin.close()
+                        except OSError:
+                            pass
+                        try:
+                            process.wait(timeout=20)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            try:
+                                process.wait(timeout=10)
+                            except subprocess.TimeoutExpired:
+                                pass  # a process the GPU left stuck in the kernel cannot always be waited for
+                    settle()
+                    self.note("unloaded", why=why, available_gb=round(mem_available_gb(), 1))
+            finally:
+                # the lock goes back whatever happened above: an engine nobody could wait for beats a lock nobody owns,
+                # which every later job then waits on until the app itself restarts
+                if self.owner and lock_owner() == self.owner:
+                    shutil.rmtree(LOCK, ignore_errors=True)
+                self.owner = ""
 
     def release(self, why: str) -> bool:
         """Unload now if loaded (another job needs the GPU): True when it was loaded."""

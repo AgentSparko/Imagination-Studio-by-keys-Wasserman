@@ -184,12 +184,7 @@ def execute(workflow: dict, sampler: str, parts: int = 1) -> tuple[dict, float]:
     except KeyboardInterrupt:
         sg.call("/interrupt", {})
         raise
-    while True:
-        history = sg.call(f"/history/{prompt_id}")
-        if prompt_id in history and history[prompt_id].get("status", {}).get("completed") is not None:
-            break
-        time.sleep(1)
-    record = history[prompt_id]
+    record = sg.history_of(prompt_id)
     if record["status"].get("status_str") != "success":
         errors = [m[1] for m in record["status"].get("messages", []) if m[0] == "execution_error"]
         detail = errors[0].get("exception_message", "").strip() if errors else json.dumps(record["status"])[:600]

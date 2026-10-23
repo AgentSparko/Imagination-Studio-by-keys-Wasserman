@@ -1720,17 +1720,24 @@ def run(job: dict, command: list[str], env: dict, label: str = "") -> bool:
     process = subprocess.Popen(command, cwd=PACK, env=environment(env), stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, start_new_session=True)
     running.update(process=process, id=job["id"])
-    for line in process.stdout:
-        job["log"] = (job["log"] + line)[-20000:]
-        engine = RAN_ON.search(line)
-        if engine:
-            job["engine"] = engine.group(1)
-        found = STEP.search(line)
-        if found:
-            kind, at, total = found.group(1), int(found.group(2)), int(found.group(3))
-            job["progress"] = {"stage": label + STEP_WORDS[kind], "at": at, "of": total}
-    code = process.wait()
-    running.update(process=None, id=None)
+    try:
+        for line in process.stdout:
+            job["log"] = (job["log"] + line)[-20000:]
+            engine = RAN_ON.search(line)
+            if engine:
+                job["engine"] = engine.group(1)
+            found = STEP.search(line)
+            if found:
+                kind, at, total = found.group(1), int(found.group(2)), int(found.group(3))
+                job["progress"] = {"stage": label + STEP_WORDS[kind], "at": at, "of": total}
+        code = process.wait()
+    finally:  # a reader that died mid-render must not leave the detached group owning the GPU
+        if process.poll() is None:
+            with contextlib.suppress(ProcessLookupError, OSError):
+                os.killpg(process.pid, signal.SIGKILL)
+        with contextlib.suppress(subprocess.TimeoutExpired, OSError):
+            process.wait(10)
+        running.update(process=None, id=None)
     if job["status"] == "cancelled":
         return False
     if code:
@@ -2130,7 +2137,8 @@ def estimate_time(body: dict) -> dict:
         try:
             chosen, _ = custom(body)
             sized = {**(PRESETS[body["preset"]][2] if body.get("preset") in PRESETS else {}), **chosen}
-            count = int(body.get("references") or 0)
+            count = min(int(body.get("references") or 0), REFERENCE_TOTAL)  # the app itself attaches no more than this,
+            # and a bigger number here only costs this process memory to hold a list it cannot answer for
             room = memory_of(body, sized, lengths.of({"frames": body.get("frames"), "seconds": body.get("seconds") or 5}), bool(body.get("loras") or body.get("with_lora")),
                              {"pictures": [None] * count, "videos": []} if body.get("referenced") else None)
             room = {key: room.get(key) for key in ("fits", "reason", "need_mb", "error_mb", "left_mb", "floor_mb", "available_mb", "nearest")}
@@ -2426,8 +2434,12 @@ def library_sounds() -> list[dict]:
             if path.suffix.lower() in SOUND_FILES and path.is_file() and relative(path) not in seen:
                 seen.add(relative(path))
                 words = str(take.get("text") or take.get("caption") or take.get("title") or "")
+                try:
+                    made, bytes_of = path.stat().st_mtime, path.stat().st_size  # it may be on its way to the trash right now
+                except OSError:
+                    continue
                 out.append({"path": relative(path), "kind": "audio", "sound": which, "folder": which, "title": " ".join(words.split())[:80],
-                            "modified": path.stat().st_mtime, "size": path.stat().st_size})
+                            "modified": made, "size": bytes_of})
     for path in (HOME / "sound").rglob("*") if (HOME / "sound").is_dir() else []:
         if path.suffix.lower() in SOUND_FILES and path.is_file() and not hidden(path.relative_to(HOME)) and relative(path) not in seen:
             try:  # a sound effect's or a foley's words, from its take file (sound.py)
@@ -2435,8 +2447,12 @@ def library_sounds() -> list[dict]:
                 words = str(said.get("prompt") or ("Foley for " + Path(str(said.get("source") or "")).name if said.get("kind") == "foley" else ""))
             except (OSError, ValueError, AttributeError):
                 words = ""
+            try:
+                made, bytes_of = path.stat().st_mtime, path.stat().st_size  # it may be on its way to the trash right now
+            except OSError:
+                continue
             out.append({"path": relative(path), "kind": "audio", "sound": "sfx", "folder": "sound", "title": " ".join(words.split())[:80],
-                        "modified": path.stat().st_mtime, "size": path.stat().st_size})
+                        "modified": made, "size": bytes_of})
     return out
 
 
@@ -2611,7 +2627,7 @@ def new_project(body: dict) -> dict:
     data = {"id": project_id, "name": body.get("name") or "Untitled", "preset": "small" if SPARK else "draft", "quality": "fh8" if SPARK else "standard",
             "segments": [], "timeline": []}
     file = project_file(project_id)
-    fresh = file.with_suffix(".json.new")
+    fresh = file.with_name(f"{file.name}.{uuid.uuid4().hex[:8]}.new")  # every writer its own temp: two saves never share one
     fresh.write_text(json.dumps(data, indent=1))
     fresh.replace(file)
     return data
@@ -2634,10 +2650,14 @@ def save_project(project_id: str, body: dict) -> dict:
     if not file.is_file():
         raise HTTPException(404, "no such project")
     body["id"] = project_id
-    fresh = file.with_suffix(".json.new")  # written beside it and swapped in: a reader never sees half a file
+    fresh = file.with_name(f"{file.name}.{uuid.uuid4().hex[:8]}.new")  # written beside it and swapped in: a reader never sees half a file, a second saver never steals this temp
     fresh.write_text(json.dumps(body, indent=1))
     fresh.replace(file)
     return body
+
+
+_WAITERS = threading.Semaphore(4)  # a page holding /api/wait open is one thread of the small pool; a few at a
+# time is pages waiting on screenshots, more than that is someone holding the app hostage
 
 
 @app.get("/api/wait")
@@ -2645,7 +2665,12 @@ def wait(ms: int = 1000):
     """Holds a response open; a page asked for with ?shot=1 loads an image from here so that a headless
     screenshot is taken after the app has drawn."""
 
-    time.sleep(min(max(ms, 0), 10000) / 1000)
+    if not _WAITERS.acquire(blocking=False):
+        return JSONResponse({"waited": 0})  # the pool is already full of waiters; nobody gets to add to it
+    try:
+        time.sleep(min(max(ms, 0), 10000) / 1000)
+    finally:
+        _WAITERS.release()
     return JSONResponse({"waited": ms})
 
 

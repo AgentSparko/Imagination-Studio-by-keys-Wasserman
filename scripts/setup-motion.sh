@@ -15,6 +15,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 VENV="$PREFIX/motion-venv"; MODELS="${MOTION_MODELS:-$PREFIX/motion-models}"
+# pinned floor for the per-package fallback below: the same versions app/motion-requirements.txt installs as a set,
+# kept in one table so a bump moves both. bump deliberately, the CI floor is this table.
+FALLBACK_PACKAGES=("numpy>=2,<3" "opencv-contrib-python==5.0.0.93" "onnxruntime==1.31.0" "mediapipe==1.1.0")
 VERIFY=0; [ "${1:-}" = "--verify" ] && VERIFY=1
 export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 ok() { echo "  ✓ $*"; }
@@ -53,7 +56,7 @@ if [ "$VERIFY" = 0 ]; then
   # not available and the others still work
   uv pip install -q -p "$VENV/bin/python" --only-binary :all: -r "$HERE/app/motion-requirements.txt" || {
     note "the full set did not install here; installing what has a wheel for this machine"
-    for package in numpy opencv-contrib-python "onnxruntime==1.31.0" "mediapipe==1.1.0"; do
+    for package in "${FALLBACK_PACKAGES[@]}"; do
       uv pip install -q -p "$VENV/bin/python" --only-binary :all: "$package" || note "$package has no wheel for this machine: left out"
     done
     "$VENV/bin/python" -c "import cv2" 2>/dev/null || uv pip install -q -p "$VENV/bin/python" --only-binary :all: opencv-python-headless || true

@@ -18,6 +18,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="${PREFIX:-$HOME/.local/opt/tensorfold-studio}"
 VENV="$PREFIX/sound-venv"; MODELS="${SOUND_MODELS:-$PREFIX/sound-models}"
 MMAUDIO_COMMIT="974010a026c731054592d8f777218bd9d85a6c24"  # hkchengrex/MMAudio, October 2026
+# pinned floor for the floating pip installs below. diffusers and transformers are this file's own pair (the ones
+# that carry StableAudioPipeline together), sentencepiece is requirements.lock's: copy, never invent. bump
+# deliberately, the CI floor is this table. torchsde, soundfile and accelerate stay floating: no version of theirs
+# is written down in this repo to copy.
+PIP_PIN=(diffusers==0.32.2 transformers==4.46.3 sentencepiece==0.2.2)
 VERIFY=0; [ "${1:-}" = "--verify" ] && VERIFY=1
 export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 ok() { echo "  ✓ $*"; }
@@ -37,9 +42,9 @@ if [ ! -x "$VENV/bin/python" ]; then
 fi
 if ! "$VENV/bin/python" -c "import mmaudio, diffusers, soundfile, torchsde" 2>/dev/null; then
   [ "$VERIFY" = 0 ] || { note "the environment at $VENV is not complete"; exit 1; }
-  # MMAudio by commit; diffusers and transformers at versions that carry StableAudioPipeline together
+  # MMAudio by commit; the pinned ones come from the table at the top of this file
   uv pip install -q -p "$VENV/bin/python" "mmaudio @ git+https://github.com/hkchengrex/MMAudio@$MMAUDIO_COMMIT" \
-    "diffusers==0.32.2" "transformers==4.46.3" "sentencepiece" "torchsde" "soundfile" "accelerate"
+    "${PIP_PIN[@]}" "torchsde" "soundfile" "accelerate"
 fi
 ok "environment: $VENV"
 

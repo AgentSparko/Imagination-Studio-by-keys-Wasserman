@@ -10,6 +10,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("STUDIO_HOME", str(Path(tempfile.mkdtemp()) / "TensorFoldStudio"))
 sys.path.insert(0, str(ROOT / "app"))
@@ -217,3 +219,42 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             test()
             print("ok", name)
+
+
+def test_an_answer_that_redirects_elsewhere_is_refused():
+    """A Studio app answers in person; a 302 would be someone choosing what this machine fetches next. The
+    redirecting 'app' 302s to a second server that would hand over bytes -- remote.fetch must refuse the hop."""
+
+    import http.server
+
+    class Redirecting(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{sink.server_address[1]}/meta")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    class Sink(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", "4")
+            self.end_headers()
+            self.wfile.write(b"leak")
+
+        def log_message(self, *args):
+            pass
+
+    sink = http.server.HTTPServer(("127.0.0.1", 0), Sink)
+    forwarder = http.server.HTTPServer(("127.0.0.1", 0), Redirecting)
+    for srv in (sink, forwarder):
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    target = Path(tempfile.mkdtemp()) / "x.mp4"
+    try:
+        with pytest.raises(OSError):
+            remote.fetch(f"http://127.0.0.1:{forwarder.server_address[1]}", "renders/x.mp4", target, timeout=5)
+        assert not target.exists()  # and nothing of the redirect's bytes was kept
+    finally:
+        forwarder.shutdown()
+        sink.shutdown()

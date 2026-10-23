@@ -120,3 +120,24 @@ def test_a_cut_is_finished_and_exported_for_premiere_or_after_effects(studio):
     tool("export_cut", id="0101-abc", to="aftereffects")
     assert studio[-1] == ("POST", "/api/finish/0101-abc/convert", {"to": "aftereffects"})
     assert "premiere or aftereffects" in refused("export_cut", id="0101-abc", to="resolve")
+
+
+def test_upload_file_publishes_only_a_file_of_the_studio_folder(tmp_path, monkeypatch, studio):
+    """The upload is listed in the Library and downloadable from every device of the studio: the agent -- whose
+    judgement is steerable by whatever a web page or a tool server tells it -- must not be able to post the
+    person's private files through it. Only a real file of the studio folder, never a hidden one, goes up."""
+
+    home = tmp_path / "ImaginationStudio"
+    (home / "agent" / "thread1").mkdir(parents=True)
+    (home / "agent" / "thread1" / "blend.png").write_bytes(b"png made by blender")
+    (home / ".secrets").mkdir()
+    (home / ".secrets" / "id_ed25519").write_bytes(b"a key in the studio folder")
+    private = tmp_path / "id_ed25519"
+    private.write_bytes(b"a key outside it")
+    sneaky = home / "sneaky.png"
+    sneaky.symlink_to(private)  # a path inside the folder that resolves out of it
+    monkeypatch.setenv("STUDIO_HOME", str(home))
+    assert tool("upload_file", path=str(home / "agent" / "thread1" / "blend.png"))["kind"] == "job"  # the ordinary case
+    assert "not a file of the studio folder" in refused("upload_file", path=str(private))
+    assert "hidden" in refused("upload_file", path=str(home / ".secrets" / "id_ed25519"))
+    assert "not a file of the studio folder" in refused("upload_file", path=str(sneaky))

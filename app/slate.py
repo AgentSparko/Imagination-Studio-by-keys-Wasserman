@@ -13,6 +13,7 @@ import math
 import os
 import re
 import shutil
+import socket
 import subprocess
 import time
 import urllib.parse
@@ -236,6 +237,9 @@ def import_take(body: dict) -> dict:
             given = (HOME / path).resolve() if path else None
             if given is None or HOME.resolve() not in given.parents or not given.is_file():
                 raise HTTPException(400, "give the clip: another app's address with a job id or a path, or the path of a file in this studio folder")
+            if any(part.startswith(".") for part in given.relative_to(HOME.resolve()).parts):
+                raise HTTPException(400, "hidden files of the studio folder are not takes")  # /files never serves one;
+            # copying it into a film's takes folder would launder it into something the page can download
             if given.suffix.lower() not in remote.SUFFIXES[:2]:
                 raise HTTPException(400, "a take is a video file (.mp4 or .mov)")
             target = file.parent / "takes" / f"{shot['id']}-{int(time.time() * 1000):x}{given.suffix.lower()}"
@@ -436,7 +440,15 @@ def nearby_endpoint(given: str) -> str:
         name = ""
     if parts.scheme in ("http", "https") and name and not parts.username and not parts.password:
         if name == "localhost" or name.endswith((".ts.net", ".local", ".localhost")) or "." not in name and ":" not in name:
-            return text
+            # a name decides what this server fetches, so it is checked like an address: whatever it resolves to must
+            # itself be nearby. A *.local or one-word name whose DNS answers with a public or metadata IP is not a
+            # neighbour, and a name that resolves to nothing cannot be fetched from either.
+            try:
+                answers = {ipaddress.ip_address(info[4][0]) for info in socket.getaddrinfo(name, parts.port or 80)}
+            except (OSError, ValueError):
+                answers = set()
+            if answers and all(any(ip in net for net in NEARBY if net.version == ip.version) for ip in answers):
+                return text
         try:
             address = ipaddress.ip_address(name)
         except ValueError:

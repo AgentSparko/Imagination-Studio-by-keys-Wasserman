@@ -373,3 +373,54 @@ def test_an_installer_gate_links_a_folder_asked_for_by_a_file_in_it(machine, cap
     assert discover.main(["--scan", "--link", "--max-age", "3600", "--paths", *asked]) == 0
     assert capsys.readouterr().out.strip() == "~/spark-studio-models/MiniMax-Music3-Comfy -> " + str(machine["data"] / "kept/MiniMax-Music3-Comfy")
     assert not (machine["home"] / "models/drama-3").exists()  # a gate links only what it asked for
+
+
+def test_a_planted_name_and_magic_bytes_is_never_linked_by_itself(machine):
+    # the scan's own proof for an un-pinned file is its name and four magic bytes, and the walk follows file
+    # symlinks: whoever can write a file the catalogue names must not have it EXECUTED (drama3-generate) or
+    # UNPICKLED (a PK-headed .pt) by the studio's own link. It is offered on the page; a person chooses.
+    data = machine["data"]
+    planted = data / "pack" / "drama3-generate"
+    planted.parent.mkdir(parents=True)
+    planted.write_bytes(b"\x7fELF" + b"\x00" * 200)
+    planted.chmod(0o755)
+    out = scanned()  # linking on, exactly as the server's own 20 s scan runs it
+    cand = out["needs"]["drama3-binary"]["candidates"]
+    assert cand and cand[0]["verified"] and cand[0]["proof"] == "name and file type"  # still offered
+    assert discover.resolve("drama3-binary") is None  # but nothing was linked: the engine would have run it
+    planted_pt = planted.parent / "large-v3-turbo.pt"  # the other class: what torch.load would UNPICKLE
+    planted_pt.write_bytes(b"PK" + b"\x00" * 512)
+    with open(planted_pt, "ab") as f:
+        f.truncate(50 << 20)  # big enough to pass the whisper need's floor, sparse: no disk, no time
+    out = scanned()
+    assert out["needs"]["whisper-openai"]["candidates"], "the planted checkpoint was not even offered"
+    assert discover.resolve("whisper-openai") is None  # offered to a person, never linked by the machine
+    discover.use("drama3-binary", str(planted))  # a person asking is a different thing: that links
+    assert discover.resolve("drama3-binary") is not None
+
+
+def test_the_link_rehashes_what_the_scan_cache_would_have_forgiven(machine):
+    # the hash cache answers by path, size and time — a swap in place keeps all three (utime sets the time back),
+    # so the link re-hashes: the bytes the scan vouched for and the bytes now linked must be the same bytes.
+    home = machine["home"]
+    file = home / "engine.bin"
+    file.write_bytes(b"the real engine" * 8)
+    file.chmod(0o755)
+    item = {"sha256": hashlib.sha256(file.read_bytes()).hexdigest(), "check": None, "executable": True}
+    discover.reprove(item, file)  # the honest bytes pass quietly
+    file.write_bytes(b"an0ther engine!" * 8)  # same size, swapped content
+    os.utime(file, (0, 0))  # and an older stamp: the cache key the scan used still 'matches'
+    with pytest.raises(ValueError):
+        discover.reprove(item, file)
+
+
+def test_a_candidate_that_stopped_being_what_it_claimed_is_refused_at_the_link(machine):
+    home = machine["home"]
+    file = home / "large-v3-turbo.pt"
+    file.write_bytes(b"PK" + b"\x00" * 100)
+    item = {"sha256": "", "check": lambda p: "" if p.read_bytes()[:2] == b"PK" else "not a PyTorch checkpoint",
+            "executable": False}
+    discover.reprove(item, file)  # what the scan said it is
+    file.write_bytes(b"XX" + b"\x00" * 100)  # same size, no longer that
+    with pytest.raises(ValueError):
+        discover.reprove(item, file)

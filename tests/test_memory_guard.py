@@ -239,9 +239,10 @@ def test_the_app_refuses_before_the_job_is_queued():
         try:
             job = {"kind": "video", "params": {"prompt": "a walk", "preset": "sharp", "quality": "fh8", "seconds": 5, "qa": False,
                                                "loras": [{"id": "camera-motion", "strength": 0.9}]}}
+            before = set(server.jobs)  # other tests' finished jobs stay in the queue's history
             refused = client.post("/api/jobs", json=job)
             assert refused.status_code == 400 and "refused" in refused.json()["error"] and "LoRA" in refused.json()["error"], refused.text
-            assert not server.jobs  # nothing was queued
+            assert set(server.jobs) == before  # nothing was queued
         finally:
             server.lora_resolve = was
     finally:

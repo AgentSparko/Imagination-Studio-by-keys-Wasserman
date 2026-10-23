@@ -4,7 +4,7 @@
    Credit: Turnaround LoRA and its contact-sheet nodes by matlod / MATLOWAI; Video Upscaler LoRA and the H3 Video
    Upsampler node by dntpi (Sandpies), on LBH-123-AI's latent upscaler; Person Remover LoRA and H3 Relay by Akatz Labs,
    with Meta's SAM 3.1 for the mask. */
-const ACT = { state: null, open: null, jobs: {},
+const ACT = { state: null, open: null, busy: false, jobs: {},
   turn: { size: "1024", strength: "1", seed: 1, prompt: "" },
   up: { megapixels: "2", denoise: "0.1" },
   rm: { person: "", clean: "auto", clean_frame: null, window: "22", steps: 12, seed: 904234, silent: false, mask: null } };
@@ -26,7 +26,10 @@ function actHubNote(r) { const kind = r.action, a = actOf(kind);
   return el("div", { class: "note" }, "Used by the Library’s “" + (a.title || kind) + "” action: " + (kind === "turnaround" ? "press Turnaround under a picture." : "press " + (a.title || kind) + " under a clip.")
     + (ACT.state && !a.ready ? " " + a.why : "")); }
 function actHubButton(r) { return el("button", { type: "button", class: "small", onclick: () => { HUB.browse = false; tab = "Library"; history.replaceState(null, "", "#Library"); render(); toast("Press “" + (r.action === "turnaround" ? "Turnaround” under a picture" : (actOf(r.action).title || r.action) + "” under a clip")); } }, "Open the Library"); }
-async function actQueue(kind, params, slot) { try { const job = await api("/api/jobs", { kind, params }); ACT.jobs[slot || kind] = job.id; toast("Queued: " + job.title); poll(); render(); } catch (e) { toast(e.message, 6000); } }
+async function actQueue(kind, params, slot) { if (ACT.busy) return; ACT.busy = true; render();   // the queue takes a moment to answer: a second click before it does must not make a second job
+  try { const job = await api("/api/jobs", { kind, params }); ACT.jobs[slot || kind] = job.id; toast("Queued: " + job.title); poll(); }
+  catch (e) { toast(e.message, 6000); }
+  ACT.busy = false; render(); }
 const actJob = slot => jobs.find(j => j.id === ACT.jobs[slot]);
 const actShow = (slot, made) => { const job = actJob(slot); return job ? el("div", { style: "margin-top:12px" }, jobCard(job), job.status === "done" ? made(job) : null) : null; };
 const actUse = (path, how) => how === "first" ? () => { C.image = path; C.goes = "video"; C.start = "own"; C.step = 1; tab = "Create"; render(); }
@@ -45,7 +48,7 @@ function actPanel() { const o = ACT.open; if (!o) return null; if (typeof REV_KI
         field("What matters more", choice(f, "strength", { 1: ["The turn", "strength 1.0"], 0.7: ["The look", "strength 0.7, turns less"] }, redraw, true)),
         el("div", { class: "row" }, field("Seed", bind(f, "seed", el("input", { type: "number", min: 0, style: "max-width:110px" }))),
           field("Instruction (optional)", bind(f, "prompt", el("input", { placeholder: "the camera orbits horizontally around the subject of <Picture 1> at eye level, ninety degrees clockwise, the subject stays upright on the ground" })))),
-        by, el("button", { class: "hot", onclick: () => actQueue("turnaround", { image: o.path, size: Number(f.size), strength: Number(f.strength), seed: Number(f.seed) || 0, prompt: f.prompt }) }, "Make the turnaround sheet"))),
+        by, el("button", { class: "hot", disabled: ACT.busy, onclick: () => actQueue("turnaround", { image: o.path, size: Number(f.size), strength: Number(f.strength), seed: Number(f.seed) || 0, prompt: f.prompt }) }, "Make the turnaround sheet"))),
       actShow("turnaround", job => el("div", {}, el("img", { src: file(job.outputs[0]), style: "width:100%;border-radius:8px;margin-top:8px", alt: "the five views side by side" }),
         el("div", { class: "grid", style: "margin-top:8px" }, job.outputs.slice(1).map((p, i) => el("div", { class: "tile" }, media(p, { style: "aspect-ratio:1" }), el("div", { class: "cap", style: "justify-content:flex-end" }, el("span", { style: "flex:1" }, "view " + (i + 1)),
           el("button", { class: "small", title: "Start a clip on this picture", onclick: actUse(p, "first") }, "first frame"), el("button", { class: "small", title: "Add it to a reference clip’s pictures", onclick: actUse(p, "ref") }, "reference"))))))));
@@ -53,7 +56,7 @@ function actPanel() { const o = ACT.open; if (!o) return null; if (typeof REV_KI
     put(box, el("div", { class: "note", style: "margin-top:0" }, "Makes a finished clip larger: the model’s latent upscaler enlarges it, then one light re-draw in tiles puts detail back, guided by the clip itself so it restores what is there. Mouths, motion and the clip’s own sound stay."),
       field("Size", choice(f, "megapixels", { 1: ["1 megapixel", "about 1344 × 768"], 2: ["2 megapixels", "about 1920 × 1080"], 3: ["3 megapixels", "about 2304 × 1280"], 4: ["4 megapixels", "about 2688 × 1504, slowest"] }, redraw, true)),
       field("Re-draw", choice(f, "denoise", { 0: ["None", "only enlarge"], 0.1: ["Light", "0.1, the tested setting"], 0.2: ["Stronger", "0.2, adds more of its own"] }, redraw, true)),
-      by, el("button", { class: "hot", onclick: () => actQueue("upscale", { video: o.path, megapixels: Number(f.megapixels), denoise: Number(f.denoise) }) }, "Upscale this clip"),
+      by, el("button", { class: "hot", disabled: ACT.busy, onclick: () => actQueue("upscale", { video: o.path, megapixels: Number(f.megapixels), denoise: Number(f.denoise) }) }, "Upscale this clip"),
       actShow("upscale", job => el("video", { class: "main", src: file(job.outputs[0]), controls: true, style: "margin-top:8px" })));
   } else {
     const up = el("input", { type: "file", accept: ".png,.jpg,.jpeg,.webp", onchange: async () => { if (!up.files[0]) return; const data = new FormData(); data.append("file", up.files[0]);
@@ -61,7 +64,7 @@ function actPanel() { const o = ACT.open; if (!o) return null; if (typeof REV_KI
     const need = () => { if (!f.person.trim()) { toast("Say who to remove in a few words"); return false; } return true; };
     put(box, el("div", { class: "note", style: "margin-top:0" }, "Takes one person out of a clip and draws the background again. The person is found from a few words and followed through the clip; the removal then runs in overlapping windows of 22 frames. The whole picture is drawn again, so small details outside the person can change too. Best on a short continuous shot."),
       field("Who to remove", bind(f, "person", el("input", { placeholder: "man in a gray shirt · woman in a red coat · person on the left" }))),
-      el("div", { class: "row" }, el("button", { class: "fit", onclick: () => { if (need()) actQueue("mask", { video: o.path, person: f.person }, "mask"); } }, "1. Find the person"),
+      el("div", { class: "row" }, el("button", { class: "fit", disabled: ACT.busy, onclick: () => { if (need()) actQueue("mask", { video: o.path, person: f.person }, "mask"); } }, "1. Find the person"),
         el("span", { class: "note", style: "margin:0" }, "A quick look before the long render: the person painted green. If hands, hair or a shadow are left out, or someone else is green, describe the person more exactly.")),
       actShow("mask", job => el("div", { class: "row", style: "align-items:flex-start;margin-top:8px" }, el("div", {}, el("label", {}, "The person, in green"), el("video", { src: file(job.outputs[0]), controls: true, loop: true, style: "width:100%;border-radius:8px" })),
         job.outputs[2] ? el("div", {}, el("label", {}, "A first frame without the person, built from the clip"), el("img", { src: file(job.outputs[2]), style: "width:100%;border-radius:8px" })) : null)),
@@ -70,7 +73,7 @@ function actPanel() { const o = ACT.open; if (!o) return null; if (typeof REV_KI
       el("div", { class: "row" }, field("Window", select(f, "window", { 22: "22 frames (proven)", 39: "39 frames", 56: "56 frames" })), field("Passes", bind(f, "steps", el("input", { type: "number", min: 4, max: 30, style: "max-width:90px" }))),
         field("Seed", bind(f, "seed", el("input", { type: "number", min: 0, style: "max-width:120px" }))),
         el("label", { style: "display:flex;gap:6px;align-items:center;flex:none", title: "The clip’s own sound is put back under the result. It still holds the removed person’s voice: tick this to leave the sound out." }, bind(f, "silent", el("input", { type: "checkbox", style: "width:auto" })), "No sound")),
-      by, el("button", { class: "hot", onclick: () => { if (!need()) return; if (f.clean === "own" && !f.clean_frame) return toast("Load the clean first frame, or choose “Build it for me”");
+      by, el("button", { class: "hot", disabled: ACT.busy, onclick: () => { if (!need()) return; if (f.clean === "own" && !f.clean_frame) return toast("Load the clean first frame, or choose “Build it for me”");
         actQueue("remove", { video: o.path, person: f.person, window: Number(f.window), steps: Number(f.steps), seed: Number(f.seed), silent: !!f.silent, ...(f.clean === "own" ? { clean_frame: f.clean_frame } : {}) }); } }, "2. Remove the person"),
       actShow("remove", job => el("div", {}, (job.log || "").split("\n").filter(l => l.includes("] check: ")).map(l => el("div", { class: "note", style: l.includes("still show green") ? "color:var(--warn)" : "" }, l.split("] check: ")[1])),
         el("div", { class: "row", style: "align-items:flex-start;margin-top:8px" }, el("div", {}, el("label", {}, "Without the person"), el("video", { class: "main", src: file(job.outputs[0]), controls: true })),

@@ -555,8 +555,27 @@ def search_path() -> str:
     return os.pathsep.join([os.environ.get("PATH", ""), *slate.CLI_DIRS, str(Path.home() / ".npm-global/bin")])
 
 
+# names that mark an environment variable as a credential: a name carrying one of these never reaches a child
+# by default (the studio's own downloads authenticate through the code that asks for them, not through the
+# environment of every harness, CLI and MCP server it starts -- those are third-party code pulled at run time)
+SECRET_MARKS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "PRIVATE_KEY", "API_KEY", "APIKEY", "ACCESS_KEY")
+# ...except the sign-in the brains themselves read: Claude Code, Codex, Gemini and Grok take their API key or token from
+# these, and a person who signed a CLI in that way must still find it signed in from the Agent room
+BRAIN_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY",
+              "GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY", "GROK_API_KEY")
+
+
 def child_env(extra: dict | None = None) -> dict:
-    env = {**os.environ, "PATH": search_path(), **(extra or {})}
+    env = {**os.environ, "PATH": search_path()}
+    # a child that genuinely needs a credential gets it through ``extra`` at the call that starts it; anything the
+    # person exported for the studio's own tools (HF_TOKEN above all, which hf_gate reads from the environment)
+    # stops at the studio's door. AGENTS_CHILD_ENV_KEEP=NAME,NAME is the escape hatch for a CLI that really must
+    # have a token-named variable of the person's own.
+    keep = {*BRAIN_KEYS, *(k.strip().upper() for k in os.environ.get("AGENTS_CHILD_ENV_KEEP", "").split(",") if k.strip())}
+    for name in [k for k in env if k.upper() not in keep and (k.upper() in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN")
+                                                           or any(m in k.upper() for m in SECRET_MARKS))]:
+        env.pop(name, None)
+    env.update(extra or {})  # what the caller vouches for arrives even by name
     env.pop("CLAUDECODE", None)  # a Studio started from inside a Claude Code session must not look like a nested one
     # PREFIX is the Studio's runtime folder, and npm reads PREFIX as its global prefix: an Install from Connect went into
     # $PREFIX/bin, where no one looks. The CLIs and their installers get npm's own prefix (or ~/.npm-global) instead.
@@ -1120,14 +1139,23 @@ def check_tool(tool: dict) -> dict:
                                    env=child_env(env), start_new_session=True)
     except OSError as error:
         return {"ok": False, "tools": [], "error": f"{argv[0]} could not start: {error}"}
-    lines: "queue.Queue[bytes | None]" = queue.Queue()
+    lines: "queue.Queue[bytes | None]" = queue.Queue(maxsize=1000)  # between requests nobody reads the queue: a
+    # server that prints on its own would fill this process's memory with its lines, so the old ones make room
     errors: list[bytes] = []
     def read():
         for line in process.stdout:
+            if lines.full():
+                lines.get_nowait()
             lines.put(line)
         lines.put(None)
+    def drain():  # the log is only ever shown as an error hint: 1 MB of it is plenty, whatever the server pours
+        kept = 0
+        for line in process.stderr:  # read to the end even past the cap: a pipe nobody reads stalls the server
+            if kept <= 1 << 20:
+                kept += len(line)
+                errors.append(line)
     threading.Thread(target=read, daemon=True).start()
-    threading.Thread(target=lambda: errors.extend(process.stderr), daemon=True).start()
+    threading.Thread(target=drain, daemon=True).start()
 
     def answer(wanted: int):
         while True:
@@ -1288,9 +1316,15 @@ def work() -> None:
             with lock:
                 running.update(id=None, process=None, remote=None)
             task["finished"] = time.time()
-            task["outputs"] = outputs_of(task)
-            save_task(task)
-            finish_turn(task)
+            try:
+                task["outputs"] = outputs_of(task)  # a folder that changed under the walk must not ride on the answer
+            except OSError:
+                pass
+            try:  # this is the one worker thread for every agent task: whatever fails here would take it down, and
+                save_task(task)  # every task after it would sit queued forever behind a dead queue
+                finish_turn(task)
+            except OSError:
+                pass
 
 
 # ---------- threads: the Agent room's conversations ----------
@@ -2047,11 +2081,15 @@ class Mcp:
         except OSError:
             self.errors.close()
             raise
-        self.lines: "queue.Queue[bytes | None]" = queue.Queue()
+        self.lines: "queue.Queue[bytes | None]" = queue.Queue(maxsize=1000)  # a server that prints between its
+        # requests must not fill this process's memory with the lines nobody is reading (follow_install caps its
+        # own log the same way); the newest are the ones an answer is made of
         threading.Thread(target=self.read, daemon=True).start()
 
     def read(self) -> None:
         for line in self.process.stdout:
+            if self.lines.full():
+                self.lines.get_nowait()
             self.lines.put(line)
         self.lines.put(None)
 

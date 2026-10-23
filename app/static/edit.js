@@ -4,7 +4,7 @@
    Image LoRAs from the hub apply to Qwen here and nowhere else; with akhaliq's Multiple Angles LoRA the step becomes
    a camera: pick directions and heights, get one picture each. FLUX3-K takes neither: it edits from words. */
 const ED = { state: null, image: null, more: [], prompt: "", seed: 1, size: "source", base: false, loras: [], way: "words", picking: false, model: "qwen",
-  angles: [{ direction: "front-right-quarter", height: "eye", close: false }], job: null, lib: null };
+  angles: [{ direction: "front-right-quarter", height: "eye", close: false }], job: null, busy: false, lib: null };
 const edImageLoras = () => LORAS.filter(r => r.target === "image");
 const edAngleLora = () => ED.state && LORAS.find(r => r.id === ED.state.angle_lora);
 const edHas = id => ED.loras.some(p => p.id === id);
@@ -110,11 +110,12 @@ function viewEdit(goes) { const body = el("div"), st = ED.state;
       st.base && qwen ? el("div", { class: "fit", style: "min-width:340px" }, el("label", {}, "Steps"), choice(ED, "base", { false: ["8 steps", "Turbo"], true: ["40 steps", "base model, slower"] }, () => { ED.base = ED.base === "true" || ED.base === true; render(); }, true)) : null, el("span")),
     el("div", { class: "note" }, (qwen ? st.note : (edModels().find(m => m.id === edModel()) || {}).label + ", " + (edModels().find(m => m.id === edModel()) || {}).note + "; it sees all the pictures and writes the caption of the result itself") + ". “Same as the picture” returns the picture's own width and height (a 1280 × 736 picture comes back 1280 × 736); the other sizes keep its shape at about that many pixels. Results go to the Library, where a picture can open a clip, end one, or be a reference."),
     wants.length ? el("div", { class: "note lorawant", style: "color:var(--warn)" }, el("b", {}, "Needs: "), wants.join("; ") + ".") : null,
-    el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "hot fit", disabled: wants.length > 0, onclick: async () => { try { if (ED.way !== "angles" && !ED.prompt.trim()) throw new Error("Say what is different in the new picture first");
+    el("div", { class: "row", style: "margin-top:10px" }, el("button", { class: "hot fit", disabled: wants.length > 0 || ED.busy, onclick: async () => { if (ED.busy) return; ED.busy = true; render();   // the queue takes a moment to answer: a second click before it does must not make a second edit
+        try { if (ED.way !== "angles" && !ED.prompt.trim()) throw new Error("Say what is different in the new picture first");
         const params = { image: ED.image, seed: Number(ED.seed) || 0, ...(ED.size === "source" ? { size: "source" } : { size: "model", resolution: Number(ED.size) || 1024 }), ...(ED.way === "words" && ED.more.length ? { images: ED.more } : {}), image_model: edModel(), ...(qwen ? { base: ED.base === true || ED.base === "true", loras: ED.loras.filter(p => { const r = LORAS.find(x => x.id === p.id); return r && r.installed; }) } : {}) };
         if (ED.way === "angles") params.angles = ED.angles; else params.prompt = ED.prompt;
         const j = await api("/api/jobs", { kind: "edit", title: ED.way === "angles" ? "Angles: " + ED.angles.length + (ED.angles.length === 1 ? " view" : " views") : "Edit: " + ED.prompt.slice(0, 40), params });
-        ED.job = j.id; await poll(); render(); } catch (e) { toast(e.message); } } }, ED.way === "angles" ? "Make " + (ED.angles.length === 1 ? "this view" : "these " + ED.angles.length + " views") : "Edit the picture"), el("span")));
+        ED.job = j.id; await poll(); ED.busy = false; render(); } catch (e) { ED.busy = false; toast(e.message); } } }, ED.way === "angles" ? "Make " + (ED.angles.length === 1 ? "this view" : "these " + ED.angles.length + " views") : "Edit the picture"), el("span")));
   if (made) { put(body, el("h3", {}, "Results"), jobCard(made));
     if (made.status === "done") put(body, el("div", { class: "grid", style: "margin-top:10px" }, made.outputs.map(p => el("div", { class: "tile" }, media(p),
       el("div", { class: "cap" }, el("span", { title: p, style: "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, p.split("/").pop().replace(/^edit_?|\.png$/g, "").replace(/_/g, " ") || "edit")),
