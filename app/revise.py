@@ -249,7 +249,7 @@ def attach(studio):
         if params.get("ref_turbo"):
             video["ref_turbo"] = True
         # the last step is checked now (Ref2VA installed, the lengths), with the frame and the clip standing in
-        studio.build("video", {**video, "references": [studio.relative(frame)], "reference_videos": [studio.relative(ref)]}, "check")
+        studio.build("video", {**video, "prompt": "<Picture 1> <Video 1>", "references": [studio.relative(frame)], "reference_videos": [studio.relative(ref)]}, "check")
         # the analysis reads the clip where Motion Previs takes it from (the studio's clip folders), else the cut
         source = clip if studio.relative(clip).split("/")[0] in ("uploads", "renders", "exports", "projects", "slate") else None
         if source is None:

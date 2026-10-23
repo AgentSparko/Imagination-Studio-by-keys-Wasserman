@@ -97,7 +97,7 @@ def studio(pace="", motion=True, able=None):
             image.write_bytes(b"png")
 
     ns = SimpleNamespace(HOME=home, inside=inside, relative=lambda p: str(Path(p).resolve().relative_to(home)), jobs={},
-                         queue_job=queue_job, build=lambda kind, params, job_id: built.append((kind, params)) or ([], {}, []),
+                         queue_job=queue_job, build=lambda kind, params, job_id: params["prompt"] and built.append((kind, params)) or ([], {}, []),  # the server's build needs a prompt,
                          frame_at=frame_at, environment=lambda extra: {**os.environ, **extra}, PRESETS=PRESETS,
                          CUSTOM_SIDES=(256, 1536), CUSTOM_PIXELS=1344 * 768, LONGEST=15, FPS=24, LEAD=LEAD,
                          VIDEO_SUFFIXES=(".mp4", ".mov"), hub=SimpleNamespace(takes=lambda: {}),
