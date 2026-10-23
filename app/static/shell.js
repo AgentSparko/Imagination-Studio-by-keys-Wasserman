@@ -5,16 +5,16 @@
 // layout hides and orders the rooms (settings.js roomsShown); a hidden room stays in ⌘K.
 const GROUPS = [{ id: "engines", name: "Creative Engines" }, { id: "agent", name: "" }, { id: "vaults", name: "Studio Vaults" }];
 const ROOMS = [
-  { id: "story", group: "engines", name: "Story", key: "1", tabs: ["Story", "Production"], says: "the film: board, Wasserman Slate, First AD" },
+  { id: "video", group: "engines", name: "Video", key: "1", tabs: ["Video", "Create"], says: "clips with sound, long takes, references" },
+  { id: "image", group: "engines", name: "Image", key: "2", tabs: ["Image", "Create"], says: "stills, scouts, edit a picture" },
+  { id: "sound", group: "engines", name: "Sound", key: "3", tabs: ["Sound", "Voice", "Music", "Foley"], says: "voices, score and sound effects" },
+  { id: "story", group: "engines", name: "Story", key: "4", tabs: ["Story", "Production"], says: "the film: board, Wasserman Slate, First AD" },
   // a room of its own for a part that also sits inside a bigger page; `fold`: in the More sheet on a phone, not the bar
   { id: "cast", group: "engines", name: "Cast & Places", key: "", tabs: ["Cast & Places"], says: "a film's characters and locations, their pictures and LoRAs", fold: true },
   { id: "director", group: "engines", name: "Director", key: "", tabs: ["Director"], says: "a logline to a written, rendered, checked and cut film", fold: true },
-  { id: "image", group: "engines", name: "Image", key: "2", tabs: ["Image", "Create"], says: "stills, scouts, edit a picture" },
-  { id: "video", group: "engines", name: "Video", key: "3", tabs: ["Video", "Create"], says: "clips with sound, long takes, references" },
-  { id: "previs", group: "engines", name: "Previs", key: "4", tabs: ["Previs", "Motion Previs"], says: "motion from a clip, previs to guide a shot" },
-  { id: "sound", group: "engines", name: "Sound", key: "5", tabs: ["Sound", "Voice", "Music", "Foley"], says: "voices, score and sound effects" },
-  { id: "edit", group: "engines", name: "Edit", key: "6", tabs: ["Edit", "Editor", "Graphics", "Finish"], says: "the timeline, motion graphics, the final mix and what goes to Resolve" },
+  { id: "previs", group: "engines", name: "Previs", key: "5", tabs: ["Previs", "Motion Previs"], says: "motion from a clip, previs to guide a shot" },
   { id: "graphics", group: "engines", name: "Motion graphics", key: "", tabs: ["Motion graphics"], says: "titles, lower thirds, captions, slideshows and music videos", fold: true },
+  { id: "edit", group: "engines", name: "Edit", key: "6", tabs: ["Edit", "Editor", "Graphics", "Finish"], says: "the timeline, motion graphics, the final mix and what goes to Resolve" },
   { id: "night", group: "engines", name: "Night shift", key: "", tabs: ["Night shift"], says: "a batch rendered overnight, dailies in the morning", fold: true },
   { id: "agent", group: "agent", name: "Agent", key: "", tabs: ["Agent"], says: "ask your agent; it makes it with the studio" },
   { id: "library", group: "vaults", name: "Library", key: "7", tabs: ["Library"], says: "every take" },
