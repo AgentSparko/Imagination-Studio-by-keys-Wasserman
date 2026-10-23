@@ -669,6 +669,20 @@ def test_the_library_search_box_asks_the_server_and_shows_captions_under_the_nam
     assert "Describe now" in out["btn"] and out["called"]
 
 
+def test_each_search_result_can_be_ticked_on_its_own():
+    """Searching the Library, one or two of the matches are ticked by their own boxes, and the page hears of each."""
+    out = run("""answers["/api/library/search?q=boat"] = { items: [{ path: "renders/a.mp4", kind: "video", caption: "A paper boat." },
+        { path: "renders/b.mp4", kind: "video", caption: "Another boat." }] };
+      const plain = el; globalThis.el = (...a) => Object.assign(plain(...a), { style: {} });  // the results show and hide through style
+      globalThis.LIBPICK = new Set();  // the Library's ticked files (index.html)
+      let heard = 0; const bar = capSearch(() => el("div", {}), () => { heard += 1; });
+      const input = find(bar.box, n => n.tag === "input"); input.value = "boat"; CAP.q = "boat"; await bar.run();
+      const boxes = []; const walk = n => { if (n && n.tag === "input" && n.attrs.type === "checkbox") boxes.push(n); (n && n.kids || []).forEach(walk); }; walk(bar.results);
+      boxes[1].attrs.onchange({ target: { checked: true } });
+      out.boxes = boxes.length; out.picked = [...LIBPICK]; out.heard = heard; out.found = bar.found();""")
+    assert out["boxes"] == 2 and out["picked"] == ["renders/b.mp4"] and out["heard"] == 1 and out["found"] == ["renders/a.mp4", "renders/b.mp4"]
+
+
 def test_the_pages_inline_script_and_every_module_parse(tmp_path):
     """index.html's own script and every static module must parse: a merge that leaves a stray line blanks the whole page."""
     import re
