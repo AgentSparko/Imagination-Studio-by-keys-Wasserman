@@ -356,6 +356,16 @@ card on a DGX Spark and an RTX Pro 6000 alike, and the quit no longer ends in a 
 report with its cause and a fix (#51 to #60). Four are fixed from those reports (#121): the export keeps a clip's In
 point when Out is 0, the export size survives a redraw, the shot check's "+ timeline, trimmed to it" button shows, and
 Regenerate no longer sends the app's own "Regenerated at seed N" label to the brain as feedback.
+BTankut also tracked down why a DGX Spark on a newer NVIDIA driver refused clips with memory to spare (#59): the
+driver keeps a finished process's memory in its system memory pools, which the kernel counts nowhere. The memory
+guard now says so when it refuses, and the README gives the two fixes BTankut found.
+
+## The Qwen-Image-2.1-Turbo text encoder on a fresh Mac install: drgw5b7gzv-ship-it and gsp-agent
+
+**drgw5b7gzv-ship-it (@drgw5b7gzv-ship-it)** reported that a fresh Mac install could not make a picture with
+Qwen-Image-2.1-Turbo (#10). **gsp-agent (@gsp-agent)** found the cause (Hugging Face now ships the Turbo text encoder
+as one file with no index, and mflux's loader opens the index without looking) and wrote the workaround, an index
+built from the file's header, that the studio now makes itself.
 
 ## Platform and tools
 

@@ -122,6 +122,54 @@ def meminfo(text: str | None = None) -> dict:
     return out
 
 
+# What the kernel's own counters leave unexplained on an idle Spark (MemTotal less free, cache, process and kernel
+# memory): 3.5 to 4 GB on the workers (2026-10-23, driver 580.173.02). Far more than that with no CUDA process running
+# is memory the NVIDIA driver kept after a process ended: drivers from 590 on keep it in their system memory pools
+# (issue #59), where MemAvailable does not count it.
+UNEXPLAINED_IDLE_MB = 16_000
+EXPLAINED = ("MemFree", "Buffers", "Cached", "SwapCached", "AnonPages", "Slab", "KernelStack", "PageTables",
+             "SecPageTables", "VmallocUsed")
+
+
+def unexplained_mb(info: dict | None = None) -> int:
+    """The machine's memory that /proc/meminfo puts nowhere: the GPU driver's, on a Spark (0 without meminfo)."""
+
+    info = meminfo() if info is None else info
+    if not info.get("MemTotal"):
+        return 0
+    return max(0, info["MemTotal"] - sum(info.get(name, 0) for name in EXPLAINED))
+
+
+def driver_pools() -> int | None:
+    """The driver's EnableSystemMemoryPools setting (0 is off), None where it does not say (R580 has no such line)."""
+
+    try:
+        with open("/proc/driver/nvidia/params") as handle:
+            for line in handle:
+                name, _, value = line.partition(":")
+                if name.strip() == "EnableSystemMemoryPools":
+                    return int(value.strip())
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def held_note(info: dict | None = None) -> str:
+    """A sentence for a refusal when the GPU driver, not a program, seems to hold the missing memory: much of it
+    unexplained by the kernel's counters while no CUDA process runs. "" otherwise, and where nvidia-smi does not
+    answer (it cannot then be told apart from a program's GPU memory)."""
+
+    held = unexplained_mb(info)
+    if held < UNEXPLAINED_IDLE_MB or not smi("--query-gpu=name") or processes_mb():
+        return ""
+    pools = driver_pools()
+    said = (f" About {held / 1000:.0f} GB is held outside every program with no GPU program running: the NVIDIA driver "
+            "keeps memory a finished process freed")
+    said += " (its system memory pools are on)" if pools else ""
+    return said + (". Turning those pools off (NVreg_EnableSystemMemoryPools=0), or the R580 driver, gives it "
+                   "back: README, \"The memory guard (DGX Spark)\".")
+
+
 def floor_mb(total_mb: int | None = None) -> int:
     """The least memory that stays available while a render runs: SPARK_MEMORY_FLOOR_MB, or a tenth of the machine
     (and never under 8 GB)."""
@@ -342,6 +390,7 @@ def check(width: int, height: int, frames: int, lora: bool = False, references: 
         total_mb = meminfo().get("MemTotal", 0)
     if not total_mb:
         return {"fits": True, "reason": "", "route": None}
+    measured_here = available_mb is None
     if available_mb is None:
         available_mb = room_mb() or total_mb - IDLE_MB
     floor = floor_mb(total_mb)
@@ -384,6 +433,8 @@ def check(width: int, height: int, frames: int, lora: bool = False, references: 
     out["reason"] = said + (f". What fits: {fit}." if fit else ". No smaller size or shorter length of this kind fits either.")
     if lora and why == "memory" and route == "bf16":
         out["reason"] += " Without the LoRA the clip runs on the int8 engine, which needs less."
+    if why == "memory" and measured_here:
+        out["reason"] += held_note()
     return out
 
 
@@ -417,6 +468,7 @@ def music_check(seconds: float, available_mb: int | None = None, total_mb: int |
         total_mb = meminfo().get("MemTotal", 0)
     if not total_mb:
         return {"fits": True, "reason": "", "route": None}
+    measured_here = available_mb is None
     if available_mb is None:
         available_mb = room_mb() or total_mb - IDLE_MB
     floor = floor_mb(total_mb)
@@ -430,6 +482,8 @@ def music_check(seconds: float, available_mb: int | None = None, total_mb: int |
         out["reason"] = (f"a song of up to {seconds:g} s needs about {need / 1000:.0f} GB at its peak (give or take "
                          f"{ERROR_MB / 1000:g}); this machine has {available_mb / 1000:.0f} GB for it and keeps "
                          f"{floor / 1000:.0f} GB free as its floor, so it is refused. Something outside the studio holds the rest")
+        note = held_note() if measured_here else ""
+        out["reason"] += "." + note if note else ""
     return out
 
 
@@ -454,6 +508,7 @@ def sound_check(kind: str, seconds: float, available_mb: int | None = None, tota
         total_mb = meminfo().get("MemTotal", 0)
     if not total_mb:
         return {"fits": True, "reason": "", "route": None}
+    measured_here = available_mb is None
     if available_mb is None:
         available_mb = room_mb() or total_mb - IDLE_MB
     floor = floor_mb(total_mb)
@@ -474,6 +529,8 @@ def sound_check(kind: str, seconds: float, available_mb: int | None = None, tota
         out["reason"] = (f"{SOUND_NAMES[kind]} of {seconds:g} s needs about {need / 1000:.0f} GB at its peak (give or take "
                          f"{ERROR_MB / 1000:g}); this machine has {available_mb / 1000:.0f} GB for it and keeps "
                          f"{floor / 1000:.0f} GB free as its floor, so it is refused. Something outside the studio holds the rest")
+        note = held_note() if measured_here else ""
+        out["reason"] += "." + note if note else ""
     return out
 
 # ---------- layer 2: the floor under a running server ----------

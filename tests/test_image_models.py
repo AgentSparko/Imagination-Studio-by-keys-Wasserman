@@ -244,6 +244,39 @@ def test_qwen_on_the_mac_draws_the_sparks_noise_for_a_seed():
     assert '"--noise", choices=("spark", "mlx"), default="spark"' in (ROOT / "qwen_image_generate.py").read_text()
 
 
+
+def test_a_text_encoder_saved_as_one_file_gets_the_index_mflux_loads_it_by(tmp_path):
+    # issue #10: Qwen-Image-2.1-Turbo's text encoder is one model.safetensors with no index since 2026-10-12, and mflux
+    # opens the index without looking; the index is built from the file's header (gsp-agent's workaround)
+    import importlib.util
+    import json
+    import struct
+    spec = importlib.util.spec_from_file_location("qwen_image_generate", ROOT / "qwen_image_generate.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    folder = tmp_path / "Qwen-Image-2.1-Turbo" / "text_encoder"
+    folder.mkdir(parents=True)
+    header = json.dumps({"__metadata__": {"format": "pt"},
+                         "model.norm.weight": {"dtype": "BF16", "shape": [2], "data_offsets": [0, 4]},
+                         "model.embed_tokens.weight": {"dtype": "BF16", "shape": [2, 2], "data_offsets": [4, 12]}}).encode()
+    (folder / "model.safetensors").write_bytes(struct.pack("<Q", len(header)) + header + bytes(12))
+    module.text_encoder_index(str(folder.parent))
+    index = json.loads((folder / "model.safetensors.index.json").read_text())
+    assert index == {"metadata": {"total_size": 12}, "weight_map": {"model.embed_tokens.weight": "model.safetensors",
+                                                                     "model.norm.weight": "model.safetensors"}}
+    assert [p.name for p in folder.iterdir() if p.name.startswith(".")] == []  # no temp file left behind
+    (folder / "model.safetensors.index.json").write_text("{}")  # an index already there (the base model's shards) stays
+    module.text_encoder_index(str(folder.parent))
+    assert (folder / "model.safetensors.index.json").read_text() == "{}"
+    (folder / "model.safetensors.index.json").unlink()
+    (folder / "model.safetensors").write_bytes(struct.pack("<Q", len(header)) + header + bytes(6))  # cut short
+    with pytest.raises(SystemExit, match="not a whole safetensors file"):
+        module.text_encoder_index(str(folder.parent))
+    assert not (folder / "model.safetensors.index.json").exists()
+    assert "text_encoder_index(model_dir)" in (ROOT / "qwen_image_generate.py").read_text()
+    assert "text_encoder_index(args.model_dir)" in (ROOT / "qwen_image_edit.py").read_text()
+
+
 def test_moss_image_is_offered_only_with_its_files_and_a_comfyui_that_knows_it():
     import server
 

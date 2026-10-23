@@ -1085,6 +1085,21 @@ loads, and a server started with `SPARK_MEMORY_FLOOR_MB=70000` was stopped durin
 available (lowest point 69.77 GB while memory fell at 28 GB a second; gone in 0.5 s, the job failed with the reason).
 `python3 spark/memory_guard.py check --width 1376 --height 768 --frames 124 --lora` prints a verdict.
 
+**Refusals on an idle Spark with a newer NVIDIA driver (590 and later).** These drivers keep the memory a CUDA
+process frees in their own system memory pools after it ends, and the kernel counts it nowhere: not as available,
+not as cache, not as any program's. ComfyUI stops before some renders, so the next clip can be refused for memory that
+is not in use, often with a whole batch failing within seconds (issue #59). `/proc/driver/nvidia/params` shows
+`EnableSystemMemoryPools` set to a non-zero value. When a refusal finds much of the machine held outside every program
+and no GPU program running, it says so. Two fixes:
+
+- Install the driver NVIDIA validates for the DGX Spark, the R580 branch (the DGX Dashboard's update, or DGX OS's own
+  packages). The studio's Sparks run 580.173.02, which keeps no such pools.
+- Or turn the pools off: `echo "options nvidia NVreg_EnableSystemMemoryPools=0" | sudo tee /etc/modprobe.d/nvidia-no-sysmem-pools.conf`,
+  then `sudo update-initramfs -u` and restart the Spark. Memory comes back within a second of a process ending.
+
+Leave `nvidia-persistenced` running: on a Spark without a display, stopping it broke GPU start-up
+(`RmInitAdapter failed`). `sudo sysctl vm.drop_caches=2` gives the pooled memory back once, without a restart.
+
 Longer clips on the engine: 10 seconds at 1280x720 (243 frames) took 444 s, a pass 43.7 s, against 378 s on an M5 Ultra
 for the same prompt; a 30 second chained clip at 864x480 (two 15 second parts) took 611 s.
 
